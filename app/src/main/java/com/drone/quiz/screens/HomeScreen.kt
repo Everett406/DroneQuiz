@@ -1,0 +1,599 @@
+package com.drone.quiz.screens
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.drone.quiz.ServiceLocator
+import com.drone.quiz.data.repo.Repo
+import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.glass.GlassButton
+import com.drone.quiz.ui.glass.GlassCard
+import com.drone.quiz.ui.glass.GlassIconButton
+import com.drone.quiz.ui.glass.BounceLazyColumn
+import com.drone.quiz.ui.theme.LocalUi
+import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+@Composable
+fun HomeScreen(
+    backdrop: Backdrop,
+    onPractice: () -> Unit,
+    onExam: () -> Unit,
+    onWrong: () -> Unit,
+    onSettings: () -> Unit
+) {
+    val ui = LocalUi.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    data class HomeStats(
+        val total: Int = 0,
+        val answeredDistinct: Int = 0,
+        val totalAnswered: Int = 0,
+        val wrongCount: Int = 0,
+        val accuracy: Float = 0f,
+        val streak: Int = 0,
+        val days: List<Repo.DayStat> = emptyList(),
+        val todayAnswered: Int = 0,
+        val todayCorrect: Int = 0,
+        val lastExam: com.drone.quiz.data.db.ExamRecordEntity? = null
+    )
+
+    var stats by remember { mutableStateOf(HomeStats()) }
+    LaunchedEffect(Unit) {
+        combine(
+            ServiceLocator.repo.countFlow(),
+            ServiceLocator.repo.answeredDistinctFlow(),
+            ServiceLocator.repo.totalAnsweredFlow(),
+            ServiceLocator.repo.wrongCount(),
+            ServiceLocator.repo.recentExams()
+        ) { total, distinct, answered, wrong, exams ->
+            HomeStats(
+                total = total,
+                answeredDistinct = distinct,
+                totalAnswered = answered,
+                wrongCount = wrong,
+                lastExam = exams.firstOrNull()
+            )
+        }.collect { s0 ->
+            val acc = ServiceLocator.repo.accuracy()
+            val streak = ServiceLocator.repo.streakDays()
+            val days = ServiceLocator.repo.last7Days()
+            stats = s0.copy(
+                accuracy = acc,
+                streak = streak,
+                days = days,
+                todayAnswered = days.lastOrNull()?.answered ?: 0,
+                todayCorrect = days.lastOrNull()?.correct ?: 0
+            )
+        }
+    }
+
+    val coverage = if (stats.total > 0) stats.answeredDistinct.toFloat() / stats.total else 0f
+    val estimate = ((stats.accuracy * 0.75f) + (coverage * 0.25f)).coerceIn(0f, 1f)
+
+    BounceLazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+    ) {
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("无人机题库", color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "装调考证 · 每日精进",
+                        color = ui.textSub,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                GlassIconButton(
+                    onClick = onSettings,
+                    backdrop = backdrop,
+                    icon = AppIcons.Tune
+                )
+            }
+        }
+
+        // ---- 总览：进度环 + 预估通过率 ----
+        item {
+            GlassCard(
+                backdrop = backdrop,
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .fillMaxWidth()
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ProgressRing(
+                        progress = coverage,
+                        sizeDp = 96.dp,
+                        strokeDp = 10.dp,
+                        ringColor = ui.ink,
+                        trackColor = ui.ink.copy(alpha = 0.1f),
+                        centerText = "${(coverage * 100).toInt()}%",
+                        subText = "总进度"
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "已刷 ${stats.answeredDistinct} / ${stats.total} 题",
+                            color = ui.text,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "总正确率 ${(stats.accuracy * 100).toInt()}%",
+                            color = ui.textSub,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        // 预估通过率条
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 10.dp)
+                        ) {
+                            Text(
+                                "预估通过率",
+                                color = ui.textSub,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(ui.ink.copy(alpha = 0.1f))
+                            ) {
+                                val barProgress by animateFloatAsState(
+                                    estimate,
+                                    tween(700), label = "estimate"
+                                )
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(barProgress)
+                                        .height(8.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(ui.accent, ui.accent.copy(alpha = 0.7f))
+                                            )
+                                        )
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "${(estimate * 100).toInt()}%",
+                                color = ui.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- 打卡双卡（纵向排版，彻底避免宽度挤压） ----
+        item {
+            Row(
+                Modifier
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GlassCard(
+                    backdrop = backdrop,
+                    modifier = Modifier.weight(1f),
+                    cornerRadius = 22.dp
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Icon(
+                            AppIcons.Flame,
+                            null,
+                            tint = ui.accent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            "${stats.streak} 天",
+                            color = ui.text,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Text("连续打卡", color = ui.textSub, fontSize = 12.sp)
+                    }
+                }
+                GlassCard(
+                    backdrop = backdrop,
+                    modifier = Modifier.weight(1f),
+                    cornerRadius = 22.dp
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("今日", color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${stats.todayAnswered} 题",
+                            color = ui.text,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        val accToday = if (stats.todayAnswered > 0) {
+                            (stats.todayCorrect * 100) / stats.todayAnswered
+                        } else 0
+                        Text("正确 $accToday%", color = ui.textSub, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // ---- 近 7 天图表 ----
+        item {
+            GlassCard(
+                backdrop = backdrop,
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .fillMaxWidth(),
+                cornerRadius = 24.dp
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "近 7 天练习",
+                            color = ui.text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        // 图例
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(ui.ink)
+                        )
+                        Text(" 题量  ", color = ui.textSub, fontSize = 11.sp)
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(ui.accent)
+                        )
+                        Text(" 正确率", color = ui.textSub, fontSize = 11.sp)
+                    }
+                    WeekChart(
+                        days = stats.days,
+                        barColor = ui.ink,
+                        lineColor = ui.accent,
+                        trackColor = ui.ink.copy(alpha = 0.08f),
+                        textColor = ui.textSub,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 14.dp)
+                            .height(140.dp)
+                    )
+                }
+            }
+        }
+
+        // ---- 快捷操作 ----
+        item {
+            Row(
+                Modifier
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GlassButton(
+                    onClick = onPractice,
+                    backdrop = backdrop,
+                    surfaceColor = ui.ink,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(AppIcons.Cards, null, tint = ui.onInk, modifier = Modifier.size(18.dp))
+                    Text("继续刷题", color = ui.onInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                GlassButton(
+                    onClick = onExam,
+                    backdrop = backdrop,
+                    surfaceColor = ui.surface.copy(alpha = 0.6f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(AppIcons.Timer, null, tint = ui.text, modifier = Modifier.size(18.dp))
+                    Text("模拟考试", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // ---- 错题提醒 ----
+        if (stats.wrongCount > 0) {
+            item {
+                GlassCard(
+                    backdrop = backdrop,
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .fillMaxWidth(),
+                    cornerRadius = 20.dp,
+                    onClick = onWrong
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(AppIcons.BookWrong, null, tint = ui.wrong, modifier = Modifier.size(20.dp))
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .padding(horizontal = 10.dp)
+                        ) {
+                            Text(
+                                "错题本还有 ${stats.wrongCount} 题",
+                                color = ui.text,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text("去复习巩固，答对自动移除", color = ui.textSub, fontSize = 12.sp)
+                        }
+                        Icon(AppIcons.ChevronRight, null, tint = ui.textSub, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
+
+        // ---- 上次模考 ----
+        stats.lastExam?.let { exam ->
+            if (exam.score != null) {
+                item {
+                    GlassCard(
+                        backdrop = backdrop,
+                        modifier = Modifier
+                            .padding(horizontal = 20.dp)
+                            .fillMaxWidth(),
+                        cornerRadius = 20.dp,
+                        onClick = onExam
+                    ) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(AppIcons.Timer, null, tint = ui.textSub, modifier = Modifier.size(20.dp))
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 10.dp)
+                            ) {
+                                Text(
+                                    "上次模考 ${exam.score!!.toInt()} 分",
+                                    color = ui.text,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA)
+                                        .format(Date(exam.finishedAt ?: exam.startedAt)),
+                                    color = ui.textSub, fontSize = 12.sp
+                                )
+                            }
+                            TagPass(exam.passed == true)
+                        }
+                    }
+                }
+            }
+        }
+
+        item { Spacer(Modifier.height(130.dp)) }
+    }
+}
+
+@Composable
+private fun TagPass(passed: Boolean) {
+    val ui = LocalUi.current
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background((if (passed) ui.correct else ui.wrong).copy(alpha = 0.14f))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Text(
+            if (passed) "通过" else "未通过",
+            color = if (passed) ui.correct else ui.wrong,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/**
+ * 进度环。
+ */
+@Composable
+fun ProgressRing(
+    progress: Float,
+    sizeDp: androidx.compose.ui.unit.Dp,
+    strokeDp: androidx.compose.ui.unit.Dp,
+    ringColor: Color,
+    trackColor: Color,
+    centerText: String,
+    subText: String
+) {
+    val ui = LocalUi.current
+    val animated by animateFloatAsState(
+        progress.coerceIn(0f, 1f),
+        spring(dampingRatio = 0.85f, stiffness = 60f),
+        label = "ring"
+    )
+    Box(
+        Modifier.size(sizeDp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val stroke = strokeDp.toPx()
+            val inset = stroke / 2
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            drawArc(
+                color = trackColor,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(stroke, cap = StrokeCap.Round)
+            )
+            drawArc(
+                color = ringColor,
+                startAngle = -90f,
+                sweepAngle = 360f * animated,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(stroke, cap = StrokeCap.Round)
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(centerText, color = ui.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(subText, color = ui.textSub, fontSize = 10.sp)
+        }
+    }
+}
+
+/**
+ * 近 7 天柱状图 + 正确率折线（Canvas 自绘）。
+ */
+@Composable
+fun WeekChart(
+    days: List<Repo.DayStat>,
+    barColor: Color,
+    lineColor: Color,
+    trackColor: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val labelPx = with(density) { 10.sp.toPx() }
+    Canvas(modifier) {
+        if (days.isEmpty()) return@Canvas
+        val n = days.size
+        val labelSpace = labelPx * 2.2f
+        val chartH = size.height - labelSpace
+        val slot = size.width / n
+        val barW = slot * 0.42f
+        val maxV = (days.maxOf { it.answered }).coerceAtLeast(10).toFloat()
+
+        // 柱
+        days.forEachIndexed { i, d ->
+            val h = chartH * 0.82f * (d.answered / maxV)
+            val left = slot * i + (slot - barW) / 2
+            val top = chartH - h
+            drawRoundRect(
+                color = if (d.isToday) barColor else barColor.copy(alpha = if (d.answered == 0) 0.12f else 0.32f),
+                topLeft = Offset(left, top),
+                size = Size(barW, h.coerceAtLeast(3f)),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 2)
+            )
+        }
+
+        // 正确率折线
+        val points = days.mapIndexed { i, d ->
+            val acc = if (d.answered > 0) d.correct.toFloat() / d.answered else 0f
+            Offset(slot * i + slot / 2, chartH - chartH * 0.82f * acc - chartH * 0.02f)
+        }
+        if (days.any { it.answered > 0 }) {
+            val path = androidx.compose.ui.graphics.Path().apply {
+                points.forEachIndexed { i, p ->
+                    if (i == 0) moveTo(p.x, p.y) else cubicTo(
+                        (points[i - 1].x + p.x) / 2, points[i - 1].y,
+                        (points[i - 1].x + p.x) / 2, p.y,
+                        p.x, p.y
+                    )
+                }
+            }
+            drawPath(path, lineColor, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
+            points.forEachIndexed { i, p ->
+                if (days[i].answered > 0) {
+                    drawCircle(lineColor, 3.5f, p)
+                    drawCircle(Color.White, 1.5f, p)
+                }
+            }
+        }
+
+        // 星期标签
+        val textPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(
+                (textColor.alpha * 255).toInt(),
+                (textColor.red * 255).toInt(),
+                (textColor.green * 255).toInt(),
+                (textColor.blue * 255).toInt()
+            )
+            textSize = labelPx
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+        }
+        days.forEachIndexed { i, d ->
+            drawContext.canvas.nativeCanvas.drawText(
+                d.label,
+                slot * i + slot / 2,
+                size.height - labelPx * 0.4f,
+                textPaint
+            )
+        }
+    }
+}

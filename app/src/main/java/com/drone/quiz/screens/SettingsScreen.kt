@@ -1,0 +1,372 @@
+package com.drone.quiz.screens
+
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.drone.quiz.BuildConfig
+import com.drone.quiz.ServiceLocator
+import com.drone.quiz.screens.common.ScreenTitle
+import com.drone.quiz.screens.common.SectionLabel
+import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.glass.GlassButton
+import com.drone.quiz.ui.glass.GlassCard
+import com.drone.quiz.ui.glass.GlassToggle
+import com.drone.quiz.ui.glass.GlassSlider
+import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.work.ReminderScheduler
+import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@Composable
+fun SettingsScreen(backdrop: Backdrop) {
+    val ui = LocalUi.current
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val settings by ServiceLocator.settings.settings.collectAsState()
+
+    var bankInfo by remember { mutableStateOf("加载中…") }
+    var importMsg by remember { mutableStateOf<String?>(null) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        runCatching {
+            val cats = ServiceLocator.repo.categories()
+            val total = cats.sumOf { it.cnt }
+            bankInfo = "共 $total 题 · ${cats.size} 个分类"
+        }.onFailure { bankInfo = "题库为空，请导入" }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use {
+                        it.readBytes()
+                    } ?: error("无法读取文件")
+                    ServiceLocator.repo.importBank(bytes)
+                }.onSuccess { r ->
+                    importMsg = "导入成功：${r.count} 题 / ${r.categories.size} 个分类"
+                }.onFailure { e ->
+                    importMsg = "导入失败：${e.message ?: "文件格式不正确"}"
+                }
+                runCatching {
+                    val cats = ServiceLocator.repo.categories()
+                    bankInfo = "共 ${cats.sumOf { it.cnt }} 题 · ${cats.size} 个分类"
+                }
+            }
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+    ) {
+        ScreenTitle("设置", "外观 / 刷题 / 数据", Modifier.padding(vertical = 16.dp))
+
+        // ---- 外观 ----
+        SectionLabel("外观")
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Column(Modifier.padding(18.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("主题", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when (settings.themeMode) {
+                                1 -> "浅色（奶油）"
+                                2 -> "深色（暖夜）"
+                                else -> "跟随系统"
+                            },
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("跟随", "浅色", "深色"),
+                        selectedIndex = settings.themeMode,
+                        onSelect = { scope.launch { ServiceLocator.settings.setThemeMode(it) } },
+                        modifier = Modifier.width(180.dp)
+                    )
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("字号", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            listOf("小", "标准", "大", "特大").getOrElse(settings.fontLevel) { "标准" },
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("小", "标准", "大", "特大"),
+                        selectedIndex = settings.fontLevel,
+                        onSelect = { scope.launch { ServiceLocator.settings.setFontLevel(it) } },
+                        modifier = Modifier.width(200.dp)
+                    )
+                }
+            }
+        }
+
+        // ---- 刷题 ----
+        SectionLabel("刷题", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Column(Modifier.padding(18.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("题目顺序", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.practiceOrder == 1) "随机" else "顺序",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("顺序", "随机"),
+                        selectedIndex = settings.practiceOrder,
+                        onSelect = { scope.launch { ServiceLocator.settings.setPracticeOrder(it) } },
+                        modifier = Modifier.width(150.dp)
+                    )
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("答对自动下一题", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.autoNext) "答对后自动跳转" else "手动切换",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    GlassToggle(
+                        checked = settings.autoNext,
+                        onCheckedChange = { v ->
+                            scope.launch { ServiceLocator.settings.setAutoNext(v) }
+                        },
+                        backdrop = backdrop
+                    )
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("错题移除档位", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "连续答对 ${settings.removeThreshold} 次移除",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("1次", "2次", "3次"),
+                        selectedIndex = settings.removeThreshold - 1,
+                        onSelect = {
+                            scope.launch { ServiceLocator.settings.setRemoveThreshold(it + 1) }
+                        },
+                        modifier = Modifier.width(150.dp)
+                    )
+                }
+                Column(Modifier.padding(top = 18.dp)) {
+                    Text("及格分", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${settings.passScore} 分（50 – 95，步进 5）",
+                        color = ui.textSub, fontSize = 12.sp
+                    )
+                    GlassSlider(
+                        value = { settings.passScore.toFloat() },
+                        onValueChange = { v ->
+                            scope.launch { ServiceLocator.settings.setPassScore(v.roundToInt()) }
+                        },
+                        valueRange = 50f..95f,
+                        step = 5f,
+                        backdrop = backdrop,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
+            }
+        }
+
+        // ---- 提醒 ----
+        SectionLabel("提醒", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Row(
+                Modifier.padding(18.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("每日打卡通知", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("每天 20:00 提醒刷题", color = ui.textSub, fontSize = 12.sp)
+                }
+                GlassToggle(
+                    checked = settings.dailyNotify,
+                    onCheckedChange = { v ->
+                        scope.launch {
+                            ServiceLocator.settings.setDailyNotify(v)
+                            if (v) ReminderScheduler.schedule(context)
+                            else ReminderScheduler.cancel(context)
+                        }
+                    },
+                    backdrop = backdrop
+                )
+            }
+        }
+
+        // ---- 数据 ----
+        SectionLabel("数据", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Column(Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(AppIcons.Import, null, tint = ui.textSub, modifier = Modifier.size(18.dp))
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp)
+                    ) {
+                        Text("题库", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(bankInfo, color = ui.textSub, fontSize = 12.sp)
+                    }
+                }
+                importMsg?.let {
+                    Text(
+                        it,
+                        color = if (it.startsWith("导入成功")) ui.correct else ui.wrong,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                Text(
+                    "支持 JSON 格式：{\"questions\":[{\"category\":\"…\",\"type\":\"single|judge\"," +
+                        "\"question\":\"…\",\"options\":[…],\"answer\":0,\"explanation\":\"…\"}]}，" +
+                        "判断题无需 options。",
+                    color = ui.textSub,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                Row(
+                    Modifier.padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GlassButton(
+                        onClick = {
+                            importLauncher.launch(arrayOf("application/json", "text/plain"))
+                        },
+                        backdrop = backdrop,
+                        surfaceColor = ui.ink,
+                        heightDp = 44.dp
+                    ) {
+                        Icon(AppIcons.Import, null, tint = ui.onInk, modifier = Modifier.size(16.dp))
+                        Text("导入题库", color = ui.onInk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    GlassButton(
+                        onClick = { showClearConfirm = true },
+                        backdrop = backdrop,
+                        surfaceColor = ui.wrong.copy(alpha = 0.16f),
+                        heightDp = 44.dp
+                    ) {
+                        Icon(AppIcons.Trash, null, tint = ui.wrong, modifier = Modifier.size(16.dp))
+                        Text("清空记录", color = ui.wrong, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // ---- 关于 ----
+        SectionLabel("关于", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(AppIcons.Bell, null, tint = ui.accent, modifier = Modifier.size(18.dp))
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .padding(horizontal = 10.dp)
+                ) {
+                    Text("无人机装调题库 v${BuildConfig.VERSION_NAME}", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "液态玻璃 by Kyant0 backdrop · 离线本地题库",
+                        color = ui.textSub, fontSize = 11.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(130.dp))
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            containerColor = if (ui.isDark) Color(0xFF26221C) else Color(0xFFFAF6EF),
+            title = { Text("清空做题记录？", fontWeight = FontWeight.Bold) },
+            text = { Text("将清空刷题记录、统计、打卡与错题本，题库保留。此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirm = false
+                    scope.launch {
+                        ServiceLocator.repo.clearAllRecords()
+                        importMsg = "记录已清空"
+                    }
+                }) { Text("清空", color = ui.wrong, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+}
