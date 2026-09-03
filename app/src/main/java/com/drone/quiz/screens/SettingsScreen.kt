@@ -48,6 +48,7 @@ import com.drone.quiz.BuildConfig
 import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.screens.common.ScreenTitle
+import com.drone.quiz.screens.common.TopFog
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow

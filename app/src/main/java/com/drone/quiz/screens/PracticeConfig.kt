@@ -41,6 +41,7 @@ import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.screens.common.TopFog
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.BounceContainer
