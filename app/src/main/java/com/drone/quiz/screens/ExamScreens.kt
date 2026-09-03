@@ -89,7 +89,8 @@ object ExamSessionHolder {
 @Composable
 fun ExamConfigScreen(
     backdrop: Backdrop,
-    onStart: (Long) -> Unit
+    onStart: (Long) -> Unit,
+    onResumeExam: (Long) -> Unit = {}
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
@@ -228,12 +229,20 @@ fun ExamConfigScreen(
             if (recentExams.isNotEmpty()) {
                 SectionLabel("最近模考")
                 recentExams.take(5).forEach { exam ->
+                    val unfinished = exam.score == null
+                    // 会话仍在内存（刚放弃/返回）时可一键继续考试
+                    val resumable = unfinished &&
+                        ExamSessionHolder.examId == exam.id &&
+                        ExamSessionHolder.questions.isNotEmpty()
                     GlassCard(
                         backdrop = backdrop,
                         Modifier
                             .fillMaxWidth()
                             .padding(bottom = 10.dp),
-                        cornerRadius = 18.dp
+                        cornerRadius = 18.dp,
+                        onClick = if (resumable) {
+                            { onResumeExam(exam.id) }
+                        } else null
                     ) {
                         Row(
                             Modifier
@@ -252,17 +261,38 @@ fun ExamConfigScreen(
                                     color = ui.textSub, fontSize = 11.sp
                                 )
                             }
-                            exam.score?.let { s ->
+                            if (unfinished) {
                                 Text(
-                                    "${s.toInt()}",
-                                    color = if (exam.passed == true) ui.correct else ui.wrong,
-                                    fontSize = 20.sp, fontWeight = FontWeight.Bold
+                                    if (resumable) "可继续" else "未完成",
+                                    color = ui.textSub, fontSize = 12.sp
                                 )
-                                Text(
-                                    if (exam.passed == true) " 通过" else " 未通过",
-                                    color = ui.textSub, fontSize = 11.sp
+                                Spacer(Modifier.width(6.dp))
+                                // 删除未完成的幽灵记录（点击不可进/无法清理的问题修复）
+                                GlassIconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching { ServiceLocator.repo.abandonExam(exam.id) }
+                                        }
+                                    },
+                                    backdrop = backdrop,
+                                    icon = AppIcons.Trash,
+                                    sizeDp = 36.dp,
+                                    iconSize = 16.dp,
+                                    iconTint = ui.wrong
                                 )
-                            } ?: Text("进行中", color = ui.textSub, fontSize = 12.sp)
+                            } else {
+                                exam.score?.let { s ->
+                                    Text(
+                                        "${s.toInt()}",
+                                        color = if (exam.passed == true) ui.correct else ui.wrong,
+                                        fontSize = 20.sp, fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        if (exam.passed == true) " 通过" else " 未通过",
+                                        color = ui.textSub, fontSize = 11.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -284,16 +314,47 @@ fun ExamScreen(
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
-    val questions = ExamSessionHolder.questions
+
+    // 会话优先用内存（SessionHolder）；进程重启/从"可继续"进入时从 DB 恢复
+    var questions by remember {
+        mutableStateOf(
+            ExamSessionHolder.questions
+                .takeIf { ExamSessionHolder.examId == examId && it.isNotEmpty() }
+                ?: emptyList()
+        )
+    }
     val total = questions.size
 
-    var remaining by remember { mutableIntStateOf(ExamSessionHolder.durationSec) }
+    // -1 表示尚未初始化（等待恢复/内存会话就绪）
+    var remaining by remember { mutableIntStateOf(-1) }
     var showConfirm by remember { mutableStateOf(false) }
     var showQuit by remember { mutableStateOf(false) }
     var showPanel by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     val answers = remember { mutableStateMapOf<Long, Int>() }
     val pagerState = rememberPagerState { total }
+
+    LaunchedEffect(examId) {
+        if (questions.isNotEmpty()) {
+            remaining = ExamSessionHolder.durationSec
+        } else {
+            // 从 DB 重建：题目 + 已答 + 剩余时间（durationSec - 已耗时）
+            val resumed = runCatching { ServiceLocator.repo.resumeExam(examId) }.getOrNull()
+            if (resumed != null) {
+                val (exam, qs, picked) = resumed
+                ExamSessionHolder.examId = examId
+                ExamSessionHolder.questions = qs
+                ExamSessionHolder.durationSec = exam.durationSec
+                ExamSessionHolder.outcome = null
+                questions = qs
+                picked.forEach { (k, v) -> answers[k] = v }
+                val elapsed = ((System.currentTimeMillis() - exam.startedAt) / 1000).toInt()
+                remaining = (exam.durationSec - elapsed).coerceAtLeast(1)
+            } else {
+                remaining = 0 // 无法恢复：提示用户返回（onExit 会清理残留记录）
+            }
+        }
+    }
 
     val submit: () -> Unit = {
         if (!submitting && questions.isNotEmpty()) {
@@ -314,20 +375,32 @@ fun ExamScreen(
         }
     }
 
-    // 倒计时（到 0 自动交卷）
-    LaunchedEffect(examId) {
-        while (remaining > 0) {
-            delay(1000)
-            remaining--
+    // 倒计时（到 0 自动交卷）；等剩余时间初始化后才开始
+    if (remaining >= 0) {
+        LaunchedEffect(examId) {
+            while (remaining > 0) {
+                kotlinx.coroutines.delay(1000)
+                remaining--
+            }
+            submit()
         }
-        submit()
     }
 
     BackHandler { showQuit = true }
 
     if (total == 0) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("模考数据丢失，请返回重试", color = ui.textSub)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("模考数据丢失，请返回重试", color = ui.textSub)
+                GlassButton(
+                    onClick = onExit,
+                    backdrop = backdrop,
+                    heightDp = 44.dp,
+                    modifier = Modifier.padding(top = 14.dp)
+                ) {
+                    Text("返回", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         return
     }
@@ -464,7 +537,7 @@ fun ExamScreen(
         GlassConfirmDialog(
             backdrop = backdrop,
             title = "放弃考试？",
-            body = "本次模考成绩将不计入记录。",
+            body = "将删除本次模考记录，成绩不会计入统计。",
             confirmText = "放弃",
             dismissText = "继续考试",
             confirmColor = ui.wrong,
@@ -603,7 +676,12 @@ private fun ExamQuestionCard(
             .padding(horizontal = 20.dp, vertical = 6.dp),
         cornerRadius = 28.dp
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 com.drone.quiz.screens.common.TagChip(q.category)
                 Spacer(Modifier.width(6.dp))

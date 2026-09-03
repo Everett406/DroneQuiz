@@ -173,6 +173,13 @@ class Repo(private val db: AppDatabase) {
         qDao.byIds(ids).map { it.toQuestion() }
     }
 
+    /** 按会话快照的 id 顺序取题（恢复上次刷题进度时保证与上次完全一致） */
+    suspend fun loadPracticeByIds(ids: List<Long>): List<Question> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val map = qDao.byIds(ids).associateBy { it.id }
+        ids.mapNotNull { map[it]?.toQuestion() }
+    }
+
     private fun QuestionEntity.toQuestion() = Question(
         id = id,
         category = category,
@@ -361,6 +368,38 @@ class Repo(private val db: AppDatabase) {
 
     fun recentExams(): Flow<List<ExamRecordEntity>> = eDao.recentExams(20)
 
+    /** 放弃考试：删除该次模考的记录与作答（不再残留"进行中"幽灵记录） */
+    suspend fun abandonExam(examId: Long) = withContext(Dispatchers.IO) {
+        if (examId <= 0) return@withContext
+        db.withTransaction {
+            eDao.deleteAnswersFor(examId)
+            eDao.deleteExam(examId)
+        }
+    }
+
+    /**
+     * 恢复未完成的模考（进程重启后 SessionHolder 已空时从 DB 重建）。
+     * 返回 null 表示无法恢复（不存在/已交卷/题目已被题库升级清除）。
+     */
+    suspend fun resumeExam(
+        examId: Long
+    ): Triple<ExamRecordEntity, List<Question>, Map<Long, Int>>? =
+        withContext(Dispatchers.IO) {
+            if (examId <= 0) return@withContext null
+            val exam = eDao.examById(examId) ?: return@withContext null
+            if (exam.score != null) return@withContext null // 已完成，无可恢复
+            val answers = eDao.answersFor(examId)
+            val qs = qDao.byIds(answers.map { it.qid }).map { it.toQuestion() }
+            if (qs.isEmpty()) return@withContext null
+            val qidSet = qs.map { it.id }.toSet()
+            Triple(
+                exam,
+                qs,
+                answers.filter { it.picked != null && it.qid in qidSet }
+                    .associate { it.qid to it.picked!! }
+            )
+        }
+
     // ---------- 错题本 ----------
 
     fun activeWrong(): Flow<List<com.drone.quiz.data.db.WrongWithQuestion>> = wDao.activeWrongWithQuestions()
@@ -423,6 +462,8 @@ class Repo(private val db: AppDatabase) {
     suspend fun clearAllRecords() = withContext(Dispatchers.IO) {
         db.withTransaction {
             rDao.clearRecords(); rDao.clearStats(); rDao.clearStreaks(); wDao.clear()
+            // 最近模考也属于做题记录：一并清空（含未完成的"进行中"残留）
+            eDao.clearExamAnswers(); eDao.clearExams()
         }
     }
 }

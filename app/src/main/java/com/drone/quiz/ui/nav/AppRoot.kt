@@ -1,6 +1,7 @@
 package com.drone.quiz.ui.nav
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,33 +19,41 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.drone.quiz.ServiceLocator
 import com.drone.quiz.screens.ExamConfigScreen
 import com.drone.quiz.screens.ExamResultScreen
 import com.drone.quiz.screens.ExamScreen
 import com.drone.quiz.screens.HomeScreen
-import com.drone.quiz.screens.PracticeScreen
+import com.drone.quiz.screens.PracticeConfigScreen
+import com.drone.quiz.screens.PracticeRunScreen
 import com.drone.quiz.screens.SettingsScreen
 import com.drone.quiz.screens.WrongBookScreen
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassBottomTabs
+import com.drone.quiz.ui.glass.OverlayBlur
 import com.drone.quiz.ui.glass.TabIconSlot
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.launch
 
 object Routes {
     const val HOME = "home"
     const val PRACTICE_PATTERN = "practice?src={src}"
     const val PRACTICE = "practice"
+    const val PRACTICE_RUN_PATTERN =
+        "practiceRun?src={src}&type={type}&cat={cat}&resume={resume}"
     const val EXAM_CONFIG = "examConfig"
     const val EXAM_RUN_PATTERN = "examRun/{examId}"
     const val EXAM_RESULT_PATTERN = "examResult/{examId}"
@@ -62,6 +71,7 @@ object Routes {
 fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
     val ui = LocalUi.current
     val navController: NavHostController = rememberNavController()
+    val appScope = rememberCoroutineScope()
 
     // 双记录层架构（对齐 Kyant0 官方 demo）:
     // 1. bgBackdrop —— 只记录背景渐变（"壁纸"）。内容流玻璃卡片折射它，
@@ -86,6 +96,13 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         }
     }
 
+    // 弹窗打开时内容层真模糊（iOS 风格），替代深色遮罩
+    val overlayBlur by animateDpAsState(
+        targetValue = if (OverlayBlur.active) 16.dp else 0.dp,
+        animationSpec = tween(220),
+        label = "overlayBlur"
+    )
+
     Box(Modifier.fillMaxSize()) {
         // 层 1：背景渐变（液态玻璃的"壁纸"采样源）
         Box(
@@ -100,6 +117,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
             Modifier
                 .matchParentSize()
                 .layerBackdrop(contentBackdrop)
+                .blur(overlayBlur)
         ) {
             NavHost(
                 navController = navController,
@@ -124,19 +142,46 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                         onPractice = { navigateTab(1) },
                         onExam = { navigateTab(2) },
                         onWrong = { navigateTab(3) },
-                        onSettings = {
-                            navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+                        // 与底栏切 tab 行为完全一致（保存页面状态、栈可预测）
+                        onSettings = { navigateTab(4) }
+                    )
+                }
+                // 刷题 Tab：配置入口页（选范围/分类后进入全屏刷题，不再直接刷）。
+                // 此 route 是 tab destination（有底栏），只承载配置页；
+                // 全屏刷题一律走 practiceRun（非 tab route，无底栏遮挡）
+                composable(Routes.PRACTICE_PATTERN) {
+                    PracticeConfigScreen(
+                        backdrop = bgBackdrop,
+                        onStart = { src2, type, cat, resume ->
+                            val catEnc = android.net.Uri.encode(cat)
+                            navController.navigate(
+                                "practiceRun?src=$src2&type=$type&cat=$catEnc&resume=$resume"
+                            ) { launchSingleTop = true }
                         }
                     )
                 }
-                composable(Routes.PRACTICE_PATTERN) { entry ->
+                // 全屏刷题页（非 Tab destination → 无底栏遮挡；返回即回到配置页）
+                composable(Routes.PRACTICE_RUN_PATTERN) { entry ->
                     val src = entry.arguments?.getString("src") ?: "all"
-                    PracticeScreen(backdrop = bgBackdrop, src = src)
+                    val type = entry.arguments?.getString("type") ?: "all"
+                    val cat = entry.arguments?.getString("cat") ?: "all"
+                    val resume = entry.arguments?.getString("resume") == "true"
+                    PracticeRunScreen(
+                        backdrop = bgBackdrop,
+                        src = src,
+                        type = type,
+                        cat = cat,
+                        resume = resume,
+                        onExit = { navController.popBackStack() }
+                    )
                 }
                 composable(Routes.EXAM_CONFIG) {
                     ExamConfigScreen(
                         backdrop = bgBackdrop,
                         onStart = { examId ->
+                            navController.navigate("examRun/$examId") { launchSingleTop = true }
+                        },
+                        onResumeExam = { examId ->
                             navController.navigate("examRun/$examId") { launchSingleTop = true }
                         }
                     )
@@ -152,7 +197,13 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                                 launchSingleTop = true
                             }
                         },
-                        onExit = { navController.popBackStack() }
+                        // 放弃考试：删除该次模考记录（此前只退页面，DB 残留"进行中"记录）
+                        onExit = {
+                            appScope.launch {
+                                runCatching { ServiceLocator.repo.abandonExam(examId) }
+                            }
+                            navController.popBackStack()
+                        }
                     )
                 }
                 composable(Routes.EXAM_RESULT_PATTERN) { entry ->
@@ -175,7 +226,9 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                     WrongBookScreen(
                         backdrop = bgBackdrop,
                         onPractice = {
-                            navController.navigate("practice?src=wrong") { launchSingleTop = true }
+                            navController.navigate(
+                                "practiceRun?src=wrong&type=all&cat=all&resume=false"
+                            ) { launchSingleTop = true }
                         }
                     )
                 }

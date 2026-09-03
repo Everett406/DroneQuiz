@@ -10,7 +10,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -31,6 +29,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,7 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateMap
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
+import com.drone.quiz.data.settings.PracticeSession
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
@@ -65,67 +65,41 @@ import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.SheetVisibility
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
+/**
+ * 全屏刷题页（由配置页进入；非 Tab destination，无底栏遮挡）。
+ * 进度实时持久化：答题/翻页即写 DataStore 会话快照，中途退出可从配置页"继续上次刷题"恢复。
+ */
 @Composable
-fun PracticeScreen(
+fun PracticeRunScreen(
     backdrop: Backdrop,
-    src: String = "all"
+    src: String = "all",
+    type: String = "all",
+    cat: String = "all",
+    resume: Boolean = false,
+    onExit: () -> Unit
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
-    val settings by ServiceLocator.settings.settings.collectAsState(initial = AppSettings())
+    val settings by ServiceLocator.settings.settings
+        .collectAsState(initial = AppSettings())
 
     var questions by remember { mutableStateOf<List<Question>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
-    var reloadTick by remember { mutableIntStateOf(0) }
-    var typeFilter by remember { mutableStateOf<String?>(null) }
-    var catFilter by remember { mutableStateOf<String?>(null) }
-    var categories by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
+    var sessionMode by remember { mutableStateOf(resume) }
     val answers = remember { mutableStateMapOf<Long, Int>() }
     var showPanel by remember { mutableStateOf(false) }
+    var restoredTick by remember { mutableIntStateOf(0) }
+    var reloadTick by remember { mutableIntStateOf(0) }
 
     val pagerState = rememberPagerState { questions.size }
 
-    LaunchedEffect(Unit) {
-        runCatching {
-            categories = ServiceLocator.repo.categories().map { it.category to it.cnt }
-        }
-    }
-
-    LaunchedEffect(src, typeFilter, catFilter, reloadTick) {
-        loading = true
-        loadError = false
-        // 超时 + 异常兑底：任何情况下都不会永远停在“正在加载题库…”
-        val result = withTimeoutOrNull(10_000) {
-            runCatching {
-                if (src == "wrong") {
-                    ServiceLocator.repo.loadWrongPractice()
-                } else {
-                    ServiceLocator.repo.loadPractice(
-                        category = catFilter,
-                        type = typeFilter,
-                        random = settings.practiceOrder == 1
-                    )
-                }
-            }
-        }
-        questions = result?.getOrNull().orEmpty()
-        loadError = result == null || result.isFailure
-        answers.clear()
-        loading = false
-    }
-
-    // Pager 组合后再归零页码（此前在加载协程内调用，Pager 可能尚未上屏）
-    LaunchedEffect(questions) {
-        if (questions.isNotEmpty()) pagerState.scrollToPage(0)
-    }
-
-    // 题库就绪自动恢复：启动门控超时放行/导入后台完成后，题数 0→N 自动重载
+    // ---- 题库就绪自动重载：启动门控超时放行/导入后台完成后，题数 0→N 触发重试 ----
     LaunchedEffect(Unit) {
         var prev = -1
         ServiceLocator.repo.countFlow().collect { c ->
@@ -136,21 +110,87 @@ fun PracticeScreen(
         }
     }
 
+    // ---- 加载：优先恢复会话快照，否则按筛选参数新开；超时兑底永不定死 ----
+    LaunchedEffect(src, type, cat, resume, reloadTick) {
+        loading = true
+        loadError = false
+        val result = withTimeoutOrNull(10_000) {
+            runCatching {
+            if (resume) {
+                val s = ServiceLocator.settings.currentPracticeSession()
+                if (s != null && s.ids.isNotEmpty()) {
+                    sessionMode = true
+                    val qs = ServiceLocator.repo.loadPracticeByIds(s.ids)
+                    answers.clear()
+                    s.answers.forEach { (k, v) -> k.toLongOrNull()?.let { answers[it] = v } }
+                    restoredTick++          // 恢复完成后跳转进度
+                    qs
+                } else {
+                    // 无会话可恢复：退化为按参数新开
+                    sessionMode = false
+                    loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                }
+            } else {
+                sessionMode = false
+                answers.clear()
+                loadByFilter(src, type, cat, settings.practiceOrder == 1)
+            }
+            }
+        }
+        questions = result.getOrElse { emptyList() }
+        loadError = result == null || result.isFailure
+        loading = false
+        if (sessionMode && questions.isNotEmpty()) persistSession(src, type, cat, questions, answers, pagerState.currentPage)
+    }
+
+    // 恢复会话：等 Pager 上屏后跳到上次进度
+    LaunchedEffect(restoredTick) {
+        if (restoredTick > 0 && questions.isNotEmpty()) {
+            val target = ServiceLocator.settings.currentPracticeSession()?.index ?: 0
+            pagerState.scrollToPage(target.coerceIn(0, questions.size - 1))
+        }
+    }
+
+    // 新会话首次落盘（拿到题目列表即建快照，答第一题前退出也能续）
+    var sessionSeeded by remember { mutableStateOf(false) }
+    LaunchedEffect(questions) {
+        if (questions.isNotEmpty() && !sessionSeeded && !sessionMode) {
+            sessionSeeded = true
+            pagerState.scrollToPage(0)
+            persistSession(src, type, cat, questions, answers, 0)
+        }
+    }
+
+    // 翻页进度实时保存
+    LaunchedEffect(questions) {
+        if (questions.isEmpty()) return@LaunchedEffect
+        snapshotFlow { pagerState.currentPage }
+            .collectLatest { page ->
+                if (!loading) {
+                    persistSession(src, type, cat, questions, answers, page)
+                }
+            }
+    }
+
     fun onPick(q: Question, index: Int) {
         if (answers.containsKey(q.id)) return
         answers[q.id] = index
         val correct = index == q.answer
-        scope.launch {
-            ServiceLocator.repo.recordAnswer(
-                qid = q.id,
-                isCorrect = correct,
-                mode = if (src == "wrong") "wrong" else "practice",
-                removeThreshold = settings.removeThreshold
-            )
+        // 落盘挂应用级协程域：页面退出不再取消，记录绝不丢失
+        ServiceLocator.appScope.launch {
+            runCatching {
+                ServiceLocator.repo.recordAnswer(
+                    qid = q.id,
+                    isCorrect = correct,
+                    mode = if (src == "wrong") "wrong" else "practice",
+                    removeThreshold = settings.removeThreshold
+                )
+            }
         }
+        persistSession(src, type, cat, questions, answers, pagerState.currentPage)
         if (correct && settings.autoNext && pagerState.currentPage < questions.size - 1) {
             scope.launch {
-                delay(700)
+                kotlinx.coroutines.delay(700)
                 val target = pagerState.currentPage + 1
                 pagerState.animateScrollToPage(target)
             }
@@ -162,23 +202,33 @@ fun PracticeScreen(
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        // ---- 顶部大标题（最顶上） ----
+        // ---- 顶部：返回 + 标题 + 题号面板 ----
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
+            GlassIconButton(
+                onClick = onExit,
+                backdrop = backdrop,
+                icon = AppIcons.ChevronLeft
+            )
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(horizontal = 10.dp)
+            ) {
                 Text(
                     if (src == "wrong") "错题特训" else "刷题",
                     color = ui.text,
-                    fontSize = 28.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    if (questions.isEmpty()) "加载中…" else "第 ${pagerState.currentPage + 1} / ${questions.size} 题" +
-                        if (src == "wrong") "" else " · " + (catFilter ?: "全部分类"),
+                    if (questions.isEmpty()) "加载中…"
+                    else "第 ${pagerState.currentPage + 1} / ${questions.size} 题" +
+                        if (src == "wrong" || cat == "all") "" else " · $cat",
                     color = ui.textSub,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp)
@@ -191,46 +241,34 @@ fun PracticeScreen(
             )
         }
 
-        // ---- 筛选 chips ----
-        if (src != "wrong") {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip("全部", typeFilter == null && catFilter == null) {
-                    typeFilter = null; catFilter = null
-                }
-                FilterChip("单选", typeFilter == "single") { typeFilter = "single" }
-                FilterChip("判断", typeFilter == "judge") { typeFilter = "judge" }
-                categories.take(6).forEach { (cat, _) ->
-                    FilterChip(cat, catFilter == cat) {
-                        catFilter = if (catFilter == cat) null else cat
-                    }
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-        }
-
         // ---- 题目 Pager ----
-        if (loading) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+        when {
+            loading -> Box(
+                Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 Text("正在加载题库…", color = ui.textSub, fontSize = 14.sp)
             }
-        } else if (questions.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                if (loadError) {
-                    // 加载失败/超时：给出重试入口，不再无限转圈
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(AppIcons.Cards, null, tint = ui.textSub, modifier = Modifier.size(40.dp))
-                        Text(
-                            "题库加载失败，请重试",
-                            color = ui.textSub,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(top = 10.dp)
-                        )
+            questions.isEmpty() -> Box(
+                Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        AppIcons.Cards, null,
+                        tint = ui.textSub, modifier = Modifier.size(40.dp)
+                    )
+                    Text(
+                        when {
+                            loadError -> "题库加载失败"
+                            src == "wrong" -> "错题本是空的，继续保持！"
+                            else -> "没有符合条件的题目"
+                        },
+                        color = ui.textSub,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                    if (loadError) {
                         GlassButton(
                             onClick = { reloadTick++ },
                             backdrop = backdrop,
@@ -240,83 +278,74 @@ fun PracticeScreen(
                             Text("重试", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                } else {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(AppIcons.Cards, null, tint = ui.textSub, modifier = Modifier.size(40.dp))
-                        Text(
-                            if (src == "wrong") "错题本是空的，继续保持！" else "没有符合条件的题目",
-                            color = ui.textSub,
-                            fontSize = 14.sp,
-                            modifier = Modifier.padding(top = 10.dp)
-                        )
-                    }
                 }
             }
-        } else {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f),
-                key = { questions[it].id }
-            ) { page ->
-                val q = questions[page]
-                QuestionCard(
-                    q = q,
-                    picked = answers[q.id],
-                    index = page + 1,
-                    backdrop = backdrop,
-                    onPick = { onPick(q, it) }
-                )
-            }
+            else -> {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.weight(1f),
+                    key = { questions[it].id }
+                ) { page ->
+                    val q = questions[page]
+                    QuestionCard(
+                        q = q,
+                        picked = answers[q.id],
+                        index = page + 1,
+                        backdrop = backdrop,
+                        onPick = { onPick(q, it) }
+                    )
+                }
 
-            // ---- 底部玻璃操作条（避开手势条；滑块与按钮拉开间距） ----
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                GlassIconButton(
-                    onClick = {
-                        scope.launch {
-                            pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
-                        }
-                    },
-                    backdrop = backdrop,
-                    icon = AppIcons.ChevronLeft,
-                    sizeDp = 44.dp
-                )
-                GlassSlider(
-                    value = { (pagerState.currentPage + 1).toFloat() },
-                    onValueChange = { v ->
-                        scope.launch {
-                            pagerState.scrollToPage((v - 1f).roundToInt().coerceIn(0, questions.size - 1))
-                        }
-                    },
-                    valueRange = 1f..questions.size.toFloat().coerceAtLeast(1f),
-                    step = 1f,
-                    backdrop = backdrop,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 14.dp)
-                )
-                GlassIconButton(
-                    onClick = {
-                        scope.launch {
-                            pagerState.animateScrollToPage(
-                                (pagerState.currentPage + 1).coerceAtMost(questions.size - 1)
-                            )
-                        }
-                    },
-                    backdrop = backdrop,
-                    icon = AppIcons.ChevronRight,
-                    sizeDp = 44.dp
-                )
+                // ---- 底部玻璃操作条（全屏模式，无底栏遮挡，仅避让手势条） ----
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GlassIconButton(
+                        onClick = {
+                            scope.launch {
+                                pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0))
+                            }
+                        },
+                        backdrop = backdrop,
+                        icon = AppIcons.ChevronLeft,
+                        sizeDp = 44.dp
+                    )
+                    GlassSlider(
+                        value = { (pagerState.currentPage + 1).toFloat() },
+                        onValueChange = { v ->
+                            scope.launch {
+                                pagerState.scrollToPage((v - 1f).roundToInt().coerceIn(0, questions.size - 1))
+                            }
+                        },
+                        valueRange = 1f..questions.size.toFloat().coerceAtLeast(1f),
+                        step = 1f,
+                        backdrop = backdrop,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 14.dp)
+                    )
+                    GlassIconButton(
+                        onClick = {
+                            scope.launch {
+                                pagerState.animateScrollToPage(
+                                    (pagerState.currentPage + 1).coerceAtMost(questions.size - 1)
+                                )
+                            }
+                        },
+                        backdrop = backdrop,
+                        icon = AppIcons.ChevronRight,
+                        sizeDp = 44.dp
+                    )
+                }
             }
         }
     }
 
-    // ---- 题号面板（玻璃化：与主窗口同窗绘制才能折射背景层） ----
+    // ---- 题号面板（玻璃化，同窗折射背景） ----
     SheetVisibility(visible = showPanel) {
         GlassBottomSheet(
             backdrop = backdrop,
@@ -358,9 +387,7 @@ fun PracticeScreen(
                             },
                             isCurrent = isCurrent,
                             onClick = {
-                                scope.launch {
-                                    pagerState.animateScrollToPage(i)
-                                }
+                                scope.launch { pagerState.animateScrollToPage(i) }
                                 showPanel = false
                             }
                         )
@@ -372,8 +399,50 @@ fun PracticeScreen(
     }
 }
 
+private suspend fun loadByFilter(
+    src: String,
+    type: String,
+    cat: String,
+    random: Boolean
+): List<Question> =
+    if (src == "wrong") {
+        ServiceLocator.repo.loadWrongPractice()
+    } else {
+        ServiceLocator.repo.loadPractice(
+            category = if (cat == "all") null else cat,
+            type = if (type == "all") null else type,
+            random = random
+        )
+    }
+
+/** 会话快照落盘（挂 appScope，静默失败不影响 UI） */
+internal fun persistSession(
+    src: String,
+    type: String,
+    cat: String,
+    questions: List<Question>,
+    answers: Map<Long, Int>,
+    index: Int
+) {
+    if (questions.isEmpty()) return
+    ServiceLocator.appScope.launch {
+        runCatching {
+            ServiceLocator.settings.setPracticeSession(
+                PracticeSession(
+                    src = src,
+                    type = type,
+                    cat = cat,
+                    ids = questions.map { it.id },
+                    answers = answers.mapKeys { it.key.toString() },
+                    index = index
+                )
+            )
+        }
+    }
+}
+
 @Composable
-private fun PanelLegend(color: Color?, label: String) {
+internal fun PanelLegend(color: Color?, label: String) {
     val ui = LocalUi.current
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp)) {
         Box(
@@ -386,35 +455,13 @@ private fun PanelLegend(color: Color?, label: String) {
     }
 }
 
-@Composable
-private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    val ui = LocalUi.current
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(50))
-            .background(if (selected) ui.ink else ui.ink.copy(alpha = 0.06f))
-            .border(
-                1.dp,
-                if (selected) ui.ink else ui.ink.copy(alpha = 0.12f),
-                RoundedCornerShape(50)
-            )
-            .clickable(interactionSource = null, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp)
-    ) {
-        Text(
-            text,
-            color = if (selected) ui.onInk else ui.textSub,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-        )
-    }
-}
-
 /**
  * 单张题目卡片。
+ * 内容（题目/选项/解析）超过卡片可用高度时整体可垂直滚动——
+ * 此前解析展开后被裁切在屏幕外且无法滚动查看。
  */
 @Composable
-private fun QuestionCard(
+internal fun QuestionCard(
     q: Question,
     picked: Int?,
     index: Int,
@@ -429,7 +476,12 @@ private fun QuestionCard(
             .padding(horizontal = 20.dp, vertical = 6.dp),
         cornerRadius = 28.dp
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TagChip(q.category)
                 Spacer(Modifier.width(6.dp))
@@ -518,10 +570,10 @@ private fun QuestionCard(
     }
 }
 
-private fun optionLabel(i: Int, isJudge: Boolean): String =
+internal fun optionLabel(i: Int, isJudge: Boolean): String =
     if (isJudge) listOf("√", "×")[i.coerceIn(0, 1)] else ('A' + i).toString()
 
-private fun optionState(i: Int, picked: Int?, answer: Int): Int =
+internal fun optionState(i: Int, picked: Int?, answer: Int): Int =
     if (picked == null) 0
     else when {
         i == answer -> 1        // 正确项

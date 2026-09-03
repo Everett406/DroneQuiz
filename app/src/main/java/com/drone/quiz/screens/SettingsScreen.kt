@@ -428,7 +428,7 @@ fun SettingsScreen(backdrop: Backdrop) {
         GlassConfirmDialog(
             backdrop = backdrop,
             title = "清空做题记录？",
-            body = "将清空刷题记录、统计、打卡与错题本，题库保留。此操作不可撤销。",
+            body = "将清空刷题记录、统计、打卡、错题本与最近模考（含未完成的考试），题库保留。此操作不可撤销。",
             confirmText = "清空",
             dismissText = "取消",
             confirmColor = ui.wrong,
@@ -436,6 +436,8 @@ fun SettingsScreen(backdrop: Backdrop) {
                 showClearConfirm = false
                 scope.launch {
                     ServiceLocator.repo.clearAllRecords()
+                    // 刷题进度快照同属做题记录，一并清掉
+                    runCatching { ServiceLocator.settings.setPracticeSession(null) }
                     importMsg = "记录已清空"
                 }
             },

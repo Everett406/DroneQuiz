@@ -119,6 +119,12 @@ interface ExamDao {
 
     @Query("DELETE FROM exam_answers")
     suspend fun clearExamAnswers()
+
+    @Query("DELETE FROM exam_records WHERE id = :examId")
+    suspend fun deleteExam(examId: Long)
+
+    @Query("DELETE FROM exam_answers WHERE examId = :examId")
+    suspend fun deleteAnswersFor(examId: Long)
 }
 
 @Dao

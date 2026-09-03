@@ -4,6 +4,9 @@ import android.app.Application
 import com.drone.quiz.data.db.AppDatabase
 import com.drone.quiz.data.repo.Repo
 import com.drone.quiz.data.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 object ServiceLocator {
     lateinit var db: AppDatabase
@@ -12,6 +15,12 @@ object ServiceLocator {
         private set
     lateinit var settings: SettingsStore
         private set
+
+    /**
+     * 应用级协程域：做题记录/会话保存等落盘操作挂这里，
+     * 不随页面销毁取消（此前挂在页面 rememberCoroutineScope 上，答完立刻退出会丢记录）。
+     */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** 本次启动快照（含上次是否异常退出），由 QuizApp.onCreate 填充。 */
     lateinit var bootSnapshot: BootGuard.Snapshot

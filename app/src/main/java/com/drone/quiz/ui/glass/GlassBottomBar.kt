@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -145,9 +144,11 @@ fun GlassBottomTabs(
         val animationScope = rememberCoroutineScope()
         // 稳定 lambda 引用：避免重组时 LaunchedEffect/remember 因 key 变化重置内部状态
         val selectedTabProvider = rememberUpdatedState(selectedTabIndex)
-        var currentIndex by remember {
-            mutableIntStateOf(selectedTabProvider.value())
-        }
+        // 关键修复：DampedDragAnimation 被 remember 缓存，其 onDragStopped 闭包会捕获
+        // 首次组合时的 onTabSelected（进而捕获旧 navigateTab / 旧 tabIndex），
+        // 导致拖拽松手后 navigateTab 的 `index == tabIndex` 用旧值误判而吞掉切换。
+        // 用 rememberUpdatedState 让拖拽回调始终拿到最新 onTabSelected。
+        val onTabSelectedProvider = rememberUpdatedState(onTabSelected)
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -159,7 +160,8 @@ fun GlassBottomTabs(
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
-                    currentIndex = targetIndex
+                    // 直接同步回调切页：不经过任何快照流/动画链，回调必定到达
+                    onTabSelectedProvider.value.invoke(targetIndex)
                     animateToValue(targetIndex.toFloat())
                     animationScope.launch {
                         offsetAnimation.animateTo(
@@ -179,19 +181,12 @@ fun GlassBottomTabs(
                 }
             )
         }
-        LaunchedEffect(Unit) {
-            snapshotFlow { selectedTabProvider.value() }
-                .collectLatest { index ->
-                    currentIndex = index
-                }
-        }
+        // 外部页面变化（单击 tab / 系统返回）→ 高亮块动画跟随。
+        // 切页职责已完全交给单击回调与 onDragStopped 直接回调，此处只做动画同步。
         LaunchedEffect(dampedDragAnimation) {
-            snapshotFlow { currentIndex }
+            snapshotFlow { selectedTabProvider.value() }
                 .drop(1)
                 .collectLatest { index ->
-                    // 关键：先回调切页、后播放动画——动画被取消也不影响页面切换
-                    // （此前回调排在动画完成后，拖拽连续操作时回调丢失 → "滑了但页面没切"）
-                    onTabSelected(index)
                     dampedDragAnimation.animateToValue(index.toFloat())
                 }
         }

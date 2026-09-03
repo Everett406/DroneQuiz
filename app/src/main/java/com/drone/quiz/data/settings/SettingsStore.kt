@@ -5,11 +5,31 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
+
+/**
+ * 普通刷题会话快照（持久化到 DataStore）。
+ * ids 为题目顺序快照：恢复时按快照取题，保证与上次完全一致（不受筛选/随机影响）。
+ */
+@Serializable
+data class PracticeSession(
+    val src: String = "all",              // all | wrong
+    val type: String = "all",             // all | single | judge
+    val cat: String = "all",
+    val ids: List<Long> = emptyList(),    // 题目顺序快照
+    val answers: Map<String, Int> = emptyMap(), // qid -> 选项
+    val index: Int = 0,                   // 当前进度（0-based）
+    val savedAt: Long = 0
+)
 
 data class AppSettings(
     val themeMode: Int = 0,      // 0 跟随系统 1 浅色 2 深色
@@ -35,7 +55,10 @@ class SettingsStore(private val context: Context) {
         val practiceOrder = intPreferencesKey("practice_order")
         val effects = booleanPreferencesKey("glass_effects")
         val bankVersion = intPreferencesKey("bank_version")
+        val practiceSession = stringPreferencesKey("practice_session")
     }
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
         AppSettings(
@@ -49,6 +72,23 @@ class SettingsStore(private val context: Context) {
             effects = p[K.effects] ?: true,
             bankVersion = p[K.bankVersion] ?: 0
         )
+    }
+
+    /** 当前刷题会话（null = 无未完成会话） */
+    val practiceSession: Flow<PracticeSession?> = context.dataStore.data.map { p ->
+        p[K.practiceSession]?.let { raw ->
+            runCatching { json.decodeFromString<PracticeSession>(raw) }.getOrNull()
+                ?.takeIf { it.ids.isNotEmpty() }
+        }
+    }
+
+    suspend fun currentPracticeSession(): PracticeSession? = practiceSession.first()
+
+    suspend fun setPracticeSession(s: PracticeSession?) {
+        context.dataStore.edit { p ->
+            if (s == null) p.remove(K.practiceSession)
+            else p[K.practiceSession] = json.encodeToString(s.copy(savedAt = System.currentTimeMillis()))
+        }
     }
 
     suspend fun setThemeMode(v: Int) = context.dataStore.edit { it[K.theme] = v }

@@ -4,7 +4,26 @@
 
 ## [Unreleased]
 
-- 待用户复测项：① 底栏单击/拖拽切换；② 刷题加载与滑杆拖动；③ 模考题目顶部对齐、底部滑杆位置、答题卡面板；④ 通知权限请求；⑤ 全量液态玻璃质感（安全模式解除后）
+- 待用户复测项：① 底栏拖拽松手切页与设置页回首页；② 刷题配置页与全屏刷题、进度续刷；③ 模考题卡滚动、进行中模考的继续/删除、清空记录覆盖最近模考；④ 弹窗玻璃模糊背景（答题卡/放弃考试/交卷确认）
+
+## [2.4.0] - 2026-09-03
+
+### 修复 —— 底栏导航根因修复 + 刷题交互重构（用户实测反馈）
+
+- **底栏拖拽松手不切页（根因级修复）**：`DampedDragAnimation` 被 `remember` 缓存，其 `onDragStopped` 闭包捕获了首次组合时的 `onTabSelected` → 旧 `navigateTab` → 旧 `tabIndex`。从首页出发后闭包内 tabIndex 恒为 0，拖回首页松手时 `if (index == tabIndex) return` 误判吞掉切换——表现为"高亮块回去了、页面没回去"、从设置页点不回首页。现改用 `rememberUpdatedState` 让拖拽回调始终拿最新引用，`onDragStopped` 直接同步回调切页（不再依赖 `snapshotFlow`/动画链），`currentIndex` 快照流整体删除，页面变化仅驱动高亮块动画
+- **首页右上角进设置与底栏行为统一**：`onSettings` 改走 `navigateTab(4)`（保存页面状态、栈结构可预测），彻底消除"页面叠加"体感
+- **刷题页被底栏遮挡**：刷题 Tab 重构为**配置入口页**（参考模考配置页布局：题型范围/分类/顺序卡片 + 开始按钮 + 学习概览统计），点"开始刷题"进入**全屏刷题页**（非 tab destination，无底栏遮挡滑杆与左右切题按钮）；错题特训同步走全屏模式
+- **普通刷题记录丢失（双根因）**：① 作答记录挂页面级 `rememberCoroutineScope`，答完立刻退出时协程被取消——改挂应用级 `ServiceLocator.appScope`；② 答题卡进度只存内存，页面销毁即丢——新增 `PracticeSession` 快照（DataStore 持久化题目顺序/已答/页码），答题与翻页实时落盘，配置页"继续上次刷题"一键恢复；题库升级与"清空记录"时同步作废
+- **模考"进行中"幽灵记录**：放弃考试此前只 `popBackStack`，DB 残留 `score=null` 记录且点击无响应、无法删除。现在：放弃即删（`Repo.abandonExam` 事务删除记录与作答）；未完成模考支持**继续考试**（内存会话优先，进程重启后从 DB 重建题目/已答/剩余时间）与**删除**（垃圾桶按钮）；"清空做题记录"补充清空 `exam_records`/`exam_answers`
+- **模考/刷题题目卡片内容溢出**：题目卡内部增加 `verticalScroll`，长题目与解析展开后可上下滚动查看，不再被裁切在屏幕外
+- **弹窗背景"黑遮罩"体感**：`GlassOverlay` 打开时通过 `OverlayBlur` 全局状态对内容层施加真实模糊（Android 12+ RenderEffect，低版本自动降级为原效果），scrim 由 28%/45% 减淡至 10%/22% 仅作层次；面板 `surfaceColor` 透明度 0.9→0.62，折射质感可见
+
+### 变更
+
+- 新增路由 `practiceRun?src={src}&type={type}&cat={cat}&resume={resume}`（全屏刷题）；`practice` tab route 仅承载配置页
+- `ServiceLocator` 新增 `appScope`（应用级协程域，落盘操作不随页面销毁取消）
+- `Repo` 新增 `abandonExam` / `resumeExam` / `loadPracticeByIds`；`ExamDao` 新增按 id 删除
+- `SettingsStore` 新增 `practiceSession`（kotlinx.serialization JSON 持久化）
 
 ## [2.3.2] - 2026-09-03
 
