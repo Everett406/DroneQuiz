@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +48,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,7 +84,7 @@ fun PracticeConfigScreen(
             total = categories.sumOf { it.second }
         }
         runCatching { accuracy = (ServiceLocator.repo.accuracy() * 100).toInt() }
-        runCatching { wrongCount = ServiceLocator.repo.wrongCount() }
+        runCatching { wrongCount = ServiceLocator.repo.wrongCount().first() }
         runCatching {
             val days = ServiceLocator.repo.last7Days()
             todayAnswered = days.lastOrNull()?.answered ?: 0
@@ -194,7 +196,7 @@ fun PracticeConfigScreen(
                         .padding(bottom = 14.dp),
                     cornerRadius = 22.dp,
                     onClick = {
-                        onStart(s.src, s.type, s.cat, resume = true)
+                        onStart(s.src, s.type, s.cat, true)
                     }
                 ) {
                     Row(
@@ -233,7 +235,7 @@ fun PracticeConfigScreen(
 
             // ---- 开始刷题 ----
             GlassButton(
-                onClick = { onStart("all", typeFilter, catFilter, resume = false) },
+                onClick = { onStart("all", typeFilter, catFilter, false) },
                 backdrop = backdrop,
                 surfaceColor = ui.ink,
                 heightDp = 54.dp,
