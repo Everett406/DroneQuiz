@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -233,6 +234,9 @@ fun BounceLazyColumn(
 ) {
     Box(
         modifier
+            // 裁剪边界固定在容器自身（在位移层之外声明）：过冲回弹时内容在容器
+            // 边界处被裁，不再越界盖住固定标题/底栏（用户截图反馈）
+            .clipToBounds()
             .graphicsLayer { translationY = state.offset }
             .onSizeChanged { state.onContainerSizeChanged(it.height) }
             .nestedScroll(state.connection)
@@ -252,6 +256,8 @@ fun BounceContainer(
 ) {
     Box(
         modifier
+            // 同上：裁剪边界固定，过冲位移不越界
+            .clipToBounds()
             .graphicsLayer { translationY = state.offset }
             .onSizeChanged { state.onContainerSizeChanged(it.height) }
             .nestedScroll(state.connection),

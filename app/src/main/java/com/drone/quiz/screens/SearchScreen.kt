@@ -40,7 +40,7 @@ import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.screens.common.scrolledFromTopPx
-import com.drone.quiz.screens.common.TopFog
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
@@ -150,9 +150,10 @@ fun SearchScreen(
         // ---- 结果列表 ----
         // 顶部柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影，滑出渐显跟手）
         val resultListState = rememberLazyListState()
-        Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                .softTopFade(20.dp) { resultListState.scrolledFromTopPx() },
             state = resultListState
         ) {
             item {
@@ -177,9 +178,7 @@ fun SearchScreen(
             }
             item { Spacer(Modifier.height(130.dp)) }
         }
-            // 标题雾化条：滚入标题下方的内容被背景色雾遮没（零离屏零蒙版，无伪影）
-            TopFog(height = 24.dp) { resultListState.scrolledFromTopPx() }
-        }
+
     }
 }
 

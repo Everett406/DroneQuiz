@@ -57,8 +57,8 @@ import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
 import com.drone.quiz.screens.common.remainingBottomPx
-import com.drone.quiz.screens.common.TopFog
 import com.drone.quiz.screens.common.scrolledFromTopPx
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.screens.common.softVerticalEdges
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
@@ -123,7 +123,8 @@ fun ExamConfigScreen(
         BounceContainer(
             Modifier
                 .weight(1f)
-                        ) {
+                .softTopFade(30.dp) { scrollState.scrolledFromTopPx() }
+        ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -316,9 +317,6 @@ fun ExamConfigScreen(
             Spacer(Modifier.height(130.dp))
         }
         
-            // 标题雾化条：滚入标题下方的内容被背景色雾遮没（零离屏零蒙版，无伪影），
-            // 滚离顶部才渐显，停在顶部时无雾
-            TopFog { scrollState.scrolledFromTopPx() }
 }
     }
 }

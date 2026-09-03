@@ -192,50 +192,41 @@ fun Modifier.softVerticalEdges(
     }
 
 /**
- * 标题下缘雾化条（v2.6.3：彻底替代列表离屏蒙版柔化，根除伪影）。
+ * 顶部柔化（v2.6.4 回归蒙版方案 + 两处修正；用户裁定雾条方案废弃）：
+ * v2.6.3 雾条在壁纸模式下与背景色差大（色带+顶部硬边）、且滚离顶部后盖住
+ * 玻璃卡上缘——被用户否决；蒙版方案视觉正确（内容渐隐露出真背景，颜色无缝）。
  *
- * 此前方案：对整个列表做离屏 + DstIn 渐隐蒙版——蒙版层与列表内液态玻璃卡的
- * 折射层相互作，产生重影/色块伪影（蒙版×玻璃为方案固有问题，modifier 稳定化
- * 只能减轻不能根除，用户 v2.6.2 实测确认"依然存在，只是减轻了一点点"）。
- *
- * 新方案：在内容之上叠一条"背景色雾"——纯渐变色块，零离屏、零蒙版、零
- * graphicsLayer，与玻璃卡完全无互作，必然无伪影。内容滚入标题下方时被雾
- * 遮没，视觉等效柔化。雾色跟随主题（亮米白/深墨），壁纸模式取纱色保持一致。
- * 滚离顶部才渐显（连续跟手），停在顶部时无雾、首屏内容不被遮挡。
+ * 本版两处修正（用户"首卡上阴影被顶部挡住"线索）：
+ * 1. 离屏策略动态化：仅需要蒙版（已滚离顶部）时才 CompositingStrategy.Offscreen——
+ *    此前无条件离屏，即使停在顶部，玻璃卡上溢的高光/阴影也被离屏层边界裁掉
+ *    （首卡上阴影被截断的伪影根因）；顶部静止时回归普通合成，阴影完整；
+ * 2. 强度依旧 draw 阶段 lambda 直读（Modifier 稳定零重建，v2.6.2 的防闪烁设计保留）。
  */
-@Composable
-fun TopFog(
-    modifier: Modifier = Modifier,
-    height: Dp = 36.dp,
-    scrolledPx: (() -> Float)? = null
-) {
-    val ui = LocalUi.current
-    val settings by ServiceLocator.settings.settings.collectAsState(
-        initial = com.drone.quiz.data.settings.AppSettings()
-    )
-    val base = if (settings.wallpaper.isBlank()) {
-        if (ui.isDark) Color(0xFF1C1815) else Color(0xFFFAF6EF)
-    } else {
-        if (ui.isDark) Color(0xFF161310) else Color(0xFFF6F1E6)
+fun Modifier.softTopFade(
+    fadeHeight: Dp = 26.dp,
+    scrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f }
+): Modifier = this
+    .graphicsLayer {
+        val hPx = fadeHeight.toPx()
+        compositingStrategy =
+            if (scrolledPx() / hPx > 0.02f) CompositingStrategy.Offscreen
+            else CompositingStrategy.Auto
     }
-    // 强度：顶部已滚出像素 / 雾高（连续跟手）；未传滚动源则恒显
-    val strength = if (scrolledPx != null) {
-        val hPx = with(androidx.compose.ui.platform.LocalDensity.current) { height.toPx() }
-        (scrolledPx() / hPx).coerceIn(0f, 1f)
-    } else 1f
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(height)
-            .background(
-                Brush.verticalGradient(
-                    0f to base.copy(alpha = 0.98f * strength),
-                    0.5f to base.copy(alpha = 0.55f * strength),
-                    1f to base.copy(alpha = 0f)
-                )
+    .drawWithContent {
+        drawContent()
+        val h = fadeHeight.toPx()
+        val s = (scrolledPx() / h).coerceIn(0f, 1f)
+        if (s <= 0.02f) return@drawWithContent
+        if (h > 0f && size.height > h) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0f), 1f to Color.Black.copy(alpha = s),
+                    startY = 0f, endY = h
+                ),
+                blendMode = BlendMode.DstIn
             )
-    )
-}
+        }
+    }
 
 /**
  * 屏幕大标题（每页最顶部）。

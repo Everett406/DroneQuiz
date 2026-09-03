@@ -53,8 +53,8 @@ import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.db.WrongWithQuestion
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.TagChip
-import com.drone.quiz.screens.common.TopFog
 import com.drone.quiz.screens.common.scrolledFromTopPx
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -187,7 +187,9 @@ fun WrongBookScreen(
             // ---- 列表 + 右侧快速滚动把手 ----
             Box(Modifier.weight(1f)) {
                 BounceLazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .softTopFade(30.dp) { listState.scrolledFromTopPx() },
                     state = bounce,
                     listState = listState
                 ) {
@@ -221,8 +223,6 @@ fun WrongBookScreen(
                     )
                 }
             
-                // 标题雾化条：滚入标题下方的内容被背景色雾遮没（零离屏零蒙版，无伪影）
-                TopFog { listState.scrolledFromTopPx() }
 }
         }
     }

@@ -49,8 +49,8 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Repo
 import com.drone.quiz.data.settings.AppSettings
-import com.drone.quiz.screens.common.TopFog
 import com.drone.quiz.screens.common.scrolledFromTopPx
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -166,11 +166,12 @@ fun HomeScreen(
         // 标题雾化条：内容滚入标题下方被背景色雾遮没（零离屏零蒙版，无玻璃互作伪影）；
         // 滚离顶部才渐显，停在顶部时无雾、进度环等首屏内容不被遮挡
         val homeListState = rememberLazyListState()
-        Box(Modifier.fillMaxSize()) {
-            BounceLazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                listState = homeListState
-            ) {
+        BounceLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .softTopFade(30.dp) { homeListState.scrolledFromTopPx() },
+            listState = homeListState
+        ) {
             // ---- 总览：进度环 + 预估通过率 ----
         item {
             GlassCard(
@@ -506,9 +507,6 @@ fun HomeScreen(
 
         item { Spacer(Modifier.height(130.dp)) }
     }
-    }
-            // 雾条盖在列表之上（列表之后声明 = z 序更高）
-            TopFog { homeListState.scrolledFromTopPx() }
         }
 }
 
