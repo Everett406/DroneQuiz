@@ -41,7 +41,8 @@ class InteractiveHighlight(
 
     private val shader =
         if (isRuntimeShaderSupported()) {
-            createRuntimeShader(
+            runCatching {
+                createRuntimeShader(
                 """
 uniform float2 size;
 layout(color) uniform half4 color;
@@ -53,7 +54,8 @@ half4 main(float2 coord) {
     float intensity = smoothstep(radius, radius * 0.5, dist);
     return color * intensity;
 }"""
-            )
+                )
+            }.getOrNull()
         } else {
             null
         }

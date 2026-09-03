@@ -32,7 +32,8 @@ abstract class AppDatabase : RoomDatabase() {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "drone_quiz.db"
+                    // v2 起使用新库文件名，规避旧版本残留数据库的 schema 校验冲突
+                    "drone_quiz_v2.db"
                 ).fallbackToDestructiveMigration().build().also { instance = it }
             }
     }

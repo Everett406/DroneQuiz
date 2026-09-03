@@ -53,7 +53,8 @@ interface HighlightStyle {
             shape: Shape,
             runtimeShaderCache: RuntimeShaderCache
         ): RuntimeShader? {
-            return if (isRuntimeShaderSupported()) {
+            if (!isRuntimeShaderSupported()) return null
+            return runCatching {
                 runtimeShaderCache.obtainRuntimeShader(
                     "Default",
                     DefaultHighlightShaderString
@@ -64,9 +65,7 @@ interface HighlightStyle {
                     setFloatUniform("angle", angle * (PI / 180f).toFloat())
                     setFloatUniform("falloff", falloff)
                 }
-            } else {
-                null
-            }
+            }.getOrNull()
         }
     }
 
@@ -83,7 +82,7 @@ interface HighlightStyle {
             shape: Shape,
             runtimeShaderCache: RuntimeShaderCache
         ): RuntimeShader? {
-            return if (isRuntimeShaderSupported()) {
+            return runCatching {
                 runtimeShaderCache.obtainRuntimeShader(
                     "Ambient",
                     AmbientHighlightShaderString
@@ -93,9 +92,7 @@ interface HighlightStyle {
                     setFloatUniform("angle", 45f * (PI / 180f).toFloat())
                     setFloatUniform("falloff", 1f)
                 }
-            } else {
-                null
-            }
+            }.getOrNull()
         }
     }
 

@@ -27,30 +27,33 @@ fun BackdropEffectScope.lens(
 
     val cornerRadii = cornerRadii
         ?: throwUnsupportedSDFException()
-    val shader =
-        if (!chromaticAberration) {
-            obtainRuntimeShader(
-                "Refraction",
-                RoundedRectRefractionShaderString
-            )
-        } else {
-            obtainRuntimeShader(
-                "RefractionWithDispersion",
-                RoundedRectRefractionWithDispersionShaderString
-            )
+    // AGSL 编译失败（部分 GPU 驱动）时降级：保留已有的模糊效果，不崩溃
+    runCatching {
+        val shader =
+            if (!chromaticAberration) {
+                obtainRuntimeShader(
+                    "Refraction",
+                    RoundedRectRefractionShaderString
+                )
+            } else {
+                obtainRuntimeShader(
+                    "RefractionWithDispersion",
+                    RoundedRectRefractionWithDispersionShaderString
+                )
+            }
+        shader.apply {
+            setFloatUniform("size", size.width, size.height)
+            setFloatUniform("offset", -padding, -padding)
+            setFloatUniform("cornerRadii", cornerRadii)
+            setFloatUniform("refractionHeight", refractionHeight)
+            setFloatUniform("refractionAmount", -refractionAmount)
+            setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
+            if (chromaticAberration) {
+                setFloatUniform("chromaticAberration", 1f)
+            }
         }
-    shader.apply {
-        setFloatUniform("size", size.width, size.height)
-        setFloatUniform("offset", -padding, -padding)
-        setFloatUniform("cornerRadii", cornerRadii)
-        setFloatUniform("refractionHeight", refractionHeight)
-        setFloatUniform("refractionAmount", -refractionAmount)
-        setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
-        if (chromaticAberration) {
-            setFloatUniform("chromaticAberration", 1f)
-        }
+        effect(RuntimeShaderEffect(shader, "content"))
     }
-    effect(RuntimeShaderEffect(shader, "content"))
 }
 
 private val BackdropEffectScope.cornerRadii: FloatArray?

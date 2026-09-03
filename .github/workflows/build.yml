@@ -30,20 +30,20 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/DroneQuiz-v2.0.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/DroneQuiz-v2.0.1.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DroneQuiz-v2.0
-          path: dist/DroneQuiz-v2.0.apk
+          name: DroneQuiz-v2.0.1
+          path: dist/DroneQuiz-v2.0.1.apk
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.0
-          name: DroneQuiz v2.0
-          files: dist/DroneQuiz-v2.0.apk
+          tag_name: v2.0.1
+          name: DroneQuiz v2.0.1
+          files: dist/DroneQuiz-v2.0.1.apk
           body: |
             无人机装调题库刷题 APP v2.0
             - 真·液态玻璃（Kyant0 backdrop，AGSL 折射/色散/高光）
