@@ -47,6 +47,7 @@ import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassToggle
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassConfirmDialog
+import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.theme.LocalUi
 import com.drone.quiz.work.ReminderScheduler
 import com.kyant.backdrop.Backdrop
@@ -121,13 +122,18 @@ fun SettingsScreen(backdrop: Backdrop) {
         }
     }
 
-    Column(
+    // 全局同款 iOS 回弹：与首页/错题本/刷题页一致（此前设置页是硬边界）
+    BounceContainer(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
     ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+        ) {
         ScreenTitle("设置", "外观 / 刷题 / 数据", Modifier.padding(vertical = 16.dp))
 
         // ---- 外观 ----
@@ -422,6 +428,7 @@ fun SettingsScreen(backdrop: Backdrop) {
         }
 
         Spacer(Modifier.height(130.dp))
+        }
     }
 
     if (showClearConfirm) {

@@ -45,7 +45,6 @@ import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
-import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceLazyColumn
 import com.drone.quiz.ui.theme.LocalUi
@@ -77,15 +76,8 @@ fun WrongBookScreen(
                 .padding(horizontal = 20.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f)) {
-                ScreenTitle("错题本", "共 ${wrongList.size} 题待消灭")
-            }
-            GlassIconButton(
-                onClick = onPractice,
-                backdrop = backdrop,
-                icon = AppIcons.Play,
-                sizeDp = 46.dp
-            )
+            // 错题特训入口保留列表顶部"图案+字"按钮一个（此前右上角还有一个纯图标重复入口）
+            ScreenTitle("错题本", "共 ${wrongList.size} 题待消灭")
         }
 
         if (wrongList.isEmpty()) {
@@ -192,7 +184,8 @@ private fun WrongItem(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TagChip(item.category, ui.wrong)
+                // 类目标签降调：中性色即可，无需标红（红色留给错误语义）
+                TagChip(item.category)
                 Spacer(Modifier.width(6.dp))
                 TagChip(if (item.type == "judge") "判断" else "单选")
                 Spacer(Modifier.weight(1f))

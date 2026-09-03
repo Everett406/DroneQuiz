@@ -37,7 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
-import com.drone.quiz.data.settings.PracticeSession
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
@@ -48,16 +47,12 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 刷题配置入口页（刷题 Tab 首页）。
  * 进入刷题 Tab 不再直接开刷：先选范围（全部/单选/判断）与分类，
- * 点"开始刷题"进入全屏刷题页；有未完成会话时可一键继续。
+ * 点"开始刷题"进入全屏刷题页。
  */
 @Composable
 fun PracticeConfigScreen(
@@ -72,7 +67,6 @@ fun PracticeConfigScreen(
     var typeFilter by remember { mutableStateOf("all") }   // all | single | judge
     var catFilter by remember { mutableStateOf("all") }
     var categories by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
-    var session by remember { mutableStateOf<PracticeSession?>(null) }
     var total by remember { mutableIntStateOf(0) }
     var accuracy by remember { mutableIntStateOf(0) }
     var wrongCount by remember { mutableIntStateOf(0) }
@@ -89,11 +83,6 @@ fun PracticeConfigScreen(
             val days = ServiceLocator.repo.last7Days()
             todayAnswered = days.lastOrNull()?.answered ?: 0
         }
-    }
-
-    // 未完成会话（用于"继续上次刷题"）
-    LaunchedEffect(Unit) {
-        runCatching { session = ServiceLocator.settings.currentPracticeSession() }
     }
 
     BounceContainer(
@@ -183,53 +172,6 @@ fun PracticeConfigScreen(
                             .fillMaxWidth()
                             .padding(top = 12.dp)
                     )
-                }
-            }
-
-            // ---- 继续上次刷题（有未完成会话时出现） ----
-            session?.let { s ->
-                SectionLabel("继续上次", Modifier.padding(top = 14.dp))
-                GlassCard(
-                    backdrop = backdrop,
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 14.dp),
-                    cornerRadius = 22.dp,
-                    onClick = {
-                        onStart(s.src, s.type, s.cat, true)
-                    }
-                ) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            AppIcons.Play, null,
-                            tint = ui.accent, modifier = Modifier.size(22.dp)
-                        )
-                        Column(
-                            Modifier
-                                .weight(1f)
-                                .padding(horizontal = 12.dp)
-                        ) {
-                            Text(
-                                "刷到第 ${s.index + 1} / ${s.ids.size} 题 · 已答 ${s.answers.size} 题",
-                                color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA)
-                                    .format(Date(s.savedAt)) + " 保存",
-                                color = ui.textSub, fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-                        }
-                        Icon(
-                            AppIcons.ChevronRight, null,
-                            tint = ui.textSub, modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
 

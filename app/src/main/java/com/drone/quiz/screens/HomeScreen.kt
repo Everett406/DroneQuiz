@@ -359,15 +359,15 @@ fun HomeScreen(
             }
         }
 
-        // ---- 错题提醒 ----
+        // ---- 错题提醒 / 上次模考：同规格信息卡（间距/圆角统一，不再贴叠） ----
         if (stats.wrongCount > 0) {
             item {
                 GlassCard(
                     backdrop = backdrop,
                     modifier = Modifier
-                        .padding(horizontal = 20.dp)
+                        .padding(horizontal = 20.dp, vertical = 6.dp)
                         .fillMaxWidth(),
-                    cornerRadius = 20.dp,
+                    cornerRadius = 22.dp,
                     onClick = onWrong
                 ) {
                     Row(
@@ -403,9 +403,9 @@ fun HomeScreen(
                     GlassCard(
                         backdrop = backdrop,
                         modifier = Modifier
-                            .padding(horizontal = 20.dp)
+                            .padding(horizontal = 20.dp, vertical = 6.dp)
                             .fillMaxWidth(),
-                        cornerRadius = 20.dp,
+                        cornerRadius = 22.dp,
                         onClick = onExam
                     ) {
                         Row(

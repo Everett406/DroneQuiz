@@ -63,17 +63,18 @@ import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassBottomSheet
-import com.drone.quiz.ui.glass.SheetVisibility
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
  * 全屏刷题页（由配置页进入；非 Tab destination，无底栏遮挡）。
- * 进度实时持久化：答题/翻页即写 DataStore 会话快照，中途退出可从配置页"继续上次刷题"恢复。
+ * 进度实时持久化：答题/翻页即写 DataStore 会话快照（后台静默保存，不丢记录）。
+ * 左右切题带转盘弧度（rotationY + 透视），配合全局 iOS 式回弹。
  */
 @Composable
 fun PracticeRunScreen(
@@ -288,13 +289,32 @@ fun PracticeRunScreen(
                     key = { questions[it].id }
                 ) { page ->
                     val q = questions[page]
-                    QuestionCard(
-                        q = q,
-                        picked = answers[q.id],
-                        index = page + 1,
-                        backdrop = backdrop,
-                        onPick = { onPick(q, it) }
-                    )
+                    // 转盘式切页：页面沿竖轴随滑动轻微偏转（rotationY + 透视相机），
+                    // 邻页向圆心轻收（弧面压缩），产生“转盘半径”的纵深感
+                    Box(
+                        Modifier.graphicsLayer {
+                            // 显式 offset/pageSize：正值 = 页在圆心右侧（不依赖 pageOffset 语义）
+                            val li = pagerState.layoutInfo
+                            val info = li.visiblePagesInfo.firstOrNull { it.page == page }
+                            val off = (info?.offset ?: 0) / li.pageSize.toFloat().coerceAtLeast(1f)
+                            val a = abs(off)
+                            cameraDistance = 24f * density
+                            rotationY = off * 20f
+                            translationX = -off * size.width * 0.04f
+                            val s = 1f - a * 0.06f
+                            scaleX = s
+                            scaleY = s
+                            alpha = 1f - (a * 0.35f).coerceAtMost(0.35f)
+                        }
+                    ) {
+                        QuestionCard(
+                            q = q,
+                            picked = answers[q.id],
+                            index = page + 1,
+                            backdrop = backdrop,
+                            onPick = { onPick(q, it) }
+                        )
+                    }
                 }
 
                 // ---- 底部玻璃操作条（全屏模式，无底栏遮挡，仅避让手势条） ----
@@ -346,12 +366,12 @@ fun PracticeRunScreen(
         }
     }
 
-    // ---- 题号面板（玻璃化，同窗折射背景） ----
-    SheetVisibility(visible = showPanel) {
-        GlassBottomSheet(
-            backdrop = backdrop,
-            onDismiss = { showPanel = false }
-        ) {
+    // ---- 题号面板（渲染在 AppRoot 顶层传送门：内容层模糊不波及面板自身） ----
+    GlassBottomSheet(
+        visible = showPanel,
+        backdrop = backdrop,
+        onDismiss = { showPanel = false }
+    ) {
             Column(Modifier.padding(horizontal = 20.dp)) {
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -396,7 +416,6 @@ fun PracticeRunScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
-        }
     }
 }
 

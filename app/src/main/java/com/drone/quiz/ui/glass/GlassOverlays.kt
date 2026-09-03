@@ -1,9 +1,13 @@
 package com.drone.quiz.ui.glass
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -25,8 +29,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,46 +43,66 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.animation.AnimatedVisibility
 import com.drone.quiz.ui.theme.LocalUi
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 
 /**
- * 弹窗打开时置 true：AppRoot 据此对内容层施加真模糊（iOS 风格），
- * 取代传统的深色遮罩——背后内容被模糊虚化，玻璃面板折射背景层。
+ * 弹窗传送门。
+ *
+ * 背景：v2.4.0 的做法是把整个内容层 blur——但弹窗面板本身就渲染在内容层里，
+ * 于是"答题卡展开时把答题卡自己也模糊了"。
+ *
+ * v2.5.0：弹窗面板不再原地渲染，而是注册进 [entries]，由 AppRoot 在内容层
+ * （模糊区）之上、底栏之上统一渲染。面板因此永远清晰，且位于内容记录层之外，
+ * 可安全折射"背景+内容"合成层（真 iOS 玻璃，此前因循环采样风险只能折射背景层）。
+ *
+ * 多槽位列表：同屏多个弹窗（如模考页确认框 + 答题卡）互不覆盖，后组合者在上。
  */
-object OverlayBlur {
-    var active by androidx.compose.runtime.mutableStateOf(false)
+object GlassOverlayPortal {
+
+    class Entry(val id: Any, val content: @Composable () -> Unit)
+
+    val entries = mutableStateListOf<Entry>()
+
+    /** 组合期间调用：按 id 注册/刷新面板内容（幂等，每次重组刷新 lambda）。 */
+    fun set(id: Any, content: @Composable () -> Unit) {
+        val idx = entries.indexOfFirst { it.id === id }
+        if (idx >= 0) {
+            entries[idx] = Entry(id, content)
+        } else {
+            entries.add(Entry(id, content))
+        }
+    }
+
+    fun remove(id: Any) {
+        entries.removeAll { it.id === id }
+    }
 }
 
+/** AppRoot 提供的双记录层；弹窗面板用它合成折射源。 */
+val LocalBgBackdrop = compositionLocalOf<Backdrop?> { null }
+val LocalContentBackdrop = compositionLocalOf<Backdrop?> { null }
+
 /**
- * 玻璃覆盖层通用骨架。
+ * 弹窗主体（scrim + 玻璃面板），渲染在 AppRoot 顶层。
  *
- * ⚠️ 必须与 AppRoot 同窗口渲染（不能用 Dialog/ModalBottomSheet——独立窗口无法采样主窗口 backdrop）。
- * 覆盖层位于内容记录层内，只能折射 bgBackdrop（背景层），不可折射包含自身的内容层（循环 → SIGSEGV）。
- *
- * 背景处理：不再使用深色遮罩——OverlayBlur.active 置 true 后 AppRoot 对内容层做真模糊；
- * scrim 仅保留一层极淡的颜色层用于层次感。点击 scrim 关闭；面板消费自身点按防误关。
+ * - scrim 极淡：层次感主角是内容层真模糊（AppRoot 响应 OverlayBlur.active）；
+ *   点 scrim 关闭，面板消费自身点按防误关。
+ * - 面板折射 combined(背景层, 内容层)——内容层此刻正被模糊，折射出的正是
+ *   "毛玻璃后的世界"。
  */
 @Composable
-private fun GlassOverlay(
+private fun GlassOverlayPanel(
     scrimColor: Color,
     contentAlignment: Alignment,
     panelShape: Shape,
     panelModifier: Modifier,
-    backdrop: com.kyant.backdrop.Backdrop,
+    backdrop: Backdrop,
     onDismiss: () -> Unit,
     panel: @Composable ColumnScope.() -> Unit
 ) {
-    BackHandler(onBack = onDismiss)
-
-    // 弹窗存续期间让内容层进入模糊态（AppRoot 响应），退出自动恢复
-    DisposableEffect(Unit) {
-        OverlayBlur.active = true
-        onDispose { OverlayBlur.active = false }
-    }
-
     Box(Modifier.fillMaxSize()) {
-        // 极淡 scrim：仅层次感，主角是内容层真模糊（点按关闭）
         Box(
             Modifier
                 .matchParentSize()
@@ -84,7 +111,14 @@ private fun GlassOverlay(
                     detectTapGestures { onDismiss() }
                 }
         )
-        // 面板：真玻璃（折射背景层）；安全模式自动降级为实色
+        val bg = LocalBgBackdrop.current
+        val contentBd = LocalContentBackdrop.current
+        // 面板已处于内容记录层之外 → 折射"背景+内容"安全（与底栏同款）
+        val panelBackdrop = if (bg != null && contentBd != null) {
+            rememberCombinedBackdrop(bg, contentBd)
+        } else {
+            backdrop
+        }
         Box(
             Modifier
                 .align(contentAlignment)
@@ -95,15 +129,14 @@ private fun GlassOverlay(
                 Modifier
                     .fillMaxWidth()
                     .glass(
-                        backdrop = backdrop,
+                        backdrop = panelBackdrop,
                         shape = panelShape,
                         blurDp = 24.dp,
                         lensHeightDp = 16.dp,
                         lensAmountDp = 22.dp,
-                        // 降透明度让折射可见：此前 0.9 过实，看起来像不透明色块而非玻璃
+                        // 降透明度让折射可见：过实会像不透明色块而非玻璃
                         surfaceColor = LocalUi.current.surface.copy(alpha = 0.62f)
                     )
-                    .then(Modifier) // 占位保持链式可读
             ) {
                 panel()
             }
@@ -112,43 +145,93 @@ private fun GlassOverlay(
 }
 
 /**
+ * 弹窗注册骨架：BackHandler + OverlayBlur 状态 + 传送门生命周期。
+ * 本体不渲染任何东西；[content]（含出入场动画，由各弹窗自带）在 AppRoot 顶层渲染。
+ */
+@Composable
+private fun GlassOverlayRegistration(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    if (visible) {
+        BackHandler(onBack = onDismiss)
+    }
+
+    val overlayId = remember { Any() }
+
+    // 弹窗可见期间内容层进入模糊态（AppRoot 响应）；随 visible 关闭
+    DisposableEffect(visible) {
+        OverlayBlur.active = visible
+        onDispose { }
+    }
+    // 整体离开组合：兜底恢复模糊态并注销传送门槽位
+    DisposableEffect(Unit) {
+        onDispose {
+            OverlayBlur.active = false
+            GlassOverlayPortal.remove(overlayId)
+        }
+    }
+
+    GlassOverlayPortal.set(overlayId, content)
+}
+
+/**
  * iOS 26 风玻璃底部面板（替代 ModalBottomSheet）。
- * 调用方用 AnimatedVisibility 包裹以获得出入场动画。
+ * visible=false 时面板下滑退场；OverlayBlur 跟随 visible。
+ * idle（未打开且退场完毕）时槽位内容渲染为空，不遮挡其他弹窗。
  */
 @Composable
 fun GlassBottomSheet(
-    backdrop: com.kyant.backdrop.Backdrop,
+    visible: Boolean,
+    backdrop: Backdrop,
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val ui = LocalUi.current
-    GlassOverlay(
-            // 极淡 scrim 配合内容层真模糊；不再有明显黑罩感
-            scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
-            contentAlignment = Alignment.BottomCenter,
-            panelShape = RoundedCornerShape(28.dp),
-            panelModifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp)
-                .padding(
-                    bottom = 12.dp + WindowInsets.navigationBars
-                        .asPaddingValues()
-                        .calculateBottomPadding()
-                ),
-            backdrop = backdrop,
-            onDismiss = onDismiss
+    GlassOverlayRegistration(visible, onDismiss) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(
+                animationSpec = spring(dampingRatio = 0.9f, stiffness = 380f),
+                initialOffsetY = { it }
+            ) + fadeIn(tween(200)),
+            exit = slideOutVertically(
+                animationSpec = spring(dampingRatio = 1f, stiffness = 500f),
+                targetOffsetY = { it }
+            ) + fadeOut(tween(180))
         ) {
-            content()
-            Spacer(Modifier.height(16.dp))
+            val ui = LocalUi.current
+            GlassOverlayPanel(
+                // 极淡 scrim 配合内容层真模糊；不再有明显黑罩感
+                scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
+                contentAlignment = Alignment.BottomCenter,
+                panelShape = RoundedCornerShape(28.dp),
+                panelModifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(
+                        bottom = 12.dp + WindowInsets.navigationBars
+                            .asPaddingValues()
+                            .calculateBottomPadding()
+                    ),
+                backdrop = backdrop,
+                onDismiss = onDismiss
+            ) {
+                content()
+                Spacer(Modifier.height(16.dp))
+            }
         }
+    }
 }
 
 /**
  * iOS 26 风玻璃对话框（替代 AlertDialog）。
+ * 保持 `if (show) GlassConfirmDialog(...)` 的调用形式：进组合即注册传送门，
+ * 出组合即注销（面板缩放淡入；退场即时，与既有行为一致）。
  */
 @Composable
 fun GlassConfirmDialog(
-    backdrop: com.kyant.backdrop.Backdrop,
+    backdrop: Backdrop,
     title: String,
     body: String,
     confirmText: String,
@@ -157,80 +240,74 @@ fun GlassConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val ui = LocalUi.current
-    GlassOverlay(
-        scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
-        contentAlignment = Alignment.Center,
-            panelShape = RoundedCornerShape(26.dp),
-            panelModifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 28.dp),
-            backdrop = backdrop,
-            onDismiss = onDismiss
+    GlassOverlayRegistration(visible = true, onDismiss = onDismiss) {
+        // 对话框缩放淡入（退场因组合销毁即时消失，与旧行为一致）
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        AnimatedVisibility(
+            visible = shown,
+            enter = fadeIn(tween(160)) + scaleIn(
+                initialScale = 0.92f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
+            ),
+            exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.95f, animationSpec = tween(140))
         ) {
-            Column(Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {
-                Text(
-                    title,
-                    color = ui.text,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    body,
-                    color = ui.textSub,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    GlassButton(
-                        onClick = onDismiss,
-                        backdrop = backdrop,
-                        heightDp = 44.dp,
-                        modifier = Modifier.weight(1f)
+            val ui = LocalUi.current
+            GlassOverlayPanel(
+                scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
+                contentAlignment = Alignment.Center,
+                panelShape = RoundedCornerShape(26.dp),
+                panelModifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp),
+                backdrop = backdrop,
+                onDismiss = onDismiss
+            ) {
+                Column(Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {
+                    Text(
+                        title,
+                        color = ui.text,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        body,
+                        color = ui.textSub,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(dismissText, color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    GlassButton(
-                        onClick = onConfirm,
-                        backdrop = backdrop,
-                        surfaceColor = (confirmColor ?: ui.ink).copy(alpha = 0.92f),
-                        heightDp = 44.dp,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            confirmText,
-                            color = if (confirmColor != null) Color.White else ui.onInk,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        GlassButton(
+                            onClick = onDismiss,
+                            backdrop = backdrop,
+                            heightDp = 44.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(dismissText, color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        GlassButton(
+                            onClick = onConfirm,
+                            backdrop = backdrop,
+                            surfaceColor = (confirmColor ?: ui.ink).copy(alpha = 0.92f),
+                            heightDp = 44.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                confirmText,
+                                color = if (confirmColor != null) Color.White else ui.onInk,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
         }
-}
-
-/**
- * 出入场动画（面板上滑 + 渐显；对话框缩放淡入由调用方按需扩展）。
- */
-@Composable
-fun SheetVisibility(visible: Boolean, onDismissed: () -> Unit = {}, content: @Composable () -> Unit) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = slideInVertically(
-            animationSpec = spring(dampingRatio = 0.9f, stiffness = 380f),
-            initialOffsetY = { it }
-        ) + fadeIn(),
-        exit = slideOutVertically(
-            animationSpec = spring(dampingRatio = 1f, stiffness = 500f),
-            targetOffsetY = { it }
-        ) + fadeOut()
-    ) {
-        content()
     }
 }

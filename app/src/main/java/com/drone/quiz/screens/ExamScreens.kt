@@ -61,7 +61,6 @@ import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassBottomSheet
-import com.drone.quiz.ui.glass.SheetVisibility
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceContainer
@@ -117,67 +116,69 @@ fun ExamConfigScreen(
         ) {
             ScreenTitle("模考", "模拟真实考试 · 倒计时自动交卷", Modifier.padding(vertical = 16.dp))
 
-            SectionLabel("题目数量")
-            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        "$count 题",
-                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
-                    )
+            // ---- 考试设置：2×2 紧凑网格 ----
+            // 此前四张大卡各占一大截，题目数量/判断占比/时长/及格分挤满整屏，
+            // 孰轻孰重失衡；压缩为两行小卡后，开始考试与最近模考首屏可达。
+            SectionLabel("考试设置")
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ExamSettingCell(
+                    backdrop = backdrop,
+                    label = "题目数量",
+                    value = "$count 题",
+                    modifier = Modifier.weight(1f)
+                ) {
                     GlassSlider(
                         value = { count.toFloat() },
                         onValueChange = { count = it.roundToInt() },
                         valueRange = 10f..100f,
                         step = 5f,
-                        backdrop = backdrop,
-                        modifier = Modifier.padding(top = 12.dp)
+                        backdrop = backdrop
                     )
                 }
-            }
-
-            SectionLabel("判断题占比", Modifier.padding(top = 14.dp))
-            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        "${(judgeRatio * 100).toInt()}%",
-                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
-                    )
-                    GlassSlider(
-                        value = { judgeRatio },
-                        onValueChange = { judgeRatio = it },
-                        valueRange = 0f..0.6f,
-                        step = 0.1f,
-                        backdrop = backdrop,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-            }
-
-            SectionLabel("考试时长", Modifier.padding(top = 14.dp))
-            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        "$durationMin 分钟",
-                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
-                    )
+                ExamSettingCell(
+                    backdrop = backdrop,
+                    label = "考试时长",
+                    value = "$durationMin 分钟",
+                    modifier = Modifier.weight(1f)
+                ) {
                     GlassSlider(
                         value = { durationMin.toFloat() },
                         onValueChange = { durationMin = it.roundToInt() },
                         valueRange = 15f..120f,
                         step = 5f,
-                        backdrop = backdrop,
-                        modifier = Modifier.padding(top = 12.dp)
+                        backdrop = backdrop
                     )
                 }
             }
-
-            SectionLabel("及格分", Modifier.padding(top = 14.dp))
-            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        "${settings.passScore} 分",
-                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ExamSettingCell(
+                    backdrop = backdrop,
+                    label = "判断题占比",
+                    value = "${(judgeRatio * 100).toInt()}%",
+                    modifier = Modifier.weight(1f)
+                ) {
+                    GlassSlider(
+                        value = { judgeRatio },
+                        onValueChange = { judgeRatio = it },
+                        valueRange = 0f..0.6f,
+                        step = 0.1f,
+                        backdrop = backdrop
                     )
+                }
+                ExamSettingCell(
+                    backdrop = backdrop,
+                    label = "及格分",
+                    value = "${settings.passScore} 分",
+                    modifier = Modifier.weight(1f)
+                ) {
                     GlassSlider(
                         value = { settings.passScore.toFloat() },
                         onValueChange = { v ->
@@ -185,8 +186,7 @@ fun ExamConfigScreen(
                         },
                         valueRange = 50f..95f,
                         step = 5f,
-                        backdrop = backdrop,
-                        modifier = Modifier.padding(top = 12.dp)
+                        backdrop = backdrop
                     )
                 }
             }
@@ -299,6 +299,31 @@ fun ExamConfigScreen(
             }
 
             Spacer(Modifier.height(130.dp))
+        }
+    }
+}
+
+/**
+ * 模考设置小卡（2×2 网格单元）：标签 + 当前值 + 迷你滑杆，替代旧全宽大卡。
+ */
+@Composable
+private fun ExamSettingCell(
+    backdrop: Backdrop,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    slider: @Composable () -> Unit
+) {
+    val ui = LocalUi.current
+    GlassCard(backdrop = backdrop, modifier = modifier, cornerRadius = 20.dp) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(label, color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(
+                value,
+                color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Box(Modifier.padding(top = 6.dp)) { slider() }
         }
     }
 }
@@ -549,12 +574,12 @@ fun ExamScreen(
         )
     }
 
-    // ---- 答题卡面板（玻璃化：与刷题页题号面板同款，同窗折射背景） ----
-    SheetVisibility(visible = showPanel) {
-        GlassBottomSheet(
-            backdrop = backdrop,
-            onDismiss = { showPanel = false }
-        ) {
+    // ---- 答题卡面板（渲染在 AppRoot 顶层传送门：内容层模糊不波及面板自身） ----
+    GlassBottomSheet(
+        visible = showPanel,
+        backdrop = backdrop,
+        onDismiss = { showPanel = false }
+    ) {
             Column(Modifier.padding(horizontal = 20.dp)) {
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -592,7 +617,6 @@ fun ExamScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
-        }
     }
 }
 

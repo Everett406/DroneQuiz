@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +42,9 @@ import com.drone.quiz.screens.SettingsScreen
 import com.drone.quiz.screens.WrongBookScreen
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassBottomTabs
+import com.drone.quiz.ui.glass.GlassOverlayPortal
+import com.drone.quiz.ui.glass.LocalBgBackdrop
+import com.drone.quiz.ui.glass.LocalContentBackdrop
 import com.drone.quiz.ui.glass.OverlayBlur
 import com.drone.quiz.ui.glass.TabIconSlot
 import com.drone.quiz.ui.theme.LocalUi
@@ -96,14 +101,19 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         }
     }
 
-    // 弹窗打开时内容层真模糊（iOS 风格），替代深色遮罩
+    // 弹窗打开时内容层真模糊（iOS 风格），替代深色遮罩。
+    // 弹窗面板自身渲染在 PortalHost（模糊区之外），不再被连帶模糊。
     val overlayBlur by animateDpAsState(
         targetValue = if (OverlayBlur.active) 16.dp else 0.dp,
         animationSpec = tween(220),
         label = "overlayBlur"
     )
 
-    Box(Modifier.fillMaxSize()) {
+    CompositionLocalProvider(
+        LocalBgBackdrop provides bgBackdrop,
+        LocalContentBackdrop provides contentBackdrop
+    ) {
+        Box(Modifier.fillMaxSize()) {
         // 层 1：背景渐变（液态玻璃的"壁纸"采样源）
         Box(
             Modifier
@@ -239,6 +249,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         }
 
         // 浮动玻璃底栏（仅 Tab 页显示；离场下滑独立动画，不与页面转场叠加）
+        // 弹窗打开时底栏同入模糊区（iOS 同款：面板之外一切虚化）
         AnimatedVisibility(
             visible = isTabRoute,
             modifier = Modifier
@@ -248,7 +259,8 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                     bottom = 10.dp + WindowInsets.navigationBars
                         .asPaddingValues()
                         .calculateBottomPadding()
-                ),
+                )
+                .blur(overlayBlur),
             enter = slideInVertically(
                 animationSpec = tween(260),
                 initialOffsetY = { it }
@@ -284,5 +296,19 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 }
             }
         }
+
+        // 层 4：弹窗传送门宿主（内容模糊区 + 底栏之上）。
+        // 面板在此渲染 → 永远清晰；独立读作用域，避免弹窗高频重组拖动整个 AppRoot。
+        PortalHost()
+    }
+    }
+}
+
+/** 弹窗传送门宿主：单独提取以隔离 GlassOverlayPortal.entries 的读取重组范围。 */
+@Composable
+private fun PortalHost() {
+    GlassOverlayPortal.entries.forEach { entry ->
+        // key 稳定槽位：列表增减时不串位、不丢 remember 状态
+        key(entry.id) { entry.content() }
     }
 }
