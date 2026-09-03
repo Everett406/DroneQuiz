@@ -163,9 +163,11 @@ fun GlassBottomTabs(
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
-                // 按压鼓包收敛在 64dp 栏内（曾用 78/56≈1.39，放大后 56→78dp 超出栏体
-                // 上下各 7dp，透镜色散随之在栏外画出一圈“框/圆环”伪影）
-                pressedScale = 62f / 56f,
+                // 恢复官方大鼓包（v2.7.0，用户对比反馈"液体没有凸出来"）：
+                // 按压/拖动时选中块鼓出栏体上下各约 11dp，液态凸起感回归。
+                // v2.5.1 曾收敛到 62/56——当时误判圆环伪影源于凸出本身，
+                // 实际元凶是色散（chromaticAberration），已同步关闭（见下方 lens）
+                pressedScale = 78f / 56f,
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
@@ -303,7 +305,9 @@ fun GlassBottomTabs(
                         lens(
                             8.dp.toPx() * progress,
                             11.dp.toPx() * progress,
-                            chromaticAberration = true
+                            // 色散是 v2.5.1"圆环/方框伪影"的真正元凶（RGB 边缘分离在凸出
+                            // 边界画彩圈）；凸出鼓包本身无碍，关闭色散后液滴干净且可安全凸出
+                            chromaticAberration = false
                         )
                     },
                     highlight = {

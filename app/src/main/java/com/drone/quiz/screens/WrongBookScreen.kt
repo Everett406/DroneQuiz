@@ -343,9 +343,9 @@ private fun FastScrollHandle(
                         dragging = true
                         scope.launch {
                             listState.scrollToItem((fraction * lastIndex).roundToInt())
+                            kotlinx.coroutines.delay(350)
+                            dragging = false
                         }
-                        kotlinx.coroutines.delay(350)
-                        dragging = false
                     }
                 },
             contentAlignment = Alignment.Center
