@@ -3,6 +3,8 @@ package com.drone.quiz.ui.glass
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -22,6 +25,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -74,6 +78,44 @@ fun GlassBottomTabs(
     val ui = LocalUi.current
     val accentColor = ui.ink // 选中项透玻璃呈现墨色（浅色主题）/奶油色（深色主题）
     val containerColor = ui.surface.copy(alpha = if (ui.isDark) 0.4f else 0.35f)
+
+    // 安全模式：实色胶囊底栏，无 RenderEffect，保留选中胶囊与切换
+    if (!GlassRuntime.enabled) {
+        Row(
+            modifier
+                .clip(RoundedCornerShape(50))
+                .background(ui.surfaceStrong)
+                .height(64.dp)
+                .fillMaxWidth()
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(tabsCount) { i ->
+                val selected = i == selectedTabIndex()
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (selected) ui.ink else Color.Transparent)
+                        .clickable(
+                            interactionSource = null,
+                            indication = null
+                        ) { onTabSelected(i) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            LocalTabIconTint provides if (selected) ui.onInk else Color.Unspecified
+                        ) {
+                            tabIcon(i)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
 
     val tabsBackdrop = rememberLayerBackdrop()
 

@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  APP_VERSION_NAME: 2.0.2
+  APP_VERSION_TAG: v2.0.2
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,33 +28,40 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # 固定签名：从 secrets 恢复 keystore，保证每个版本签名一致、可覆盖安装
+      - name: Restore signing keystore
+        run: |
+          echo "${{ secrets.DQ_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/dronequiz.keystore"
+          echo "DQ_KS_PATH=$RUNNER_TEMP/dronequiz.keystore" >> "$GITHUB_ENV"
+          echo "DQ_KS_STORE_PASS=${{ secrets.DQ_KS_STORE_PASS }}" >> "$GITHUB_ENV"
+
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Rename APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/DroneQuiz-v2.0.1.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DroneQuiz-v2.0.1
-          path: dist/DroneQuiz-v2.0.1.apk
+          name: DroneQuiz-${{ env.APP_VERSION_NAME }}
+          path: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.0.1
-          name: DroneQuiz v2.0.1
-          files: dist/DroneQuiz-v2.0.1.apk
+          tag_name: ${{ env.APP_VERSION_TAG }}
+          name: DroneQuiz ${{ env.APP_VERSION_TAG }}
+          files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            无人机装调题库刷题 APP v2.0
-            - 真·液态玻璃（Kyant0 backdrop，AGSL 折射/色散/高光）
-            - 浮动玻璃胶囊底栏（自绘矢量图标）
-            - iOS 式过冲回弹、统一转场（无重叠）、按钮按压动画
-            - 首页可视化重做、刷题页标题置顶、题号面板、可拖动滑杆
-            - 修复模考交卷崩溃（wrongbook.addedAt）
+            无人机装调题库刷题 APP v2.0.2
+            - 启动守护：面包屑日志 + 启动心跳，任何形式异常退出（含渲染层 native 崩溃）下次启动自动诊断
+            - 自愈能力：检测到异常退出自动进入安全模式（关闭画面特效），保证 APP 始终可用
+            - 设置新增「画面特效」开关，可手动开关液态玻璃
+            - 固定签名：此后所有版本可直接覆盖安装，无需再卸载旧版（本次安装仍需卸载一次旧版）
+            - 修复模考交卷崩溃（wrongbook.addedAt）、真液态玻璃（Kyant0 backdrop）
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

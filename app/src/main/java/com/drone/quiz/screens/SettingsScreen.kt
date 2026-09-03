@@ -150,6 +150,29 @@ fun SettingsScreen(backdrop: Backdrop) {
                         modifier = Modifier.width(200.dp)
                     )
                 }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("画面特效", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.effects) "液态玻璃折射 / 模糊（推荐）"
+                            else "已关闭（省电，老旧设备更流畅）",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    GlassToggle(
+                        checked = settings.effects,
+                        onCheckedChange = { v ->
+                            scope.launch { ServiceLocator.settings.setEffects(v) }
+                        },
+                        backdrop = backdrop
+                    )
+                }
             }
         }
 

@@ -18,7 +18,8 @@ data class AppSettings(
     val passScore: Int = 60,     // 50..95 step 5
     val removeThreshold: Int = 2, // 错题移除：连续答对 N 次
     val dailyNotify: Boolean = false,
-    val practiceOrder: Int = 0   // 0 顺序 1 随机
+    val practiceOrder: Int = 0,  // 0 顺序 1 随机
+    val effects: Boolean = true  // 画面特效（液态玻璃）；异常退出后自动降级时为 false 效果
 )
 
 class SettingsStore(private val context: Context) {
@@ -31,6 +32,7 @@ class SettingsStore(private val context: Context) {
         val removeThreshold = intPreferencesKey("remove_threshold")
         val dailyNotify = booleanPreferencesKey("daily_notify")
         val practiceOrder = intPreferencesKey("practice_order")
+        val effects = booleanPreferencesKey("glass_effects")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -41,7 +43,8 @@ class SettingsStore(private val context: Context) {
             passScore = p[K.passScore] ?: 60,
             removeThreshold = p[K.removeThreshold] ?: 2,
             dailyNotify = p[K.dailyNotify] ?: false,
-            practiceOrder = p[K.practiceOrder] ?: 0
+            practiceOrder = p[K.practiceOrder] ?: 0,
+            effects = p[K.effects] ?: true
         )
     }
 
@@ -52,4 +55,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setRemoveThreshold(v: Int) = context.dataStore.edit { it[K.removeThreshold] = v }
     suspend fun setDailyNotify(v: Boolean) = context.dataStore.edit { it[K.dailyNotify] = v }
     suspend fun setPracticeOrder(v: Int) = context.dataStore.edit { it[K.practiceOrder] = v }
+    suspend fun setEffects(v: Boolean) = context.dataStore.edit { it[K.effects] = v }
 }

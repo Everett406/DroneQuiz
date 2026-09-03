@@ -2,6 +2,7 @@ package com.drone.quiz
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,13 +10,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -39,28 +41,48 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.ui.glass.GlassRuntime
 import com.drone.quiz.ui.nav.AppRoot
 import com.drone.quiz.ui.theme.DroneTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashGuard.install(this)
+        BootGuard.log(this, "activity", "MainActivity.onCreate")
         enableEdgeToEdge()
         setContent {
             val settings by ServiceLocator.settings.settings
                 .collectAsStateWithLifecycle(initialValue = AppSettings())
             DroneTheme(themeMode = settings.themeMode, fontLevel = settings.fontLevel) {
                 val context = LocalContext.current
+                val snapshot = ServiceLocator.bootSnapshot
                 var crashReport by remember { mutableStateOf(CrashGuard.readLast(context)) }
                 var ready by remember { mutableStateOf(false) }
+                var diagDismissed by remember { mutableStateOf(false) }
+                var bannerDismissed by remember { mutableStateOf(false) }
+
+                // 特效总开关：用户偏好 × 自动安全模式
+                GlassRuntime.enabled = settings.effects && !snapshot.autoSafeMode
 
                 LaunchedEffect(Unit) {
-                    runCatching {
+                    BootGuard.log(context, "load", "开始加载题库")
+                    val result = runCatching {
                         ServiceLocator.repo.ensureBankLoaded(applicationContext)
                     }
+                    result.onFailure {
+                        BootGuard.log(context, "load", "题库加载失败(已忽略): ${it.javaClass.name}: ${it.message}")
+                    }
+                    result.onSuccess {
+                        BootGuard.log(context, "load", "题库就绪")
+                    }
                     ready = true
+                    BootGuard.log(context, "load", "主界面开始渲染")
+                    // 首帧渲染稳定后标记本次启动健康（此后崩溃不再触发自动安全模式）
+                    delay(700)
+                    BootGuard.markHealthy(context)
                 }
 
                 when {
@@ -72,7 +94,25 @@ class MainActivity : ComponentActivity() {
                             crashReport = null
                         }
                     )
-                    ready -> AppRoot(settings = settings)
+                    ready && snapshot.showDiagnostics && !diagDismissed -> DiagnosticsScreen(
+                        fails = snapshot.fails,
+                        hasCrashFile = false,
+                        effectsOn = GlassRuntime.enabled,
+                        onContinue = { diagDismissed = true }
+                    )
+                    ready -> Box(Modifier.fillMaxSize()) {
+                        AppRoot(settings = settings)
+                        if (snapshot.autoSafeMode && !bannerDismissed) {
+                            SafeModeBanner(
+                                effectsOn = GlassRuntime.enabled,
+                                onDismiss = { bannerDismissed = true },
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .statusBarsPadding()
+                                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
                     // 加载期给出可见的启动画面
                     else -> Box(
                         Modifier
@@ -86,11 +126,125 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        // 离开前台视为一次正常使用，兜底标记健康（覆盖"打开即关"的场景）
+        BootGuard.markHealthy(this)
+    }
+}
+
+@Composable
+private fun SafeModeBanner(effectsOn: Boolean, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF1B1811).copy(alpha = 0.92f))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Column {
+            Text(
+                "检测到上次启动异常退出，已自动关闭画面特效以保证可用",
+                color = Color(0xFFF2EBDD),
+                fontSize = 12.sp
+            )
+            Text(
+                if (effectsOn) "点击此条不再提示 · 可在 设置-画面特效 重新开启"
+                else "特效当前已关闭（设置-画面特效） · 点击此条不再提示",
+                color = Color(0xFF9A907F),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun DiagnosticsScreen(
+    fails: Int,
+    hasCrashFile: Boolean,
+    effectsOn: Boolean,
+    onContinue: () -> Unit
+) {
+    val context = LocalContext.current
+    val fullReport = buildString {
+        appendLine("== 启动诊断 ==")
+        appendLine("设备: ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+        appendLine("版本: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        appendLine("连续异常退出: $fails 次")
+        appendLine("画面特效: ${if (effectsOn) "开启" else "已关闭（安全模式）"}")
+        appendLine("说明: 未捕获到 Java 崩溃栈时，异常退出通常发生在渲染层（GPU 驱动/着色器），已自动降级保证可用")
+        appendLine()
+        appendLine("== 启动轨迹 ==")
+        appendLine(BootGuard.readLog(context))
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1B1811))
+            .padding(20.dp)
+    ) {
+        Text(
+            "启动诊断",
+            color = Color(0xFFEFE9DC),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            "连续 $fails 次异常退出，已进入安全模式。以下信息可截图或复制反馈",
+            color = Color(0xFF9A907F),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(vertical = 12.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF26221C))
+        ) {
+            Text(
+                fullReport,
+                color = Color(0xFFE06666),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .padding(12.dp)
+                    .verticalScroll(rememberScrollState())
+            )
+        }
+        Row {
+            OutlinedButton(
+                onClick = {
+                    runCatching {
+                        val cm = context.getSystemService(ClipboardManager::class.java)
+                        cm.setPrimaryClip(ClipData.newPlainText("diag", fullReport))
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            ) { Text("复制全部") }
+            Button(
+                onClick = onContinue,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp)
+            ) { Text("继续使用") }
+        }
+        Spacer(Modifier.height(10.dp))
+    }
 }
 
 @Composable
 private fun CrashReportScreen(report: String, onClose: () -> Unit) {
     val context = LocalContext.current
+    val fullReport = buildString {
+        appendLine(report.trimEnd())
+        appendLine()
+        appendLine("== 启动轨迹 ==")
+        appendLine(BootGuard.readLog(context))
+    }
     Column(
         Modifier
             .fillMaxSize()
@@ -118,7 +272,7 @@ private fun CrashReportScreen(report: String, onClose: () -> Unit) {
                 .background(Color(0xFF26221C))
         ) {
             Text(
-                report,
+                fullReport,
                 color = Color(0xFFE06666),
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
@@ -133,7 +287,7 @@ private fun CrashReportScreen(report: String, onClose: () -> Unit) {
                 onClick = {
                     runCatching {
                         val cm = context.getSystemService(ClipboardManager::class.java)
-                        cm.setPrimaryClip(ClipData.newPlainText("crash", report))
+                        cm.setPrimaryClip(ClipData.newPlainText("crash", fullReport))
                     }
                 },
                 modifier = Modifier.weight(1f)

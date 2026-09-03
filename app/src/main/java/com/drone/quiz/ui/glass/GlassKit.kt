@@ -29,6 +29,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -72,6 +73,15 @@ import kotlin.math.sin
 import kotlin.math.tanh
 
 /**
+ * 全局玻璃特效开关。
+ * 安全模式（启动异常自动降级）或用户在设置中关闭后，
+ * 所有玻璃组件退化为纯 Compose 渲染（无 RenderEffect/AGSL），保证可用性。
+ */
+object GlassRuntime {
+    var enabled by mutableStateOf(true)
+}
+
+/**
  * 静态玻璃表面：真折射（AGSL lens）+ 真模糊 + vibrancy + 表面着色。
  * shape 必须是 CornerBasedShape（RoundedCornerShape）。
  */
@@ -83,18 +93,24 @@ fun Modifier.glass(
     lensAmountDp: Dp = 24.dp,
     surfaceColor: Color? = null,
     depth: Boolean = false
-): Modifier = drawBackdrop(
-    backdrop = backdrop,
-    shape = { shape },
-    effects = {
-        vibrancy()
-        blur(blurDp.toPx())
-        lens(lensHeightDp.toPx(), lensAmountDp.toPx(), depthEffect = depth)
-    },
-    onDrawSurface = {
-        if (surfaceColor != null) drawRect(surfaceColor)
-    }
-)
+): Modifier = if (!GlassRuntime.enabled) {
+    Modifier
+        .clip(shape)
+        .then(if (surfaceColor != null) Modifier.background(surfaceColor) else Modifier)
+} else {
+    drawBackdrop(
+        backdrop = backdrop,
+        shape = { shape },
+        effects = {
+            vibrancy()
+            blur(blurDp.toPx())
+            lens(lensHeightDp.toPx(), lensAmountDp.toPx(), depthEffect = depth)
+        },
+        onDrawSurface = {
+            if (surfaceColor != null) drawRect(surfaceColor)
+        }
+    )
+}
 
 /**
  * 按压缩放（非玻璃元素也有的"按下去"手感）。
@@ -134,24 +150,31 @@ fun GlassCard(
     val ui = LocalUi.current
     val shape = RoundedCornerShape(cornerRadius)
     val press = if (onClick != null) rememberPressScale() else Modifier
+    val clickMod = if (onClick != null) Modifier.clickable(
+        interactionSource = null,
+        indication = null,
+        onClick = onClick
+    ) else Modifier
     Box(
         modifier
             .then(press)
-            .glass(
-                backdrop = backdrop,
-                shape = shape,
-                blurDp = 18.dp,
-                lensHeightDp = 14.dp,
-                lensAmountDp = 20.dp,
-                surfaceColor = ui.surface.copy(alpha = surfaceAlpha)
-            )
             .then(
-                if (onClick != null) Modifier.clickable(
-                    interactionSource = null,
-                    indication = null,
-                    onClick = onClick
-                ) else Modifier
-            ),
+                if (!GlassRuntime.enabled) {
+                    Modifier
+                        .clip(shape)
+                        .background(ui.surfaceStrong)
+                } else {
+                    Modifier.glass(
+                        backdrop = backdrop,
+                        shape = shape,
+                        blurDp = 18.dp,
+                        lensHeightDp = 14.dp,
+                        lensAmountDp = 20.dp,
+                        surfaceColor = ui.surface.copy(alpha = surfaceAlpha)
+                    )
+                }
+            )
+            .then(clickMod),
         content = content
     )
 }
@@ -174,8 +197,25 @@ fun GlassButton(
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope = animationScope)
     }
+    val ui = LocalUi.current
 
-    Row(
+    val containerModifier = if (!GlassRuntime.enabled) {
+        // 安全模式：纯色胶囊按钮，保留按压反馈
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (surfaceColor != Color.Unspecified) surfaceColor
+                else ui.surfaceStrong
+            )
+            .clickable(
+                interactionSource = null,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .height(heightDp)
+            .padding(horizontal = 18.dp)
+    } else {
         modifier
             .drawBackdrop(
                 backdrop = backdrop,
@@ -237,7 +277,11 @@ fun GlassButton(
                 }
             )
             .height(heightDp)
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 18.dp)
+    }
+
+    Row(
+        containerModifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
         content = content
@@ -347,7 +391,10 @@ fun GlassSlider(
                 }
         }
 
-        Box(Modifier.layerBackdrop(trackBackdrop)) {
+        Box(
+            Modifier
+                .then(if (GlassRuntime.enabled) Modifier.layerBackdrop(trackBackdrop) else Modifier)
+        ) {
             Box(
                 Modifier
                     .clip(RoundedCornerShape(50))
@@ -381,16 +428,28 @@ fun GlassSlider(
             )
         }
 
-        Box(
-            Modifier
-                .graphicsLayer {
-                    translationX =
-                        (-size.width / 2f + trackWidth * dampedDragAnimation.progress)
-                            .coerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
-                            (if (isLtr) 1f else -1f)
-                }
-                .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
+        val thumbBase = Modifier
+            .graphicsLayer {
+                translationX =
+                    (-size.width / 2f + trackWidth * dampedDragAnimation.progress)
+                        .coerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
+                        (if (isLtr) 1f else -1f)
+            }
+            .then(dampedDragAnimation.modifier)
+
+        if (!GlassRuntime.enabled) {
+            // 安全模式：实色滑块 + 轻阴影，无 RenderEffect
+            Box(
+                thumbBase
+                    .shadow(4.dp, RoundedCornerShape(50))
+                    .clip(RoundedCornerShape(50))
+                    .background(if (ui.isDark) Color(0xFFF2EBDD) else Color.White)
+                    .size(40.dp, 24.dp)
+            )
+        } else {
+            Box(
+                thumbBase
+                    .drawBackdrop(
                     backdrop = rememberCombinedBackdrop(
                         backdrop,
                         rememberBackdrop(trackBackdrop) { drawBackdrop ->
@@ -444,7 +503,8 @@ fun GlassSlider(
                     }
                 )
                 .size(40.dp, 24.dp)
-        )
+            )
+        }
     }
 }
 
@@ -465,7 +525,17 @@ fun GlassToggle(
         label = "toggle"
     )
 
-    Box(
+    val containerMod = if (!GlassRuntime.enabled) {
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (checked) ui.ink else ui.line)
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                role = Role.Switch
+            ) { onCheckedChange(!checked) }
+            .size(52.dp, 30.dp)
+    } else {
         modifier
             .drawBackdrop(
                 backdrop = backdrop,
@@ -488,7 +558,9 @@ fun GlassToggle(
                 role = Role.Switch
             ) { onCheckedChange(!checked) }
             .size(52.dp, 30.dp)
-    ) {
+    }
+
+    Box(containerMod) {
         Box(
             Modifier
                 .align(Alignment.CenterStart)

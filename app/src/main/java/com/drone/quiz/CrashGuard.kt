@@ -10,13 +10,19 @@ import androidx.compose.runtime.setValue
 /**
  * 全局崩溃捕获：崩溃堆栈写入私有文件，下次启动时在屏幕上完整展示，
  * 便于远程排查（用户截图即可反馈）。
+ * 注意：仅能捕获 Java/Kotlin 层异常；native 崩溃由 BootGuard 的心跳机制兜底定位。
  */
 object CrashGuard {
 
     var liveCrash: String? by mutableStateOf(null)
         private set
 
+    private var installed = false
+
     fun install(context: Context) {
+        if (installed) return
+        installed = true
+        val appContext = context.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val text = buildString {
@@ -27,9 +33,12 @@ object CrashGuard {
                 appendLine(Log.getStackTraceString(throwable))
             }
             runCatching {
-                context.openFileOutput("last_crash.txt", Context.MODE_PRIVATE).use {
+                appContext.openFileOutput("last_crash.txt", Context.MODE_PRIVATE).use {
                     it.write(text.toByteArray())
                 }
+            }
+            runCatching {
+                BootGuard.log(appContext, "crash", "未捕获异常: ${throwable.javaClass.name}: ${throwable.message}")
             }
             liveCrash = text
             previous?.uncaughtException(thread, throwable)

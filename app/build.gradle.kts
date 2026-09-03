@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,14 +16,34 @@ android {
         applicationId = "com.drone.quiz"
         minSdk = 31
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.0.1"
+        versionCode = 4
+        versionName = "2.0.2"
+    }
+
+    // 固定签名：本地（环境变量 DQ_KS_PATH/DQ_KS_STORE_PASS）与 GitHub Actions（secrets）共用同一 keystore，
+    // 保证所有渠道构建的 APK 签名一致，可覆盖安装、无需卸载旧版。
+    val ksPath = System.getenv("DQ_KS_PATH")
+    val ksStorePass = System.getenv("DQ_KS_STORE_PASS")
+    val hasDqKeystore = !ksPath.isNullOrBlank() && File(ksPath).exists() && !ksStorePass.isNullOrBlank()
+
+    signingConfigs {
+        if (hasDqKeystore) {
+            create("dq") {
+                storeFile = File(ksPath!!)
+                storePassword = ksStorePass
+                keyAlias = "dronequiz"
+                keyPassword = ksStorePass
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasDqKeystore) signingConfigs.getByName("dq") else signingConfigs.getByName("debug")
+        }
+        debug {
+            if (hasDqKeystore) signingConfig = signingConfigs.getByName("dq")
         }
     }
     compileOptions {
