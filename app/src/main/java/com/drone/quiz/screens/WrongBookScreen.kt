@@ -36,8 +36,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-androidx.compose.ui.draw.scale
-androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.scale
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
