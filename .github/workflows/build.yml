@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION_NAME: 2.1.0
-  APP_VERSION_TAG: v2.1.0
+  APP_VERSION_NAME: 2.2.0
+  APP_VERSION_TAG: v2.2.0
 
 jobs:
   build:
@@ -56,11 +56,11 @@ jobs:
           name: DroneQuiz ${{ env.APP_VERSION_TAG }}
           files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            无人机装调题库刷题 APP v2.1.0
-            - 【根治首次启动闪退】按官方 backdrop 架构重构：滚动内容内组件不再采样记录层（消除 RenderThread SIGSEGV 循环），
-              改用 iOS regular material 质感材质；底栏/弹层保留真折射液态玻璃
-            - 修复滑杆整体偏下（轨道/滑块垂直居中）
-            - 按钮按压动效、滑杆/开关样式重做
+            无人机装调题库刷题 APP v2.2.0
+            - 【修复开关】画面特效/自动切题等开关圆钮恒停左侧 → 现随状态左右滑动
+            - 【修复底栏】液态玻璃开启时底栏 5 个图标消失、中间幽灵☰、右侧白团 → 全部修复，选中图标透过玻璃呈墨色
+            - 【正式题库】内置题库替换为用户提供《无人机装调题库（含解析）》800 题（单选640/判断160）
+            - 题库升级自动重置学习数据（旧刷题/模考/错题记录因题目 id 变化而清空）
             - 固定签名，可直接覆盖安装
           overwrite_files: true
         env:
