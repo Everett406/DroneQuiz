@@ -34,7 +34,7 @@ interface QuestionDao {
     suspend fun categories(): List<String>
 
     @Query(
-        "SELECT * FROM questions WHERE text LIKE '%' || :q || '%' " +
+        "SELECT * FROM questions WHERE question LIKE '%' || :q || '%' " +
             "OR options LIKE '%' || :q || '%' OR explanation LIKE '%' || :q || '%' " +
             "ORDER BY id LIMIT 80"
     )
