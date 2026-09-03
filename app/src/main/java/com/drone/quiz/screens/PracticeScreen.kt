@@ -289,23 +289,17 @@ fun PracticeRunScreen(
                     key = { questions[it].id }
                 ) { page ->
                     val q = questions[page]
-                    // 转盘式切页：页面沿竖轴随滑动轻微偏转（rotationY + 透视相机），
-                    // 邻页向圆心轻收（弧面压缩），产生“转盘半径”的纵深感
+                    // 切页纵深感：离场页轻微后缩（v2.5.1 简化，详见下方 graphicsLayer 注释）
                     Box(
                         Modifier.graphicsLayer {
-                            // 有符号页偏移：0 = 当前页，正值 = 页在圆心右侧（与 Pager 版本无关的算法）
-                            // off = (page - currentPage) - currentPageOffsetFraction
-                            // 拖向下一页时当前页 off 变负（向左离场），下一页 off 趋 0（自右侧入场）
+                            // 轻微纵深：离场页微缩。不做 3D 旋转/透明度渐隐——
+                            // rotationY 会让卡片上下角超出 Pager 视口被裁剪（"上下切一刀"），
+                            // 且与玻璃 backdrop 采样不兼容产生阴影状伪影（v2.5.1 移除）
                             val off = ((page - pagerState.currentPage) -
-                                pagerState.currentPageOffsetFraction).coerceIn(-1.2f, 1.2f)
-                            val a = abs(off)
-                            cameraDistance = 24f * density
-                            rotationY = off * 20f
-                            translationX = -off * size.width * 0.04f
-                            val s = 1f - a * 0.06f
+                                pagerState.currentPageOffsetFraction).coerceIn(-1f, 1f)
+                            val s = 1f - abs(off) * 0.03f
                             scaleX = s
                             scaleY = s
-                            alpha = 1f - (a * 0.35f).coerceAtMost(0.35f)
                         }
                     ) {
                         QuestionCard(

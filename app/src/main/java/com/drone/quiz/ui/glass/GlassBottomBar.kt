@@ -156,7 +156,9 @@ fun GlassBottomTabs(
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
-                pressedScale = 78f / 56f,
+                // 按压鼓包收敛在 64dp 栏内（曾用 78/56≈1.39，放大后 56→78dp 超出栏体
+                // 上下各 7dp，透镜色散随之在栏外画出一圈“框/圆环”伪影）
+                pressedScale = 62f / 56f,
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
@@ -292,8 +294,8 @@ fun GlassBottomTabs(
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
                         lens(
-                            10.dp.toPx() * progress,
-                            14.dp.toPx() * progress,
+                            8.dp.toPx() * progress,
+                            11.dp.toPx() * progress,
                             chromaticAberration = true
                         )
                     },

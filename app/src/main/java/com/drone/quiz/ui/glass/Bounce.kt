@@ -1,6 +1,8 @@
 package com.drone.quiz.ui.glass
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -18,142 +20,154 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
 
 /**
- * iOS 式上下过冲回弹（rubber-band，"豆腐般丝滑"）。
+ * iOS 式上下过冲回弹（rubber-band），v2.5.1 按社区标准实现（sinasamaki
+ * "Overscroll animations in Jetpack Compose" 的 NestedScroll 方案）重写。
  *
- * 设计要点（v2.5.0 重写，修复此前实现的手感问题）：
- * - 经典 iOS rubber-band 位移曲线：位移 = d·(1 − 1/(x·c/d + 1))，c≈0.55。
- *   渐进阻力连续无拐点，起手近 1:1 跟手，越拉越"韧"，渐近线 d（约 110dp），永不过冲越界。
- * - 虚拟位移（无界）与显示位移分离：拖动/fling 都只累加虚拟量，显示量由曲线唯一决定，
- *   拖动中任何时刻反向都严格沿原曲线返回（此前线性阻力在往返时手感发涩）。
- * - 回弹触发点完备且不打架：
- *   · 拖动松手 → onPreFling（带初速度，弹簧先顺势后回）；
- *   · fling 撞边 → 滚动结束的 onPostFling（此前靠 90ms 定时器兜底，会在按住不动/慢拖时
- *     与手势抢状态造成抖动，这是"不够丝滑"的根源，已删除）。
- * - 回弹弹簧：临界阻尼（dampingRatio = 1f），无肉眼可见的过零震荡，软而不晃。
+ * 此前两版手感差的根因：
+ * - v2.4.x：90ms 定时器兜底与手势抢状态（抖动）；
+ * - v2.5.0：显示曲线起手斜率只有 0.55（一起手就跟不上手）+ 渐近线仅 110dp +
+ *   回弹弹簧把松手速度当初速度且无钳制（会甩过头荡到另一侧）。
+ *
+ * 本版要点：
+ * - 原始过冲量与显示量分离：显示量 = 缓动曲线(原始量 / 容器高度×1.5) × 容器高度。
+ *   CubicBezier(0.5, 0.5, 1.0, 0.25) 起手斜率恰为 1:1（绝对跟手），越拉越"韧"，
+ *   渐近线为容器高度（iOS 同款用 dimension，不是固定小上限）。
+ * - 拖动过冲用 snapTo 直写（零延迟）；已过冲时只允许向零回退，不许反向叠加。
+ * - 松手甩动的三种走向（onPreFling，exponentialDecay 预测）：
+ *   · 甩不回内容侧 → StiffnessLow 软弹簧带速度回弹，速度全部消费；
+ *   · 会冲过零点 → 过冲量按摩擦衰减滑行，过零瞬间 snapTo(0)，
+ *     剩余速度原样交还列表继续滚动（iOS 式无缝衔接，不吞甩动）；
+ *   · 零速度松手 → 直接软弹回。
+ * - 惯性撞边：onPostScroll 只做显示跟踪，fling 结束 onPostFling 带残余速度软弹回。
  */
 class BounceState internal constructor(
-    private val maxBouncePx: Float,
-    private val scope: kotlinx.coroutines.CoroutineScope
+    private val scope: CoroutineScope
 ) {
 
-    /** 显示位移（px），正 = 内容被向下拉（顶部过冲）。 */
+    /** 原始过冲量（无界）。 */
+    private val amount = Animatable(0f)
+
+    /** 显示位移（px），由缓动曲线从原始量饱和映射而来。 */
     var offset by mutableFloatStateOf(0f)
         private set
 
-    /** 虚拟位移（无界）：显示位移 = rubber(virtual)。 */
-    private var virtual = 0f
+    /** 容器高度（px），onSizeChanged 更新；决定过冲渐近线。 */
+    private var length = 1f
 
-    private var releaseJob: Job? = null
+    // 起手 1:1 跟手、渐进变重的橡胶曲线
+    private val easing = CubicBezierEasing(0.5f, 0.5f, 1.0f, 0.25f)
 
-    /** iOS UIScrollView 同款 rubber-band 映射。 */
-    private fun rubber(x: Float): Float {
-        if (x == 0f) return 0f
-        val c = 0.55f
-        val ax = abs(x)
-        return sign(x) * maxBouncePx * (1f - 1f / (ax * c / maxBouncePx + 1f))
+    private fun applyDisplay() {
+        val a = amount.value
+        offset = sign(a) * easing.transform(abs(a) / (length * 1.5f)).coerceIn(0f, 1f) * length
     }
 
-    private fun applyFromVirtual() {
-        offset = rubber(virtual)
-    }
-
-    private fun cancelRelease() {
-        releaseJob?.cancel()
-        releaseJob = null
-    }
-
-    /**
-     * 回弹到 0。初速度取自松手/fling 的纵向速度（按比例阻尼引入），
-     * 让"甩出去松手"先顺势再被拉回，接近 iOS 原生手感。
-     */
-    fun release(initialVelocityPxPerSec: Float = 0f) {
-        if (virtual == 0f) return
-        cancelRelease()
-        releaseJob = scope.launch {
-            val anim = Animatable(virtual)
-            val finished = runCatching {
-                anim.animateTo(
-                    0f,
-                    spring(
-                        dampingRatio = 1f,          // 临界阻尼：软、无过零震荡
-                        stiffness = 320f,
-                        visibilityThreshold = 0.1f
-                    ),
-                    initialVelocity = initialVelocityPxPerSec * 0.35f
-                ) {
-                    // 每帧沿曲线回写：位移始终受 rubber-band 约束，视觉平滑
-                    virtual = value
-                    offset = rubber(value)
-                }
-            }.isSuccess
-            if (finished) {
-                virtual = 0f
-                offset = 0f
-            }
-            releaseJob = null
+    /** 过冲量累加：已过冲时只允许向零回退，不许反向叠加。 */
+    private fun accumulated(delta: Float): Float {
+        val previous = amount.value
+        val next = previous + delta
+        return when {
+            previous > 0f -> next.coerceAtLeast(0f)
+            previous < 0f -> next.coerceAtMost(0f)
+            else -> next
         }
+    }
+
+    /** 容器尺寸变化时由修饰符回调。 */
+    fun onContainerSizeChanged(sizePx: Int) {
+        if (sizePx > 0) length = sizePx.toFloat()
     }
 
     val connection = object : NestedScrollConnection {
 
-        // 已过冲时，向回拖优先由过冲层消费（沿曲线退回），绝不反向叠加
+        // 拖动中已过冲：过冲层优先消费（snapTo 直写，零延迟跟手）
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            val dy = available.y
-            if (virtual != 0f) {
-                val towardZero = -virtual
-                val consumed =
-                    if (virtual > 0) dy.coerceIn(towardZero, 0f)
-                    else dy.coerceIn(0f, towardZero)
-                if (consumed != 0f) {
-                    cancelRelease()
-                    virtual += consumed
-                    applyFromVirtual()
+            if (amount.value != 0f && source != NestedScrollSource.SideEffect) {
+                scope.launch {
+                    amount.snapTo(accumulated(available.y))
+                    applyDisplay()
                 }
-                return Offset(0f, consumed)
+                return available
             }
             return Offset.Zero
         }
 
-        // 子列表到边后剩余的拖动/惯性位移 → 全部转入 rubber-band
+        // 子列表到边后的剩余量（拖动/惯性）：转入过冲显示；不消费，
+        // 速度信息保留给 onPostFling 做带速度回弹
         override fun onPostScroll(
             consumed: Offset,
             available: Offset,
             source: NestedScrollSource
         ): Offset {
-            val dy = available.y
-            if (dy != 0f) {
-                cancelRelease()
-                virtual += dy
-                applyFromVirtual()
-                return Offset(0f, dy)
+            if (available.y != 0f) {
+                scope.launch {
+                    amount.snapTo(accumulated(available.y))
+                    applyDisplay()
+                }
             }
             return Offset.Zero
         }
 
-        // 拖动松手：带初速度回弹
         override suspend fun onPreFling(available: Velocity): Velocity {
-            return if (virtual != 0f) {
-                release(available.y)
-                Velocity.Zero
-            } else {
-                available
+            if (amount.value != 0f && available.y != 0f) {
+                val previousSign = sign(amount.value)
+                var unconsumed = available.y
+                val predictedEnd = exponentialDecay<Float>().calculateTargetValue(
+                    initialValue = amount.value,
+                    initialVelocity = available.y
+                )
+                if (sign(predictedEnd) == previousSign) {
+                    // 甩不回内容侧：软弹簧带松手速度回弹，速度全部消费
+                    amount.animateTo(
+                        0f,
+                        spring(stiffness = 200f),
+                        initialVelocity = available.y
+                    ) { applyDisplay() }
+                } else {
+                    // 强甩向内容侧：摩擦衰减滑行，过零瞬间交还剩余速度（无缝衔接）
+                    try {
+                        amount.animateDecay(
+                            initialVelocity = available.y,
+                            animationSpec = exponentialDecay()
+                        ) {
+                            if (sign(value) != previousSign) {
+                                unconsumed -= velocity
+                                scope.launch {
+                                    amount.snapTo(0f)
+                                    applyDisplay()
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // snapTo(0) 会取消本衰减动画（预期路径），吞掉即可
+                    }
+                }
+                return Velocity(0f, unconsumed)
             }
+            if (amount.value != 0f) {
+                // 零速度松手：直接软弹回
+                amount.animateTo(0f, spring(stiffness = 200f)) { applyDisplay() }
+                return Velocity.Zero
+            }
+            return available
         }
 
-        // fling 滚动结束仍压在边上（惯性撞边）：滚动结束时统一回弹
         override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-            if (virtual != 0f) {
-                release(available.y)
-                return Velocity.Zero
+            // 惯性撞边结束：带残余速度软弹回
+            if (amount.value != 0f) {
+                amount.animateTo(
+                    0f,
+                    spring(stiffness = 200f),
+                    initialVelocity = available.y
+                ) { applyDisplay() }
             }
             return available
         }
@@ -162,10 +176,8 @@ class BounceState internal constructor(
 
 @Composable
 fun rememberBounceState(): BounceState {
-    val density = LocalDensity.current
-    val maxPx = with(density) { 110.dp.toPx() }
     val scope = rememberCoroutineScope()
-    return remember(maxPx) { BounceState(maxPx, scope) }
+    return remember { BounceState(scope) }
 }
 
 /**
@@ -180,6 +192,7 @@ fun BounceLazyColumn(
     Box(
         modifier
             .graphicsLayer { translationY = state.offset }
+            .onSizeChanged { state.onContainerSizeChanged(it.height) }
             .nestedScroll(state.connection)
     ) {
         LazyColumn(content = content)
@@ -198,6 +211,7 @@ fun BounceContainer(
     Box(
         modifier
             .graphicsLayer { translationY = state.offset }
+            .onSizeChanged { state.onContainerSizeChanged(it.height) }
             .nestedScroll(state.connection),
         content = content
     )

@@ -249,7 +249,8 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         }
 
         // 浮动玻璃底栏（仅 Tab 页显示；离场下滑独立动画，不与页面转场叠加）
-        // 弹窗打开时底栏同入模糊区（iOS 同款：面板之外一切虚化）
+        // 注：不给底栏套 Modifier.blur——方形 blur 层会在胶囊四周留下方框裁剪痕迹，
+        // 底栏玻璃本身折射的就是已模糊的内容层，视觉已一致
         AnimatedVisibility(
             visible = isTabRoute,
             modifier = Modifier
@@ -259,8 +260,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                     bottom = 10.dp + WindowInsets.navigationBars
                         .asPaddingValues()
                         .calculateBottomPadding()
-                )
-                .blur(overlayBlur),
+                ),
             enter = slideInVertically(
                 animationSpec = tween(260),
                 initialOffsetY = { it }
