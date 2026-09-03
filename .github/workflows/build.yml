@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION_NAME: 2.3.0
-  APP_VERSION_TAG: v2.3.0
+  APP_VERSION_NAME: 2.3.1
+  APP_VERSION_TAG: v2.3.1
 
 jobs:
   build:
@@ -56,24 +56,19 @@ jobs:
           name: DroneQuiz ${{ env.APP_VERSION_TAG }}
           files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            无人机装调题库刷题 APP v2.3.0 —— 液态玻璃全面重构
+            无人机装调题库刷题 APP v2.3.1 —— 修复启动崩溃（热修复）
             
-            【液态玻璃重构（对齐 Kyant0/AndroidLiquidGlass 官方架构）】
-            - 背景渐变单独记录进取景层：玻璃终于有"真实折射源"，不再采样透明像素
-            - 内容流卡片/按钮/滑杆/开关全部升级为真折射玻璃（官方 LazyScrollContainer 同款架构）
-            - 底栏/按钮/滑杆/开关/题号面板全部换用官方 Capsule 连续曲率胶囊（io.github.kyant0:shapes）
-            - 开关重做为官方 LiquidToggle 同款：可拖拽玻璃圆钮、轨道颜色渐变
-            - 滑杆对齐官方 LiquidSlider：折射轨道放大效果、色差镜片、点击热区扩大
-            - 题号面板（原 ModalBottomSheet）与全部确认对话框（原 AlertDialog）玻璃化，
-              同窗口绘制真实折射背景，支持点遮罩/返回键关闭
-            - 修复开关与圆钮手势双触发风险；修复滑杆点击热区过小
+            【修复：启动即闪退（v2.3.0 回归，强烈建议升级）】
+            - 现象：安装 v2.3.0 后启动即异常退出，报告 UnsupportedOperationException:
+              "Only RoundedRectangularShape or CornerBasedShape is supported in lens effects."
+            - 根因：vendor 的 lens 折射效果丢失了 Kyant Shapes（RoundedRectangularShape）分支，
+              而底栏/按钮/滑杆/开关全部使用官方 Capsule 胶囊形状 → 首帧即抛异常
+            - 修复：补回 RoundedRectangularShape 角半径计算（与上游 AndroidLiquidGlass 一致），
+              Capsule 连续曲率胶囊的折射效果恢复正常
+            - 加固：lens 遇到真正不支持的形状时改为优雅降级（仅保留模糊、不折射），
+              任何情况下不再因此崩溃；AGSL 着色器编译失败时同样保底不闪退
             
-            【数据层修复】
-            - 【修复"一直加载中"】错题本为空时进错题特训、筛选无结果：
-              Room 对空列表生成非法 IN () SQL 导致协程静默死亡 → 现已短路防御
-            - 【修复统计】模考交卷"今日答题数"恒 +1 且全错也计正确 → 按实际答题/正确数累计
-            - 【修复题库导入死锁】导入失败不再持久化版本号，下次启动自动重试；
-              题库升级"清数据+换题库"并入单事务，解析校验先行，失败不碰数据库
+            v2.3.0 完整更新（液态玻璃全面重构 + 数据层修复）见上一版本说明或 CHANGELOG.md
             
             固定签名，可直接覆盖安装 v2.x
           overwrite_files: true

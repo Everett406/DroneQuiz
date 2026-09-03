@@ -6,6 +6,14 @@
 
 - 待用户复测项：① 全部页面玻璃质感（卡片折射背景、底栏折射滚动内容）；② 玻璃开关拖拽/点按、玻璃滑杆、玻璃题号面板与确认对话框；③ 错题本为空进特训不再卡加载；④ 模考后首页"今日"统计正确
 
+## [2.3.1] - 2026-09-03
+
+### 修复 —— v2.3.0 启动即闪退（热修复）
+
+- **崩溃根因**：v2.3.0 将 shapes 从 maven 依赖改为源码 vendor 时，`com.kyant.backdrop.effects.Lens` 中的 `cornerRadii` 分支被一并裁掉了 `RoundedRectangularShape`（Kyant Shapes）分支；而底栏、按钮、滑杆、开关全部使用官方 `Capsule()` 胶囊（实现 `RoundedRectangularShape`）→ 首帧组合即抛 `UnsupportedOperationException: Only RoundedRectangularShape or CornerBasedShape is supported in lens effects.`，应用启动即异常退出
+- **修复**：补回 `RoundedRectangularShape` 分支（`shape.corners(size, layoutDirection, density)` 取四角半径，与上游 AndroidLiquidGlass 完全一致），Capsule 连续曲率胶囊的折射效果恢复正常
+- **加固**：`lens()` 遇到真正不支持的形状时由硬抛异常改为**优雅降级**——跳过折射、保留已有模糊，任何形状都不会再导致崩溃；与既有的 AGSL 着色器编译失败保底（runCatching）形成双保险
+
 ## [2.3.0] - 2026-09-03
 
 ### 重构 —— 液态玻璃全面对齐官方（Kyant0/AndroidLiquidGlass）
