@@ -120,11 +120,12 @@ class BounceState internal constructor(
             if (amount.value != 0f && available.y != 0f) {
                 val previousSign = sign(amount.value)
                 var unconsumed = available.y
-                val predictedEnd = exponentialDecay<Float>().calculateTargetValue(
-                    initialValue = amount.value,
-                    initialVelocity = available.y
-                )
-                if (sign(predictedEnd) == previousSign) {
+                // 过零预测（不依赖 DecayAnimationSpec.calculateTargetValue——
+                // 新版 Compose 已移除该成员）：惯性滑行距离 ≈ |v|×0.5s（spline 衰减经验值），
+                // 能越过剩余过冲量即判定会过零
+                val towardZero = sign(available.y) != previousSign
+                val willCross = towardZero && abs(available.y) * 0.5f > abs(amount.value)
+                if (!willCross) {
                     // 甩不回内容侧：软弹簧带松手速度回弹，速度全部消费
                     amount.animateTo(
                         0f,
