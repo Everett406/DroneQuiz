@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -46,7 +47,10 @@ data class AppSettings(
     val wallpaperBlur: Boolean = false, // 壁纸是否模糊化（作玻璃背景纹路）
     val nickname: String = "",   // 用户昵称（空 = 首页只按时间问候，不带称呼）
     val readingFont: String = "system", // 阅读字体：system | sans | serif | kai
-    val searchHistory: List<String> = emptyList() // 搜索历史（最新在前，最多 8 条）
+    val searchHistory: List<String> = emptyList(), // 搜索历史（最新在前，最多 8 条）
+    val usageMs: Long = 0L,      // 累计前台使用毫秒（打赏弹窗门槛）
+    val supportPrompted: Boolean = false, // 打赏弹窗已自动弹过（只弹一次）
+    val supportRefused: Boolean = false  // 用户拒绝支持：永不再弹
 )
 
 class SettingsStore(private val context: Context) {
@@ -68,6 +72,15 @@ class SettingsStore(private val context: Context) {
         val nickname = stringPreferencesKey("nickname")
         val readingFont = stringPreferencesKey("reading_font")
         val searchHistory = stringPreferencesKey("search_history")
+        val usageMs = longPreferencesKey("usage_ms")
+        val supportPrompted = booleanPreferencesKey("support_prompted")
+        val supportRefused = booleanPreferencesKey("support_refused")
+        // 顺序槽沿用旧 key practice_session（老版本数据无损迁移：历史上只有顺序会话）；
+        // 随机槽独立，两模式各自记各自的进度，互不覆盖
+        val practiceSessionRandom = stringPreferencesKey("practice_session_random")
+        // 模考记录删除限额（每周 2 次）
+        val examDelWeek = stringPreferencesKey("exam_del_week")
+        val examDelCount = intPreferencesKey("exam_del_count")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -90,24 +103,72 @@ class SettingsStore(private val context: Context) {
             readingFont = p[K.readingFont] ?: "system",
             searchHistory = p[K.searchHistory]?.let { raw ->
                 runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
-            } ?: emptyList()
+            } ?: emptyList(),
+            usageMs = p[K.usageMs] ?: 0L,
+            supportPrompted = p[K.supportPrompted] ?: false,
+            supportRefused = p[K.supportRefused] ?: false
         )
     }
 
-    /** 当前刷题会话（null = 无未完成会话） */
-    val practiceSession: Flow<PracticeSession?> = context.dataStore.data.map { p ->
-        p[K.practiceSession]?.let { raw ->
-            runCatching { json.decodeFromString<PracticeSession>(raw) }.getOrNull()
-                ?.takeIf { it.ids.isNotEmpty() }
+    /** 指定模式（0 顺序 / 1 随机）的刷题会话（null = 无未完成会话）。双槽互不影响。 */
+    fun practiceSession(order: Int): Flow<PracticeSession?> = context.dataStore.data.map { p ->
+        val raw = if (order == 1) p[K.practiceSessionRandom] else p[K.practiceSession]
+        raw?.let {
+            runCatching { json.decodeFromString<PracticeSession>(it) }.getOrNull()
+                ?.takeIf { s -> s.ids.isNotEmpty() }
         }
     }
 
-    suspend fun currentPracticeSession(): PracticeSession? = practiceSession.first()
+    suspend fun currentPracticeSession(order: Int): PracticeSession? = practiceSession(order).first()
 
-    suspend fun setPracticeSession(s: PracticeSession?) {
+    suspend fun setPracticeSession(s: PracticeSession?, order: Int) {
         context.dataStore.edit { p ->
-            if (s == null) p.remove(K.practiceSession)
-            else p[K.practiceSession] = json.encodeToString(s.copy(savedAt = System.currentTimeMillis()))
+            val key = if (order == 1) K.practiceSessionRandom else K.practiceSession
+            if (s == null) p.remove(key)
+            else p[key] = json.encodeToString(s.copy(savedAt = System.currentTimeMillis()))
+        }
+    }
+
+    /** 累计前台使用时长（打赏弹窗门槛）；挂调用方协程。 */
+    suspend fun addUsageMs(delta: Long) {
+        context.dataStore.edit { p ->
+            p[K.usageMs] = (p[K.usageMs] ?: 0L) + delta
+        }
+    }
+
+    suspend fun setSupportPrompted() = context.dataStore.edit { it[K.supportPrompted] = true }
+    suspend fun setSupportRefused() = context.dataStore.edit { p ->
+        p[K.supportPrompted] = true
+        p[K.supportRefused] = true
+    }
+
+    /** 本周（ISO 周，周一为一周开始）键，如 "2026-W36" */
+    private fun currentWeekKey(): String {
+        val d = java.time.LocalDate.now()
+        return "%04d-W%02d".format(
+            d.get(java.time.temporal.IsoFields.WEEK_BASED_YEAR),
+            d.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)
+        )
+    }
+
+    /**
+     * 模考记录删除配额：每周最多 2 次，跨周自动重置。
+     * 返回 (本周已用, 剩余)；不写入——写入用 recordExamDeletion。
+     */
+    suspend fun examDeleteQuota(): Pair<Int, Int> {
+        val limit = 2
+        val p = context.dataStore.data.first()
+        val used = if (p[K.examDelWeek] == currentWeekKey()) p[K.examDelCount] ?: 0 else 0
+        return used to (limit - used).coerceAtLeast(0)
+    }
+
+    /** 记录一次删除（本周计数 +1，跨周自动重置） */
+    suspend fun recordExamDeletion() {
+        context.dataStore.edit { p ->
+            val wk = currentWeekKey()
+            val used = if (p[K.examDelWeek] == wk) p[K.examDelCount] ?: 0 else 0
+            p[K.examDelWeek] = wk
+            p[K.examDelCount] = used + 1
         }
     }
 

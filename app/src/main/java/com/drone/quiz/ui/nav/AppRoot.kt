@@ -15,18 +15,31 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.CompositionLocal
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -34,16 +47,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
+import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.ExamConfigScreen
 import com.drone.quiz.screens.ExamResultScreen
 import com.drone.quiz.screens.ExamScreen
@@ -56,13 +75,17 @@ import com.drone.quiz.screens.WrongBookScreen
 import com.drone.quiz.screens.common.LocalNavAnimatedVisibilityScope
 import com.drone.quiz.screens.common.LocalSharedTransitionScope
 import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.GlassBottomTabs
+import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassOverlayPortal
 import com.drone.quiz.ui.glass.LocalBgBackdrop
 import com.drone.quiz.ui.glass.LocalContentBackdrop
 import com.drone.quiz.ui.glass.OverlayBlur
 import com.drone.quiz.ui.glass.TabIconSlot
 import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.util.GallerySave
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -260,6 +283,10 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                         },
                         onResumeExam = { examId ->
                             navController.navigate("examRun/$examId") { launchSingleTop = true }
+                        },
+                        // 点击已完成的历史记录 → 重进该场模考成绩页（成绩从 DB 重建）
+                        onOpenResult = { examId ->
+                            navController.navigate("examResult/$examId") { launchSingleTop = true }
                         }
                     )
                 }
@@ -296,7 +323,9 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                         },
                         onWrong = {
                             navController.navigate(Routes.WRONG) { launchSingleTop = true }
-                        }
+                        },
+                        // 删除记录成功 → 返回上一页（模考配置页，列表已自动刷新）
+                        onDeleted = { navController.popBackStack() }
                     )
                 }
                 composable(Routes.WRONG) {
@@ -369,6 +398,9 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         // 层 4：弹窗传送门宿主（内容模糊区 + 底栏之上）。
         // 面板在此渲染 → 永远清晰；独立读作用域，避免弹窗高频重组拖动整个 AppRoot。
         PortalHost()
+
+        // 层 5：支持作者弹窗（累计使用 2h 触发一次；考试中不弹，出考试再弹）
+        SupportPromptHost(backdrop = bgBackdrop, currentRoute = route, settings = settings)
     }
     }
 }
@@ -379,5 +411,203 @@ private fun PortalHost() {
     GlassOverlayPortal.entries.forEach { entry ->
         // key 稳定槽位：列表增减时不串位、不丢 remember 状态
         key(entry.id) { entry.content() }
+    }
+}
+
+// ==================== 支持作者（累计使用 2h 打赏弹窗，v2.7.4） ====================
+
+private const val SUPPORT_USAGE_THRESHOLD_MS = 2 * 60 * 60 * 1000L
+
+/**
+ * 触发宿主：累计使用超 2h 且未弹过、未拒绝 → 弹一次。
+ * 用户正在考试（examRun 路由）时不弹——面板收起且不标记"已弹"，出考试后本 effect 自动拉起。
+ */
+@Composable
+private fun SupportPromptHost(
+    backdrop: Backdrop,
+    currentRoute: String?,
+    settings: AppSettings
+) {
+    val scope = rememberCoroutineScope()
+    var show by remember { mutableStateOf(false) }
+
+    LaunchedEffect(settings.usageMs, settings.supportPrompted, settings.supportRefused, currentRoute) {
+        val inExam = currentRoute?.startsWith("examRun") == true
+        if (inExam) {
+            show = false
+            return@LaunchedEffect
+        }
+        val eligible = settings.usageMs >= SUPPORT_USAGE_THRESHOLD_MS &&
+            !settings.supportPrompted && !settings.supportRefused
+        if (eligible) show = true
+    }
+
+    GlassBottomSheet(
+        visible = show,
+        backdrop = backdrop,
+        onDismiss = {
+            // 外部点击/返回关闭视为"已弹过"：不再自动打扰
+            show = false
+            scope.launch { runCatching { ServiceLocator.settings.setSupportPrompted() } }
+        }
+    ) {
+        SupportSheetContent(
+            backdrop = backdrop,
+            onRefuse = {
+                show = false
+                scope.launch { runCatching { ServiceLocator.settings.setSupportRefused() } }
+            },
+            onClose = {
+                show = false
+                scope.launch { runCatching { ServiceLocator.settings.setSupportPrompted() } }
+            }
+        )
+    }
+}
+
+/** 弹窗内容两态：0 = 询问（看码/拒绝），1 = 收款码（保存到相册/完成）。 */
+@Composable
+private fun SupportSheetContent(
+    backdrop: Backdrop,
+    onRefuse: () -> Unit,
+    onClose: () -> Unit
+) {
+    val ui = LocalUi.current
+    val context = LocalContext.current
+    var stage by remember { mutableIntStateOf(0) }
+    var saved by remember { mutableStateOf(false) }
+    var saveFailed by remember { mutableStateOf(false) }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // 顶部抓手
+        Box(
+            Modifier
+                .padding(top = 10.dp)
+                .width(44.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(50))
+                .background(ui.ink.copy(alpha = 0.14f))
+        )
+        Text(
+            if (stage == 0) "喜欢题屿吗？" else "感谢支持",
+            color = ui.text, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+
+        if (stage == 0) {
+            Text(
+                "你已在这里累计刷题超过 2 小时。如果这个 APP 对你有帮助，可以请作者喝杯奶茶，支持一下持续更新~",
+                color = ui.textSub, fontSize = 13.sp, lineHeight = 19.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 20.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GlassButton(
+                    onClick = onRefuse,
+                    backdrop = backdrop,
+                    surfaceColor = ui.surface.copy(alpha = 0.6f),
+                    heightDp = 48.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("以后别提醒我", color = ui.textSub, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+                GlassButton(
+                    onClick = { stage = 1 },
+                    backdrop = backdrop,
+                    surfaceColor = ui.ink,
+                    heightDp = 48.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("看看收款码", color = ui.onInk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        } else {
+            // 收款码：原图 RGBA 可能透明底，必须垫白底圆角保证扫码对比度
+            val qrBitmap = remember {
+                runCatching {
+                    android.graphics.BitmapFactory.decodeStream(
+                        context.resources.openRawResource(R.raw.support_qr)
+                    )?.asImageBitmap()
+                }.getOrNull()
+            }
+            Box(
+                Modifier
+                    .padding(top = 14.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White)
+                    .padding(8.dp)
+            ) {
+                val bmp = qrBitmap
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp,
+                        contentDescription = "收款码",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.heightIn(max = 300.dp)
+                    )
+                } else {
+                    Text(
+                        "收款码加载失败",
+                        color = Color.Black.copy(alpha = 0.6f), fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 40.dp, vertical = 60.dp)
+                    )
+                }
+            }
+            Text(
+                when {
+                    saved -> "已保存到相册「题屿」文件夹，扫码即可支持"
+                    saveFailed -> "保存失败，可截图本页收款码"
+                    else -> "长按图片或保存后扫码即可支持"
+                },
+                color = if (saved) ui.correct else ui.textSub,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 10.dp)
+            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                GlassButton(
+                    onClick = {
+                        if (!saved) {
+                            saved = GallerySave.savePngFromRaw(
+                                context, R.raw.support_qr, "tiyu_support_qr.png"
+                            )
+                            saveFailed = !saved
+                        }
+                    },
+                    backdrop = backdrop,
+                    surfaceColor = if (saved) ui.surface.copy(alpha = 0.6f) else ui.ink,
+                    heightDp = 48.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        if (saved) "已保存" else "保存到相册",
+                        color = if (saved) ui.textSub else ui.onInk,
+                        fontSize = 14.sp, fontWeight = FontWeight.Bold
+                    )
+                }
+                GlassButton(
+                    onClick = onClose,
+                    backdrop = backdrop,
+                    surfaceColor = ui.surface.copy(alpha = 0.6f),
+                    heightDp = 48.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("完成", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
     }
 }

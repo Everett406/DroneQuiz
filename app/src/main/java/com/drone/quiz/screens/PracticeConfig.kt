@@ -49,6 +49,7 @@ import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
+import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.flow.first
@@ -72,8 +73,13 @@ fun PracticeConfigScreen(
 
     var typeFilter by remember { mutableStateOf("all") }   // all | single | judge
     var catFilter by remember { mutableStateOf("all") }
-    // 上次刷题会话快照：用于“将接续进度”提示与一键重新开始（v2.7.2）
-    var lastSession by remember { mutableStateOf<PracticeSession?>(null) }
+    // 当前模式的会话快照（双槽：顺序/随机各存各的进度），响应式——切换模式提示即随之切换；
+    // 也用于“重新开始”按钮与二次确认（v2.7.4）
+    var showResetConfirm by remember { mutableStateOf(false) }
+    val sessionFlow = remember(settings.practiceOrder) {
+        ServiceLocator.settings.practiceSession(settings.practiceOrder)
+    }
+    val lastSession by sessionFlow.collectAsState(initial = null)
     var categories by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
     var total by remember { mutableIntStateOf(0) }
     var accuracy by remember { mutableIntStateOf(0) }
@@ -81,7 +87,6 @@ fun PracticeConfigScreen(
     var todayAnswered by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
-        lastSession = runCatching { ServiceLocator.settings.currentPracticeSession() }.getOrNull()
         runCatching {
             categories = ServiceLocator.repo.categories().map { it.category to it.cnt }
             total = categories.sumOf { it.second }
@@ -245,7 +250,7 @@ fun PracticeConfigScreen(
                 )
             }
 
-            // ---- 续刷提示：同筛选下有未完成进度时展示，可一键重新开始（v2.7.2） ----
+            // ---- 续刷提示：当前模式下有未完成进度时展示；"重新开始"胶囊按钮 + 二次确认（v2.7.4） ----
             val snap = lastSession
             val snapReusable = snap != null && snap.src == "all" &&
                 snap.type == typeFilter && snap.cat == catFilter &&
@@ -262,22 +267,20 @@ fun PracticeConfigScreen(
                         "将接续上次进度 · 第 ${(snap.index + 1).coerceAtMost(snap.ids.size)} / ${snap.ids.size} 题",
                         color = ui.textSub, fontSize = 12.sp
                     )
-                    Text(
-                        "重新开始",
-                        color = ui.wrong, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
+                    // 重新设计：浅红底描边胶囊（原裸文字偏丑），点击弹二次确认，不再一键直清
+                    Box(
+                        Modifier
                             .clip(RoundedCornerShape(50))
-                            .clickable(
-                                interactionSource = null,
-                                indication = null
-                            ) {
-                                scope.launch {
-                                    runCatching { ServiceLocator.settings.setPracticeSession(null) }
-                                    lastSession = null
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
+                            .background(ui.wrong.copy(alpha = 0.10f))
+                            .border(1.dp, ui.wrong.copy(alpha = 0.30f), RoundedCornerShape(50))
+                            .clickable { showResetConfirm = true }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            "重新开始",
+                            color = ui.wrong, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
 
@@ -300,6 +303,27 @@ fun PracticeConfigScreen(
         }
         
 }
+    }
+
+    // 重新开始二次确认：双保险，防误触一键清进度（v2.7.4）
+    if (showResetConfirm) {
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "重新开始？",
+            body = "将清空${if (settings.practiceOrder == 1) "随机" else "顺序"}模式的本次刷题进度（含作答记录），下次从开头开始。此操作不可撤销。",
+            confirmText = "清空重开",
+            dismissText = "取消",
+            confirmColor = ui.wrong,
+            onConfirm = {
+                showResetConfirm = false
+                scope.launch {
+                    runCatching {
+                        ServiceLocator.settings.setPracticeSession(null, settings.practiceOrder)
+                    }
+                }
+            },
+            onDismiss = { showResetConfirm = false }
+        )
     }
 }
 

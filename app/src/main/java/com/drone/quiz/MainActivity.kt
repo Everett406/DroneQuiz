@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.ui.glass.GlassRuntime
 import com.drone.quiz.ui.nav.AppRoot
@@ -50,6 +51,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
+
+    // 前台使用时长计时（打赏弹窗门槛：累计 2 小时）：每分钟 +1 分钟，误差可忽略
+    private var usageTicker: kotlinx.coroutines.Job? = null
+
+    override fun onStart() {
+        super.onStart()
+        usageTicker?.cancel()
+        usageTicker = lifecycleScope.launch {
+            while (true) {
+                delay(60_000)
+                runCatching { ServiceLocator.settings.addUsageMs(60_000) }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,8 +107,9 @@ class MainActivity : ComponentActivity() {
                                     "题库就绪（版本 $loadedVersion，学习数据已随题库升级重置）"
                                 )
                                 runCatching { ServiceLocator.settings.setBankVersion(loadedVersion) }
-                                // 题库升级后旧题目 id 全部失配，刷题进度快照一并作废
-                                runCatching { ServiceLocator.settings.setPracticeSession(null) }
+                                // 题库升级后旧题目 id 全部失配，刷题进度快照（顺序+随机双槽）一并作废
+                                runCatching { ServiceLocator.settings.setPracticeSession(null, 0) }
+                                runCatching { ServiceLocator.settings.setPracticeSession(null, 1) }
                             } else {
                                 BootGuard.log(context, "load", "题库就绪")
                             }
@@ -161,6 +177,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        usageTicker?.cancel()
+        usageTicker = null
         super.onStop()
         // 离开前台视为一次正常使用，兜底标记健康（覆盖"打开即关"的场景）
         BootGuard.markHealthy(this)

@@ -375,7 +375,29 @@ class Repo(private val db: AppDatabase) {
 
     fun recentExams(): Flow<List<ExamRecordEntity>> = eDao.recentExams(20)
 
-    /** 放弃考试：删除该次模考的记录与作答（不再残留"进行中"幽灵记录） */
+    /**
+     * 从数据库重建历史模考成绩（供"最近模考"记录点击进入成绩页使用）。
+     * 每题作答在 saveExamAnswer 时已落库（picked + isCorrect），
+     * 故任意已交卷记录均可精确重建得分与错题列表；未交卷/不存在 → null。
+     */
+    suspend fun loadExamOutcome(examId: Long): ExamOutcome? = withContext(Dispatchers.IO) {
+        if (examId <= 0) return@withContext null
+        val rec = eDao.examById(examId) ?: return@withContext null
+        val score = rec.score ?: return@withContext null
+        val answers = eDao.answersFor(examId)
+        val map = qDao.byIds(answers.map { it.qid }).associateBy { it.id }
+        ExamOutcome(
+            score = score,
+            passed = rec.passed ?: false,
+            correct = answers.count { it.isCorrect == true },
+            total = rec.total,
+            wrongQuestions = answers
+                .filter { it.isCorrect == false }
+                .mapNotNull { map[it.qid]?.toQuestion() }
+        )
+    }
+
+    /** 放弃考试：删除该次模考的记录与作答（不再残留"进行中"幽灵记录）；也用于用户主动删除已完成记录 */
     suspend fun abandonExam(examId: Long) = withContext(Dispatchers.IO) {
         if (examId <= 0) return@withContext
         db.withTransaction {

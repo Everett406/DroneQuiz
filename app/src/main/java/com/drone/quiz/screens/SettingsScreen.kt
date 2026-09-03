@@ -751,8 +751,9 @@ fun SettingsScreen(backdrop: Backdrop) {
                 showClearConfirm = false
                 scope.launch {
                     ServiceLocator.repo.clearAllRecords()
-                    // 刷题进度快照同属做题记录，一并清掉
-                    runCatching { ServiceLocator.settings.setPracticeSession(null) }
+                    // 刷题进度快照（顺序+随机双槽）同属做题记录，一并清掉
+                    runCatching { ServiceLocator.settings.setPracticeSession(null, 0) }
+                    runCatching { ServiceLocator.settings.setPracticeSession(null, 1) }
                     importMsg = "记录已清空"
                 }
             },

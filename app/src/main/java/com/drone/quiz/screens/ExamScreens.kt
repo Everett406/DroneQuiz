@@ -1,7 +1,6 @@
 package com.drone.quiz.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -94,7 +96,8 @@ object ExamSessionHolder {
 fun ExamConfigScreen(
     backdrop: Backdrop,
     onStart: (Long) -> Unit,
-    onResumeExam: (Long) -> Unit = {}
+    onResumeExam: (Long) -> Unit = {},
+    onOpenResult: (Long) -> Unit = {}   // 点已完成的历史记录 → 重进该场模考成绩页（v2.7.4）
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
@@ -258,7 +261,10 @@ fun ExamConfigScreen(
                         cornerRadius = 18.dp,
                         onClick = if (resumable) {
                             { onResumeExam(exam.id) }
-                        } else null
+                        } else {
+                            // 已完成记录：点击重进成绩页（数据从 DB 重建，非仅限刚交完那场）
+                            { onOpenResult(exam.id) }
+                        }
                     ) {
                         Row(
                             Modifier
@@ -808,11 +814,36 @@ fun ExamResultScreen(
     backdrop: Backdrop,
     examId: Long,
     onHome: () -> Unit,
-    onWrong: () -> Unit
+    onWrong: () -> Unit,
+    onDeleted: () -> Unit = onHome
 ) {
     val ui = LocalUi.current
-    val outcome = ExamSessionHolder.outcome
-    var showWrongList by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // 成绩来源双通道：刚交卷走 ExamSessionHolder（即时、含完整题目对象）；
+    // 从"最近模考"历史记录进入时 SessionHolder 为空 → 从数据库按 examId 精确重建
+    var outcome by remember(examId) {
+        mutableStateOf(ExamSessionHolder.outcome?.takeIf { ExamSessionHolder.examId == examId })
+    }
+    var loadingDone by remember(examId) { mutableStateOf(outcome != null) }
+
+    // 删除本次记录（右上角三点入口；每周限 2 次，弹窗告知）
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showQuotaExhausted by remember { mutableStateOf(false) }
+    var quotaLeft by remember { mutableIntStateOf(2) }
+    var deleted by remember { mutableStateOf(false) }
+
+    LaunchedEffect(examId) {
+        if (outcome == null) {
+            outcome = runCatching { ServiceLocator.repo.loadExamOutcome(examId) }.getOrNull()
+        }
+        loadingDone = true
+    }
+
+    // 删除成功 → 立即返回（配置页 recentExams 为响应式 Flow，自动刷新）
+    LaunchedEffect(deleted) {
+        if (deleted) onDeleted()
+    }
 
     BounceContainer(
         Modifier
@@ -826,10 +857,39 @@ fun ExamResultScreen(
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            ScreenTitle("模考成绩", null, Modifier.fillMaxWidth().padding(vertical = 16.dp))
+            // 标题行 + 右上角"三点"删除入口（浅色低调，有成绩时才出现）
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ScreenTitle("模考成绩", null, Modifier.weight(1f).padding(vertical = 16.dp))
+                if (outcome != null) {
+                    GlassIconButton(
+                        onClick = {
+                            scope.launch {
+                                val quota = runCatching {
+                                    ServiceLocator.settings.examDeleteQuota()
+                                }.getOrDefault(0 to 2)
+                                quotaLeft = quota.second
+                                if (quota.second > 0) showDeleteConfirm = true
+                                else showQuotaExhausted = true
+                            }
+                        },
+                        backdrop = backdrop,
+                        icon = AppIcons.Dots,
+                        sizeDp = 40.dp,
+                        iconSize = 18.dp,
+                        iconTint = ui.textSub
+                    )
+                }
+            }
 
-            if (outcome == null) {
-                Text("成绩加载中…", color = ui.textSub, fontSize = 14.sp)
+            val oc = outcome
+            if (oc == null) {
+                Text(
+                    if (loadingDone) "未找到这场考试的成绩记录" else "成绩加载中…",
+                    color = ui.textSub, fontSize = 14.sp
+                )
             } else {
                 GlassCard(
                     backdrop = backdrop,
@@ -845,12 +905,12 @@ fun ExamResultScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         ProgressRing(
-                            progress = outcome.score / 100f,
+                            progress = oc.score / 100f,
                             sizeDp = 150.dp,
                             strokeDp = 13.dp,
-                            ringColor = if (outcome.passed) ui.correct else ui.wrong,
+                            ringColor = if (oc.passed) ui.correct else ui.wrong,
                             trackColor = ui.ink.copy(alpha = 0.08f),
-                            centerText = "${outcome.score.toInt()}",
+                            centerText = "${oc.score.toInt()}",
                             subText = "分"
                         )
                         Row(
@@ -861,20 +921,20 @@ fun ExamResultScreen(
                                 Modifier
                                     .clip(RoundedCornerShape(50))
                                     .background(
-                                        (if (outcome.passed) ui.correct else ui.wrong).copy(alpha = 0.14f)
+                                        (if (oc.passed) ui.correct else ui.wrong).copy(alpha = 0.14f)
                                     )
                                     .padding(horizontal = 16.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    if (outcome.passed) "恭喜通过" else "未通过",
-                                    color = if (outcome.passed) ui.correct else ui.wrong,
+                                    if (oc.passed) "恭喜通过" else "未通过",
+                                    color = if (oc.passed) ui.correct else ui.wrong,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                         Text(
-                            "答对 ${outcome.correct} / ${outcome.total} 题",
+                            "答对 ${oc.correct} / ${oc.total} 题",
                             color = ui.textSub,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(top = 10.dp)
@@ -882,8 +942,8 @@ fun ExamResultScreen(
                     }
                 }
 
-                val wrongSingles = outcome.wrongQuestions.count { !it.isJudge }
-                val wrongJudges = outcome.wrongQuestions.count { it.isJudge }
+                val wrongSingles = oc.wrongQuestions.count { !it.isJudge }
+                val wrongJudges = oc.wrongQuestions.count { it.isJudge }
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -908,20 +968,23 @@ fun ExamResultScreen(
                     }
                 }
 
-                if (outcome.wrongQuestions.isNotEmpty()) {
+                // 错题解析：改为懒加载列表（只组合可见条目）。
+                // 此前 20+ 条解析全部组合在外层滚动 Column 里，配合玻璃卡逐帧采样，
+                // 长列表滑动每帧测量/绘制量巨大导致卡顿；LazyColumn + 固定上限高度后
+                // 滑动只渲染窗口内条目，滚到边界自动衔接外层滚动。
+                if (oc.wrongQuestions.isNotEmpty()) {
                     GlassCard(
                         backdrop = backdrop,
                         Modifier
                             .fillMaxWidth()
-                            .padding(top = 12.dp)
-                            .animateContentSize(),
+                            .padding(top = 12.dp),
                         cornerRadius = 22.dp,
                         onClick = { showWrongList = !showWrongList }
                     ) {
                         Column(Modifier.padding(18.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "错题解析（${outcome.wrongQuestions.size}）",
+                                    "错题解析（${oc.wrongQuestions.size}）",
                                     color = ui.text,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
@@ -935,38 +998,15 @@ fun ExamResultScreen(
                                 )
                             }
                             if (showWrongList) {
-                                Column(Modifier.padding(top = 10.dp)) {
-                                    outcome.wrongQuestions.take(20).forEach { q ->
-                                        Column(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 8.dp)
-                                        ) {
-                                            Text(
-                                                q.text,
-                                                color = ui.text,
-                                                fontSize = 13.sp,
-                                                lineHeight = 19.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                "正确答案：${
-                                                    if (q.isJudge) listOf("正确", "错误")[q.answer.coerceIn(0, 1)]
-                                                    else "${('A' + q.answer)}·${q.options.getOrNull(q.answer) ?: ""}"
-                                                }",
-                                                color = ui.correct,
-                                                fontSize = 12.sp,
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            )
-                                            if (q.explanation.isNotBlank()) {
-                                                Text(
-                                                    q.explanation,
-                                                    color = ui.textSub,
-                                                    fontSize = 12.sp,
-                                                    lineHeight = 18.sp
-                                                )
-                                            }
-                                        }
+                                LazyColumn(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp)
+                                        .heightIn(max = 420.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(oc.wrongQuestions, key = { it.id }) { q ->
+                                        WrongParseItem(q)
                                     }
                                 }
                             }
@@ -999,6 +1039,75 @@ fun ExamResultScreen(
                 }
             }
             Spacer(Modifier.height(60.dp))
+        }
+    }
+
+    // 删除确认：弹窗内告知本周剩余额度（每周限 2 次）
+    if (showDeleteConfirm) {
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "删除这次模考记录？",
+            body = "将删除本次成绩与全部作答记录，不可恢复。每周最多删除 2 次，本周还可删除 $quotaLeft 次。",
+            confirmText = "删除",
+            dismissText = "取消",
+            confirmColor = ui.wrong,
+            onConfirm = {
+                showDeleteConfirm = false
+                scope.launch {
+                    runCatching {
+                        ServiceLocator.repo.abandonExam(examId)
+                        ServiceLocator.settings.recordExamDeletion()
+                    }
+                    deleted = true
+                }
+            },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
+
+    // 超限提示：本周 2 次额度已用完
+    if (showQuotaExhausted) {
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "本周删除次数已用完",
+            body = "为防误删，每周最多删除 2 次模考记录。本周额度已用完，下周一自动恢复 2 次。",
+            confirmText = "知道了",
+            dismissText = "关闭",
+            onConfirm = { showQuotaExhausted = false },
+            onDismiss = { showQuotaExhausted = false }
+        )
+    }
+}
+
+/** 错题解析单条（静态内容，LazyColumn item 复用；此前为内联 Column 全量组合）。 */
+@Composable
+private fun WrongParseItem(q: Question) {
+    val ui = LocalUi.current
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            q.text,
+            color = ui.text,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            "正确答案：${
+                if (q.isJudge) listOf("正确", "错误")[q.answer.coerceIn(0, 1)]
+                else "${('A' + q.answer)}·${q.options.getOrNull(q.answer) ?: ""}"
+            }",
+            color = ui.correct,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        if (q.explanation.isNotBlank()) {
+            Text(
+                q.explanation,
+                color = ui.textSub,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
         }
     }
 }

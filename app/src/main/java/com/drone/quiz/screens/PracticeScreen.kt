@@ -107,6 +107,9 @@ fun PracticeRunScreen(
     var showPanel by remember { mutableStateOf(false) }
     var restoredTick by remember { mutableIntStateOf(0) }
     var reloadTick by remember { mutableIntStateOf(0) }
+    // 本会话所属模式槽（0 顺序 / 1 随机）：load 时定案，跳转/落盘全链路用它，
+    // 保证顺序与随机各自的进度存在各自的槽里，互不覆盖
+    var sessionOrder by remember { mutableIntStateOf(0) }
 
     val pagerState = rememberPagerState { questions.size }
 
@@ -131,10 +134,11 @@ fun PracticeRunScreen(
         val order = runCatching {
             ServiceLocator.settings.settings.first().practiceOrder
         }.getOrDefault(0)
+        sessionOrder = order
         val result = withTimeoutOrNull(10_000) {
             runCatching {
             if (resume) {
-                val s = ServiceLocator.settings.currentPracticeSession()
+                val s = ServiceLocator.settings.currentPracticeSession(order)
                 if (s != null && s.ids.isNotEmpty() && !sessionComplete(s)) {
                     sessionMode = true
                     restoring = true
@@ -154,7 +158,7 @@ fun PracticeRunScreen(
                 // 自动接续：存在同筛选参数的会话快照 → 无缝恢复
                 // （刷过的题保留对错标记、直接定位到上次进度；换筛选=开新会话；
                 //   上一轮已全部刷完 → 不再接续，随机模式自然重新洗牌）
-                val snap = runCatching { ServiceLocator.settings.currentPracticeSession() }.getOrNull()
+                val snap = runCatching { ServiceLocator.settings.currentPracticeSession(order) }.getOrNull()
                 if (src == "all" && snap != null && snap.src == "all" &&
                     !sessionComplete(snap) &&
                     snap.type == type && snap.cat == cat
@@ -185,7 +189,7 @@ fun PracticeRunScreen(
     // 恢复会话：等 Pager 上屏后跳到上次进度；跳转完成后才恢复持久化（restoring 解除）
     LaunchedEffect(restoredTick) {
         if (restoredTick > 0 && questions.isNotEmpty()) {
-            val target = ServiceLocator.settings.currentPracticeSession()?.index ?: 0
+            val target = ServiceLocator.settings.currentPracticeSession(sessionOrder)?.index ?: 0
             pagerState.scrollToPage(target.coerceIn(0, questions.size - 1))
             restoring = false
         }
@@ -197,7 +201,7 @@ fun PracticeRunScreen(
         if (questions.isNotEmpty() && !sessionSeeded && !sessionMode) {
             sessionSeeded = true
             pagerState.scrollToPage(0)
-            persistSession(src, type, cat, questions, answers, 0)
+            persistSession(src, type, cat, sessionOrder, questions, answers, 0)
         }
     }
 
@@ -207,7 +211,7 @@ fun PracticeRunScreen(
         snapshotFlow { pagerState.currentPage }
             .collectLatest { page ->
                 if (!loading && !restoring) {
-                    persistSession(src, type, cat, questions, answers, page)
+                    persistSession(src, type, cat, sessionOrder, questions, answers, page)
                 }
             }
     }
@@ -227,7 +231,7 @@ fun PracticeRunScreen(
                 )
             }
         }
-        persistSession(src, type, cat, questions, answers, pagerState.currentPage)
+        persistSession(src, type, cat, sessionOrder, questions, answers, pagerState.currentPage)
         if (correct && settings.autoNext && pagerState.currentPage < questions.size - 1) {
             scope.launch {
                 kotlinx.coroutines.delay(700)
@@ -494,6 +498,7 @@ internal fun persistSession(
     src: String,
     type: String,
     cat: String,
+    order: Int,
     questions: List<Question>,
     answers: Map<Long, Int>,
     index: Int
@@ -509,7 +514,8 @@ internal fun persistSession(
                     ids = questions.map { it.id },
                     answers = answers.mapKeys { it.key.toString() },
                     index = index
-                )
+                ),
+                order
             )
         }
     }
