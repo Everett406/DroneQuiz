@@ -64,10 +64,11 @@ class Repo(private val db: AppDatabase) {
     fun countFlow(): Flow<Int> = qDao.countFlow()
 
     /**
-     * 启动时保证题库就绪并处理版本升级：
+     * 启动时保证题库就绪并处理版本升级（全流程原子化，避免"版本已写入但库为空"死锁）：
      * - 库空 → 导入内置题库
-     * - 已记录题库版本 ≠ 内置题库版本 → 清空全部学习数据（记录/统计/模考/错题/打卡）后重新导入
-     *   （题库内容与 id 均会变化，旧学习数据必然失配，整体重置最干净）
+     * - 已记录题库版本 ≠ 内置题库版本 → 同一事务内清空全部学习数据后重新导入
+     * - 解析/校验先行，失败不碰数据库；只有导入完全成功才返回新版本号
+     *   （失败返回 -1，调用方不持久化版本 → 下次启动自动重试）
      *
      * @param storedBankVersion DataStore 中记录的已加载题库版本（0 = 从未记录）
      * @return 实际加载生效的题库版本；未发生任何导入时返回 -1
@@ -75,33 +76,38 @@ class Repo(private val db: AppDatabase) {
     suspend fun ensureBankLoaded(context: Context, storedBankVersion: Int): Int = withContext(Dispatchers.IO) {
         val assetsVersion = runCatching {
             context.assets.open("questions.json").use { input ->
-                val text = input.readBytes().decodeToString()
-                val probe = json.decodeFromString<ImportBank>(text)
-                probe.version
+                json.decodeFromString<ImportBank>(input.readBytes().decodeToString()).version
             }
-        }.getOrDefault(1)
+        }.getOrNull() ?: return@withContext -1
 
         val needsImport = qDao.count() == 0 || storedBankVersion != assetsVersion
         if (!needsImport) return@withContext -1
 
-        if (qDao.count() > 0) {
-            // 题库升级：先清掉依赖旧题 id 的全部学习数据
-            db.withTransaction {
+        val bytes = runCatching {
+            context.assets.open("questions.json").use { it.readBytes() }
+        }.getOrNull() ?: return@withContext -1
+
+        // 先在内存中解析并校验全部题目；任何一题不合法都直接失败，不触碰数据库
+        val entities = runCatching { buildEntities(bytes) }.getOrNull() ?: return@withContext -1
+
+        // 单事务完成：升级时清理学习数据 + 清空旧题 + 写入新题（原子）
+        db.withTransaction {
+            if (storedBankVersion != 0 && qDao.count() > 0) {
+                // 题库升级：旧学习数据的 qid 与新题库必然失配，整体重置最干净
                 rDao.clearRecords(); rDao.clearStats(); rDao.clearStreaks()
                 eDao.clearExams(); eDao.clearExamAnswers()
                 wDao.clear()
             }
-        }
-        runCatching {
-            context.assets.open("questions.json").use { importBank(it.readBytes()) }
+            qDao.clear()
+            entities.chunked(400).forEach { qDao.insertAll(it) }
         }
         assetsVersion
     }
 
-    suspend fun importBank(bytes: ByteArray): ImportResult = withContext(Dispatchers.IO) {
+    private fun buildEntities(bytes: ByteArray): List<QuestionEntity> {
         val bank = json.decodeFromString<ImportBank>(bytes.decodeToString())
         require(bank.questions.isNotEmpty()) { "题库为空" }
-        val entities = bank.questions.map { q ->
+        return bank.questions.map { q ->
             val isJudge = q.type == "judge"
             val opts = if (isJudge) listOf("正确", "错误") else q.options
             require(opts.size >= 2) { "第 ${q.id ?: 0} 题选项不足" }
@@ -123,6 +129,10 @@ class Repo(private val db: AppDatabase) {
                 if (seen.add(e.id)) e else e.copy(id = stableHash(e.question + seen.size))
             }
         }
+    }
+
+    suspend fun importBank(bytes: ByteArray): ImportResult = withContext(Dispatchers.IO) {
+        val entities = buildEntities(bytes)
         db.withTransaction {
             qDao.clear()
             entities.chunked(400).forEach { qDao.insertAll(it) }
@@ -146,9 +156,11 @@ class Repo(private val db: AppDatabase) {
         random: Boolean,
         limit: Int = 800
     ): List<Question> = withContext(Dispatchers.IO) {
+        // 空列表直接短路：Room 对 IN () 空集合会生成非法 SQL 导致崩溃
         val ids = qDao.idsByFilter(category, type)
             .let { if (random) it.shuffled() else it }
             .take(limit)
+        if (ids.isEmpty()) return@withContext emptyList()
         qDao.byIds(ids).map { it.toQuestion() }.let { list ->
             if (random) list else list.sortedBy { it.id }
         }
@@ -156,6 +168,8 @@ class Repo(private val db: AppDatabase) {
 
     suspend fun loadWrongPractice(): List<Question> = withContext(Dispatchers.IO) {
         val ids = wDao.activeWrongIds()
+        // 错题本为空时同样必须短路，否则进"错题特训"必崩（IN () 非法 SQL）
+        if (ids.isEmpty()) return@withContext emptyList()
         qDao.byIds(ids).map { it.toQuestion() }
     }
 
@@ -220,13 +234,19 @@ class Repo(private val db: AppDatabase) {
     }
 
     private suspend fun bumpStreak(correct: Boolean) {
+        bumpStreakBulk(1, if (correct) 1 else 0)
+    }
+
+    /** 批量累计当日打卡（模考交卷一次写入，避免逐题查询）。 */
+    private suspend fun bumpStreakBulk(answered: Int, correct: Int) {
+        if (answered <= 0) return
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
         val cur = rDao.streakFor(today)
         rDao.upsertStreak(
             StreakLogEntity(
                 date = today,
-                answered = (cur?.answered ?: 0) + 1,
-                correct = (cur?.correct ?: 0) + if (correct) 1 else 0
+                answered = (cur?.answered ?: 0) + answered,
+                correct = (cur?.correct ?: 0) + correct
             )
         )
     }
@@ -241,6 +261,8 @@ class Repo(private val db: AppDatabase) {
             val wantSingle = (total - wantJudge).coerceAtMost(allSingle.size)
             val sIds = (if (random) allSingle.shuffled() else allSingle).take(wantSingle)
             val jIds = (if (random) allJudge.shuffled() else allJudge).take(wantJudge)
+            // 题库为空时防御性短路：不建卷、不写 exam_records，返回空列表由 UI 提示
+            if (sIds.isEmpty() && jIds.isEmpty()) return@withContext 0L to emptyList()
             val qs = qDao.byIds(sIds + jIds).map { it.toQuestion() }
                 .let { if (random) it.shuffled() else it.sortedWith(compareBy({ it.isJudge }, { it.id })) }
             val examId = db.withTransaction {
@@ -318,7 +340,7 @@ class Repo(private val db: AppDatabase) {
                     }
                 }
             }
-            bumpStreak(correctIds.size >= 0)
+            bumpStreakBulk(questions.size, correctIds.size)
         }
         ExamOutcome(
             score = score,

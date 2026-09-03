@@ -16,10 +16,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,7 +28,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,6 +42,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassToggle
 import com.drone.quiz.ui.glass.GlassSlider
+import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.theme.LocalUi
 import com.drone.quiz.work.ReminderScheduler
 import com.kyant.backdrop.Backdrop
@@ -166,7 +164,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                         )
                     }
                     GlassToggle(
-                        checked = settings.effects,
+                        checked = { settings.effects },
                         onCheckedChange = { v ->
                             scope.launch { ServiceLocator.settings.setEffects(v) }
                         },
@@ -214,7 +212,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                         )
                     }
                     GlassToggle(
-                        checked = settings.autoNext,
+                        checked = { settings.autoNext },
                         onCheckedChange = { v ->
                             scope.launch { ServiceLocator.settings.setAutoNext(v) }
                         },
@@ -277,7 +275,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                     Text("每天 20:00 提醒刷题", color = ui.textSub, fontSize = 12.sp)
                 }
                 GlassToggle(
-                    checked = settings.dailyNotify,
+                    checked = { settings.dailyNotify },
                     onCheckedChange = { v ->
                         scope.launch {
                             ServiceLocator.settings.setDailyNotify(v)
@@ -373,23 +371,21 @@ fun SettingsScreen(backdrop: Backdrop) {
     }
 
     if (showClearConfirm) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirm = false },
-            containerColor = if (ui.isDark) Color(0xFF26221C) else Color(0xFFFAF6EF),
-            title = { Text("清空做题记录？", fontWeight = FontWeight.Bold) },
-            text = { Text("将清空刷题记录、统计、打卡与错题本，题库保留。此操作不可撤销。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showClearConfirm = false
-                    scope.launch {
-                        ServiceLocator.repo.clearAllRecords()
-                        importMsg = "记录已清空"
-                    }
-                }) { Text("清空", color = ui.wrong, fontWeight = FontWeight.Bold) }
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "清空做题记录？",
+            body = "将清空刷题记录、统计、打卡与错题本，题库保留。此操作不可撤销。",
+            confirmText = "清空",
+            dismissText = "取消",
+            confirmColor = ui.wrong,
+            onConfirm = {
+                showClearConfirm = false
+                scope.launch {
+                    ServiceLocator.repo.clearAllRecords()
+                    importMsg = "记录已清空"
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
-            }
+            onDismiss = { showClearConfirm = false }
         )
     }
 }

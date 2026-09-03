@@ -16,8 +16,8 @@ android {
         applicationId = "com.drone.quiz"
         minSdk = 31
         targetSdk = 35
-        versionCode = 6
-        versionName = "2.2.0"
+        versionCode = 7
+        versionName = "2.3.0"
     }
 
     // 固定签名：本地（环境变量 DQ_KS_PATH/DQ_KS_STORE_PASS）与 GitHub Actions（secrets）共用同一 keystore，
@@ -82,6 +82,9 @@ dependencies {
     implementation("androidx.compose.animation:animation")
 
     implementation("androidx.navigation:navigation-compose:2.9.8")
+
+    // 官方同款连续曲率形状（Capsule/RoundedRectangle），折射 SDF 边缘最柔润
+    implementation("io.github.kyant0:shapes:1.2.1")
 
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")

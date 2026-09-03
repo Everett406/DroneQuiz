@@ -4,8 +4,36 @@
 
 ## [Unreleased]
 
-- 待用户复测项：① 开关圆钮随状态左右滑动；② 液态玻璃开启时底栏 5 图标可见、无幽灵图标、选中图标透过玻璃呈墨色；③ 内置题库为正式 800 题
-- 已知改进方向：补充 Room 正式 Migration、自动化测试、题库 id 跨版本稳定性方案
+- 待用户复测项：① 全部页面玻璃质感（卡片折射背景、底栏折射滚动内容）；② 玻璃开关拖拽/点按、玻璃滑杆、玻璃题号面板与确认对话框；③ 错题本为空进特训不再卡加载；④ 模考后首页"今日"统计正确
+
+## [2.3.0] - 2026-09-03
+
+### 重构 —— 液态玻璃全面对齐官方（Kyant0/AndroidLiquidGlass）
+
+- **架构修复（核心）**：`AppRoot` 由"单记录层包内容"改为**双记录层**——`bgBackdrop` 只记录背景渐变（官方 demo 的"壁纸"角色），`contentBackdrop` 记录内容。此前玻璃折射采样的是大面透明像素（背景在记录层之外），导致"看不出折射"；现在：
+  - 内容流卡片/按钮/滑杆/开关全部升级为**真折射玻璃**（官方 `LazyScrollContainerContent` 同款模式：元素不在背景记录层内，零循环采样、零 SIGSEGV 风险）
+  - 底栏折射 `bgBackdrop + contentBackdrop` 组合层，滚动内容从底栏下穿过时透过玻璃可见
+- **Capsule 连续曲率胶囊**：引入官方 shapes 依赖 `io.github.kyant0:shapes:1.2.1`，底栏三层结构、按钮、滑杆轨道/滑块、开关轨道/圆钮全部替换为官方同款 `Capsule()`，折射边缘更柔润
+- **开关重做**：`GlassToggle` 按官方 `LiquidToggle` 逐行对齐——玻璃圆钮可拖拽、按压膨胀、轨道颜色随状态渐变；明确不可加外层 clickable（`inspectDragGestures` 不消费事件，避免双触发）
+- **滑杆对齐官方 `LiquidSlider`**：滑块折射"背景+轨道放大"（`rememberBackdrop` 自定义绘制）、按压色差镜片、点击热区由 6dp 轨道扩大到 24dp 容器
+- **弹窗玻璃化**：题号面板（原 `ModalBottomSheet`）与全部确认对话框（原 `AlertDialog`）替换为同窗口自绘玻璃组件 `GlassBottomSheet` / `GlassConfirmDialog`——独立窗口无法采样主窗口 backdrop，故必须同窗绘制；遮罩点按/返回键关闭，面板内点按消费防误关
+- 安全模式降级链路保留：特效关闭或异常退出自动降级时，所有玻璃组件退回质感材质（无 RenderEffect）
+
+### 修复
+
+- **"一直加载中"**（`Repo.loadWrongPractice` / `loadPractice`）：Room 对空列表 `IN ()` 生成非法 SQL，错题本为空时进"错题特训"、筛选无结果时协程静默死亡，页面永远"正在加载题库…"。现已空列表短路防御（`startExam` 空库同样防御）
+- **模考统计污染**（`Repo.submitExam`）：`bumpStreak(correctIds.size >= 0)` 恒为 true——全错也计"正确+1"且 50 题模考只计 1 次答题。改为 `bumpStreakBulk(答题数, 正确数)` 按实际累计
+- **题库导入死锁**（`Repo.ensureBankLoaded`）：此前导入失败仍返回版本号并被持久化，空库状态下永不重试。现在解析/校验先行（失败不碰数据库），"清学习数据+换题库"并入单事务，只有完全成功才返回版本号，失败下次启动自动重试
+
+### 变更
+
+- `GlassToggle` 签名对齐官方：`checked: () -> Boolean`（避免 remember 闭包捕获过期状态）
+- `GlassCard` / `GlassButton` / `GlassIconButton` 默认 `refracts = true`
+
+### 工程
+
+- 依赖新增 `io.github.kyant0:shapes:1.2.1`（Maven Central）
+- CI `build.yml` 版本号同步至 2.3.0 / v2.3.0
 
 ## [2.2.0] - 2026-09-03
 

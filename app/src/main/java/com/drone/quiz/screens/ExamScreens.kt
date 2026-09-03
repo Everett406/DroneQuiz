@@ -24,10 +24,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,6 +55,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
+import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.theme.LocalUi
@@ -429,45 +428,34 @@ fun ExamScreen(
 
     if (showConfirm) {
         val unanswered = questions.count { answers[it.id] == null }
-        AlertDialog(
-            onDismissRequest = { showConfirm = false },
-            containerColor = if (ui.isDark) androidx.compose.ui.graphics.Color(0xFF26221C)
-            else androidx.compose.ui.graphics.Color(0xFFFAF6EF),
-            title = { Text("确认交卷？", fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    if (unanswered > 0) "还有 $unanswered 题未作答，交卷后将无法修改。"
-                    else "共 ${questions.size} 题，交卷后将立即评分。"
-                )
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "确认交卷？",
+            body = if (unanswered > 0) "还有 $unanswered 题未作答，交卷后将无法修改。"
+            else "共 ${questions.size} 题，交卷后将立即评分。",
+            confirmText = "交卷",
+            dismissText = "继续作答",
+            onConfirm = {
+                showConfirm = false
+                submit()
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showConfirm = false
-                    submit()
-                }) { Text("交卷", color = ui.text, fontWeight = FontWeight.Bold) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirm = false }) { Text("继续作答") }
-            }
+            onDismiss = { showConfirm = false }
         )
     }
 
     if (showQuit) {
-        AlertDialog(
-            onDismissRequest = { showQuit = false },
-            containerColor = if (ui.isDark) androidx.compose.ui.graphics.Color(0xFF26221C)
-            else androidx.compose.ui.graphics.Color(0xFFFAF6EF),
-            title = { Text("放弃考试？", fontWeight = FontWeight.Bold) },
-            text = { Text("本次模考成绩将不计入记录。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showQuit = false
-                    onExit()
-                }) { Text("放弃", color = ui.wrong, fontWeight = FontWeight.Bold) }
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "放弃考试？",
+            body = "本次模考成绩将不计入记录。",
+            confirmText = "放弃",
+            dismissText = "继续考试",
+            confirmColor = ui.wrong,
+            onConfirm = {
+                showQuit = false
+                onExit()
             },
-            dismissButton = {
-                TextButton(onClick = { showQuit = false }) { Text("继续考试") }
-            }
+            onDismiss = { showQuit = false }
         )
     }
 }

@@ -30,9 +30,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,13 +59,14 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
+import com.drone.quiz.ui.glass.GlassBottomSheet
+import com.drone.quiz.ui.glass.SheetVisibility
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PracticeScreen(
     backdrop: Backdrop,
@@ -267,13 +266,14 @@ fun PracticeScreen(
         }
     }
 
-    // ---- 题号面板 ----
-    if (showPanel) {
-        ModalBottomSheet(
-            onDismissRequest = { showPanel = false },
-            containerColor = if (ui.isDark) Color(0xFF26221C) else Color(0xFFFAF6EF)
+    // ---- 题号面板（玻璃化：与主窗口同窗绘制才能折射背景层） ----
+    SheetVisibility(visible = showPanel) {
+        GlassBottomSheet(
+            backdrop = backdrop,
+            onDismiss = { showPanel = false }
         ) {
             Column(Modifier.padding(horizontal = 20.dp)) {
+                Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "题目面板",
@@ -316,7 +316,7 @@ fun PracticeScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
     }

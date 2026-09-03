@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION_NAME: 2.2.0
-  APP_VERSION_TAG: v2.2.0
+  APP_VERSION_NAME: 2.3.0
+  APP_VERSION_TAG: v2.3.0
 
 jobs:
   build:
@@ -56,12 +56,26 @@ jobs:
           name: DroneQuiz ${{ env.APP_VERSION_TAG }}
           files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            无人机装调题库刷题 APP v2.2.0
-            - 【修复开关】画面特效/自动切题等开关圆钮恒停左侧 → 现随状态左右滑动
-            - 【修复底栏】液态玻璃开启时底栏 5 个图标消失、中间幽灵☰、右侧白团 → 全部修复，选中图标透过玻璃呈墨色
-            - 【正式题库】内置题库替换为用户提供《无人机装调题库（含解析）》800 题（单选640/判断160）
-            - 题库升级自动重置学习数据（旧刷题/模考/错题记录因题目 id 变化而清空）
-            - 固定签名，可直接覆盖安装
+            无人机装调题库刷题 APP v2.3.0 —— 液态玻璃全面重构
+            
+            【液态玻璃重构（对齐 Kyant0/AndroidLiquidGlass 官方架构）】
+            - 背景渐变单独记录进取景层：玻璃终于有"真实折射源"，不再采样透明像素
+            - 内容流卡片/按钮/滑杆/开关全部升级为真折射玻璃（官方 LazyScrollContainer 同款架构）
+            - 底栏/按钮/滑杆/开关/题号面板全部换用官方 Capsule 连续曲率胶囊（io.github.kyant0:shapes）
+            - 开关重做为官方 LiquidToggle 同款：可拖拽玻璃圆钮、轨道颜色渐变
+            - 滑杆对齐官方 LiquidSlider：折射轨道放大效果、色差镜片、点击热区扩大
+            - 题号面板（原 ModalBottomSheet）与全部确认对话框（原 AlertDialog）玻璃化，
+              同窗口绘制真实折射背景，支持点遮罩/返回键关闭
+            - 修复开关与圆钮手势双触发风险；修复滑杆点击热区过小
+            
+            【数据层修复】
+            - 【修复"一直加载中"】错题本为空时进错题特训、筛选无结果：
+              Room 对空列表生成非法 IN () SQL 导致协程静默死亡 → 现已短路防御
+            - 【修复统计】模考交卷"今日答题数"恒 +1 且全错也计正确 → 按实际答题/正确数累计
+            - 【修复题库导入死锁】导入失败不再持久化版本号，下次启动自动重试；
+              题库升级"清数据+换题库"并入单事务，解析校验先行，失败不碰数据库
+            
+            固定签名，可直接覆盖安装 v2.x
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

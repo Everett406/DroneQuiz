@@ -52,6 +52,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.Capsule
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
@@ -210,7 +211,7 @@ fun GlassBottomTabs(
                 }
                 .drawBackdrop(
                     backdrop = backdrop,
-                    shape = { androidx.compose.foundation.shape.RoundedCornerShape(50) },
+                    shape = { Capsule() },
                     effects = {
                         vibrancy()
                         blur(8.dp.toPx())
@@ -246,7 +247,7 @@ fun GlassBottomTabs(
                     }
                     .drawBackdrop(
                         backdrop = backdrop,
-                        shape = { androidx.compose.foundation.shape.RoundedCornerShape(50) },
+                        shape = { Capsule() },
                         effects = {
                             val progress = dampedDragAnimation.pressProgress
                             vibrancy()
@@ -285,7 +286,7 @@ fun GlassBottomTabs(
                 .then(dampedDragAnimation.modifier)
                 .drawBackdrop(
                     backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
-                    shape = { androidx.compose.foundation.shape.RoundedCornerShape(50) },
+                    shape = { Capsule() },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
                         lens(

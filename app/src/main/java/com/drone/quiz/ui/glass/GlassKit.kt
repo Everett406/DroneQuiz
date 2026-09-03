@@ -2,7 +2,6 @@ package com.drone.quiz.ui.glass
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -30,6 +31,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -37,8 +39,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
@@ -46,11 +51,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.Measurable
-import androidx.compose.ui.layout.MeasureResult
-import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.util.fastCoerceAtMost
+import androidx.compose.ui.util.fastCoerceIn
+import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
@@ -67,6 +70,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.Capsule
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -84,12 +88,12 @@ object GlassRuntime {
 }
 
 /**
- * 【官方 backdrop 库硬约束】drawBackdrop 节点不得位于 Modifier.layerBackdrop 记录层内部，
- * 否则形成"内容绘制自身"的循环引用 → RenderThread SIGSEGV（官方 FAQ / glass-bottom-sheet 教程）。
+ * 内容流真折射玻璃（折射页面背景层 backdrop）。
  *
- * 因此本 APP 的玻璃使用规则：
- * - 滚动内容流中的卡片/按钮/滑杆/开关：默认使用 [glassMaterial]（iOS regular material 观感）
- * - 记录层外的浮动元素（底栏、弹窗、悬浮条）：refracts = true 使用真折射玻璃
+ * 架构约定（对齐 Kyant0 官方 demo）：
+ * - AppRoot 把"背景渐变"单独记录进 bgBackdrop，内容流玻璃元素折射它；
+ *   元素自身位于内容记录层内，但 bgBackdrop 不包含元素 → 无循环采样，无 SIGSEGV 风险。
+ * - 安全模式降级：clip + 实色，无任何 RenderEffect。
  */
 fun Modifier.glass(
     backdrop: Backdrop,
@@ -119,8 +123,8 @@ fun Modifier.glass(
 }
 
 /**
- * 内容流质感材质：半透明渐变表面 + 顶部高光描边 + 轻阴影。
- * 不采样 backdrop，无任何循环风险；同时也是安全模式的降级形态。
+ * 质感材质（安全模式 / 特效关闭时的降级形态）：
+ * 半透明渐变表面 + 顶部高光描边 + 轻阴影，无任何 backdrop 采样。
  */
 @Composable
 fun Modifier.glassMaterial(shape: Shape, elevated: Boolean = false): Modifier {
@@ -152,30 +156,8 @@ fun Modifier.glassMaterial(shape: Shape, elevated: Boolean = false): Modifier {
 }
 
 /**
- * 按压缩放（非玻璃元素也有的"按下去"手感）。
- */
-@Composable
-fun rememberPressScale(
-    pressedScale: Float = 0.965f,
-    enabled: Boolean = true
-): Modifier {
-    val source = remember { MutableInteractionSource() }
-    val pressed by if (enabled) source.collectIsPressedAsState() else remember { mutableStateOf(false) }
-    val scale = animateFloatAsState(
-        targetValue = if (pressed) pressedScale else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 600f),
-        label = "pressScale"
-    )
-    return Modifier
-        .graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
-        }
-        .clickable(interactionSource = source, indication = null, enabled = enabled) {}
-}
-
-/**
- * 玻璃卡片容器。内容流中默认质感材质；浮动元素传 refracts = true 使用真折射。
+ * 玻璃卡片容器（内容流）。特效开启时为真折射玻璃（官方 LazyScrollContainer 同款），
+ * 安全模式退化为质感材质。
  */
 @Composable
 fun GlassCard(
@@ -183,7 +165,7 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 26.dp,
     surfaceAlpha: Float = 0.5f,
-    refracts: Boolean = false,
+    refracts: Boolean = true,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -215,8 +197,8 @@ fun GlassCard(
 }
 
 /**
- * 玻璃按钮（按压缩放；refracts 时按下折射增强、轻微膨胀、位置跟手）。
- * 内容流中默认质感材质胶囊。
+ * 玻璃按钮（官方 LiquidButton 同款实现）：
+ * 按压折射增强 + 轻微膨胀 + 跟手位移；安全模式退化为质感胶囊。
  */
 @Composable
 fun GlassButton(
@@ -227,7 +209,7 @@ fun GlassButton(
     surfaceColor: Color = Color.Unspecified,
     heightDp: Dp = 50.dp,
     isInteractive: Boolean = true,
-    refracts: Boolean = false,
+    refracts: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
@@ -247,7 +229,7 @@ fun GlassButton(
     val glassActive = refracts && GlassRuntime.enabled
 
     val containerModifier = if (!glassActive) {
-        // 材质模式（内容流默认 / 安全模式）：质感胶囊，保留按压缩放
+        // 材质模式（安全模式）：质感胶囊，保留按压缩放
         modifier
             .graphicsLayer {
                 scaleX = pressScale.value
@@ -278,7 +260,7 @@ fun GlassButton(
             .height(heightDp)
             .padding(horizontal = 18.dp)
     } else {
-        // 真折射模式：官方 LiquidButton 式按压折射增强 + 跟手位移
+        // 真折射模式：官方 LiquidButton 逐行对齐（Capsule + 按压折射 + 跟手位移）
         modifier
             .graphicsLayer {
                 scaleX = pressScale.value
@@ -286,7 +268,7 @@ fun GlassButton(
             }
             .drawBackdrop(
                 backdrop = backdrop,
-                shape = { RoundedCornerShape(50) },
+                shape = { Capsule() },
                 effects = {
                     vibrancy()
                     blur(2f.dp.toPx())
@@ -367,7 +349,7 @@ fun GlassIconButton(
     sizeDp: Dp = 46.dp,
     iconSize: Dp = 21.dp,
     iconTint: Color = Color.Unspecified,
-    refracts: Boolean = false
+    refracts: Boolean = true
 ) {
     val ui = LocalUi.current
     Box(modifier) {
@@ -388,8 +370,9 @@ fun GlassIconButton(
 }
 
 /**
- * 可拖动玻璃滑杆（点击 + 连续拖动，支持步进吸附）。
- * 内容流中默认质感材质；轨道与滑块严格垂直居中。
+ * 可拖动玻璃滑杆（官方 LiquidSlider 同款实现 + 步进吸附）。
+ * 轨道与填充记录进局部 trackBackdrop，滑块折射"背景 + 轨道"呈现 iOS 26 质感；
+ * 安全模式退化为实色滑块。
  */
 @Composable
 fun GlassSlider(
@@ -399,7 +382,7 @@ fun GlassSlider(
     step: Float = 0f,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
-    refracts: Boolean = false
+    refracts: Boolean = true
 ) {
     val ui = LocalUi.current
     val glassActive = refracts && GlassRuntime.enabled
@@ -462,11 +445,21 @@ fun GlassSlider(
                 }
         }
 
-        // 轨道区：24dp 高的居中容器，6dp 轨道 + 填充条严格垂直居中
+        // 轨道区：24dp 高的居中容器（点击热区），6dp 轨道 + 填充条严格垂直居中
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(24.dp)
+                .pointerInput(animationScope) {
+                    detectTapGestures { position ->
+                        val delta = (valueRange.endInclusive - valueRange.start) * (position.x / trackWidth)
+                        val targetValue =
+                            (if (isLtr) valueRange.start + delta
+                            else valueRange.endInclusive - delta).coerceIn(valueRange)
+                        dampedDragAnimation.animateToValue(snap(targetValue))
+                        onValueChange(snap(targetValue))
+                    }
+                }
                 .then(if (glassActive) Modifier.layerBackdrop(trackBackdrop) else Modifier),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -474,28 +467,18 @@ fun GlassSlider(
                 Modifier
                     .fillMaxWidth()
                     .height(6.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(trackColor)
-                    .pointerInput(animationScope) {
-                        detectTapGestures { position ->
-                            val delta = (valueRange.endInclusive - valueRange.start) * (position.x / trackWidth)
-                            val targetValue =
-                                (if (isLtr) valueRange.start + delta
-                                else valueRange.endInclusive - delta).coerceIn(valueRange)
-                            dampedDragAnimation.animateToValue(snap(targetValue))
-                            onValueChange(snap(targetValue))
-                        }
-                    }
             )
 
             Box(
                 Modifier
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(accentColor)
                     .height(6.dp)
                     .layout { measurable: Measurable, constraints: Constraints ->
                         val placeable = measurable.measure(constraints)
-                        val width = (constraints.maxWidth * dampedDragAnimation.progress).toInt()
+                        val width = (constraints.maxWidth * dampedDragAnimation.progress).fastRoundToInt()
                         layout(width, placeable.height) {
                             placeable.place(0, 0)
                         }
@@ -503,7 +486,7 @@ fun GlassSlider(
             )
         }
 
-        // 滑块：40x24，与轨道同一容器垂直居中（修复此前"偏下"）
+        // 滑块：40x24，与轨道同一容器垂直居中
         val thumbBase = Modifier
             .align(Alignment.CenterStart)
             .graphicsLayer {
@@ -538,7 +521,7 @@ fun GlassSlider(
                                 }
                             }
                         ),
-                        shape = { RoundedCornerShape(50) },
+                        shape = { Capsule() },
                         effects = {
                             val progress = dampedDragAnimation.pressProgress
                             blur(blurPx * (1f - progress))
@@ -567,8 +550,8 @@ fun GlassSlider(
                             scaleX = dampedDragAnimation.scaleX
                             scaleY = dampedDragAnimation.scaleY
                             val velocity = dampedDragAnimation.velocity / 10f
-                            scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
-                            scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
+                            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+                            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
                         },
                         onDrawSurface = {
                             val progress = dampedDragAnimation.pressProgress
@@ -586,73 +569,174 @@ fun GlassSlider(
 }
 
 /**
- * 玻璃开关。内容流中默认质感材质轨道。
+ * 可拖动玻璃开关（官方 LiquidToggle 同款实现）。
+ * 轨道记录进局部 trackBackdrop，玻璃圆钮折射"背景 + 轨道"；
+ * 安全模式退化为实色圆钮。点击轨道任意位置或拖动圆钮均可切换。
  */
 @Composable
 fun GlassToggle(
-    checked: Boolean,
+    checked: () -> Boolean,
     onCheckedChange: (Boolean) -> Unit,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier,
-    refracts: Boolean = false
+    modifier: Modifier = Modifier
 ) {
     val ui = LocalUi.current
-    val glassActive = refracts && GlassRuntime.enabled
-    val progress = animateFloatAsState(
-        targetValue = if (checked) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
-        label = "toggle"
-    )
+    val glassActive = GlassRuntime.enabled
+    val accentColor = ui.ink
+    val trackBaseColor =
+        if (!ui.isDark) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
 
-    val containerMod = if (!glassActive) {
-        modifier
-            .shadow(3.dp, RoundedCornerShape(50), spotColor = Color.Black.copy(alpha = 0.10f))
-            .clip(RoundedCornerShape(50))
-            .background(if (checked) ui.ink else (if (ui.isDark) Color.White.copy(0.16f) else ui.line))
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                role = Role.Switch
-            ) { onCheckedChange(!checked) }
-            .size(52.dp, 30.dp)
-    } else {
-        modifier
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { RoundedCornerShape(50) },
-                effects = {
-                    vibrancy()
-                    blur(2f.dp.toPx())
-                    lens(10f.dp.toPx(), 18f.dp.toPx())
-                },
-                onDrawSurface = {
-                    drawRect(ui.surface.copy(alpha = 0.6f))
-                    drawRect(
-                        if (checked) ui.accent.copy(alpha = 0.85f) else ui.ink.copy(alpha = 0.12f)
-                    )
+    val density = LocalDensity.current
+    val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
+    val dragWidth = with(density) { 20f.dp.toPx() }
+    val animationScope = rememberCoroutineScope()
+    var didDrag by remember { mutableStateOf(false) }
+    var fraction by remember { mutableFloatStateOf(if (checked()) 1f else 0f) }
+    val dampedDragAnimation = remember(animationScope) {
+        DampedDragAnimation(
+            animationScope = animationScope,
+            initialValue = fraction,
+            valueRange = 0f..1f,
+            visibilityThreshold = 0.001f,
+            initialScale = 1f,
+            pressedScale = 1.5f,
+            onDragStarted = {},
+            onDragStopped = {
+                if (didDrag) {
+                    fraction = if (targetValue >= 0.5f) 1f else 0f
+                    onCheckedChange(fraction == 1f)
+                    didDrag = false
+                } else {
+                    fraction = if (checked()) 0f else 1f
+                    onCheckedChange(fraction == 1f)
                 }
-            )
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                role = Role.Switch
-            ) { onCheckedChange(!checked) }
-            .size(52.dp, 30.dp)
+            },
+            onDrag = { _, dragAmount ->
+                if (!didDrag) {
+                    didDrag = dragAmount.x != 0f
+                }
+                val delta = dragAmount.x / dragWidth
+                fraction =
+                    if (isLtr) (fraction + delta).fastCoerceIn(0f, 1f)
+                    else (fraction - delta).fastCoerceIn(0f, 1f)
+            }
+        )
+    }
+    LaunchedEffect(dampedDragAnimation) {
+        snapshotFlow { fraction }
+            .collectLatest { f ->
+                dampedDragAnimation.updateValue(f)
+            }
+    }
+    LaunchedEffect(checked) {
+        snapshotFlow { checked() }
+            .collectLatest { isChecked ->
+                val target = if (isChecked) 1f else 0f
+                if (target != fraction) {
+                    fraction = target
+                    dampedDragAnimation.animateToValue(target)
+                }
+            }
     }
 
-    Box(containerMod) {
+    val trackBackdrop = rememberLayerBackdrop()
+
+    // 注意：不能在外层加 clickable —— inspectDragGestures 不消费 down/up，
+    // 外层 clickable 会与圆钮手势双触发。官方 LiquidToggle 同样只依赖圆钮手势。
+    Box(
+        modifier.size(64f.dp, 28f.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        // 轨道：颜色随 fraction 从灰过渡到墨色
         Box(
             Modifier
-                .align(Alignment.CenterStart)
-                .graphicsLayer {
-                    // 轨道 52dp、圆钮 24dp、两侧各留 3dp：圆钮从 x=3dp 滑到 x=25dp
-                    // （此前误用圆钮自身 size 计算位移，导致圆钮始终停在左边）
-                    translationX = 3.dp.toPx() + (52f - 24f - 6f).dp.toPx() * progress.value
+                .layerBackdrop(trackBackdrop)
+                .clip(Capsule())
+                .drawBehind {
+                    drawRect(lerp(trackBaseColor, accentColor, dampedDragAnimation.value))
                 }
-                .size(24.dp)
-                .shadow(2.dp, RoundedCornerShape(50))
-                .clip(RoundedCornerShape(50))
-                .background(Color.White)
+                .size(64f.dp, 28f.dp)
         )
+
+        // 圆钮：玻璃模式折射"背景 + 轨道"；材质模式实色
+        val thumbBase = Modifier
+            .graphicsLayer {
+                val f = dampedDragAnimation.value
+                val pad = 2f.dp.toPx()
+                translationX =
+                    if (isLtr) lerp(pad, pad + dragWidth, f)
+                    else lerp(-pad, -(pad + dragWidth), f)
+            }
+            .then(dampedDragAnimation.modifier)
+
+        if (!glassActive) {
+            Box(
+                thumbBase
+                    .shadow(2.dp, RoundedCornerShape(50), spotColor = Color.Black.copy(alpha = 0.2f))
+                    .clip(RoundedCornerShape(50))
+                    .background(if (ui.isDark) Color(0xFFF2EBDD) else Color.White)
+                    .size(40f.dp, 24f.dp)
+            )
+        } else {
+            Box(
+                thumbBase
+                    .drawBackdrop(
+                        backdrop = rememberCombinedBackdrop(
+                            backdrop,
+                            rememberBackdrop(trackBackdrop) { drawBackdrop ->
+                                val progress = dampedDragAnimation.pressProgress
+                                val scaleX = lerp(2f / 3f, 0.75f, progress)
+                                val scaleY = lerp(0f, 0.75f, progress)
+                                scale(scaleX, scaleY) {
+                                    drawBackdrop()
+                                }
+                            }
+                        ),
+                        shape = { Capsule() },
+                        effects = {
+                            val progress = dampedDragAnimation.pressProgress
+                            blur(8f.dp.toPx() * (1f - progress))
+                            lens(
+                                5f.dp.toPx() * progress,
+                                10f.dp.toPx() * progress,
+                                chromaticAberration = true
+                            )
+                        },
+                        highlight = {
+                            val progress = dampedDragAnimation.pressProgress
+                            Highlight.Ambient.copy(
+                                width = Highlight.Ambient.width / 1.5f,
+                                blurRadius = Highlight.Ambient.blurRadius / 1.5f,
+                                alpha = progress
+                            )
+                        },
+                        shadow = {
+                            Shadow(
+                                radius = 4f.dp,
+                                color = Color.Black.copy(alpha = 0.05f)
+                            )
+                        },
+                        innerShadow = {
+                            val progress = dampedDragAnimation.pressProgress
+                            InnerShadow(
+                                radius = 4f.dp * progress,
+                                alpha = progress
+                            )
+                        },
+                        layerBlock = {
+                            scaleX = dampedDragAnimation.scaleX
+                            scaleY = dampedDragAnimation.scaleY
+                            val velocity = dampedDragAnimation.velocity / 50f
+                            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+                            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        },
+                        onDrawSurface = {
+                            val progress = dampedDragAnimation.pressProgress
+                            drawRect(Color.White.copy(alpha = 1f - progress))
+                        }
+                    )
+                    .size(40f.dp, 24f.dp)
+            )
+        }
     }
 }

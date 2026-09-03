@@ -38,6 +38,7 @@ import com.drone.quiz.ui.glass.GlassBottomTabs
 import com.drone.quiz.ui.glass.TabIconSlot
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 object Routes {
@@ -61,7 +62,14 @@ object Routes {
 fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
     val ui = LocalUi.current
     val navController: NavHostController = rememberNavController()
-    val backdrop = rememberLayerBackdrop()
+
+    // 双记录层架构（对齐 Kyant0 官方 demo）:
+    // 1. bgBackdrop —— 只记录背景渐变（"壁纸"）。内容流玻璃卡片折射它，
+    //    卡片不在该记录层内 → 无循环采样，无 SIGSEGV 风险。
+    // 2. contentBackdrop —— 记录 NavHost 内容。底栏折射"背景+内容"，
+    //    底栏在其记录层之外 → 安全。
+    val bgBackdrop = rememberLayerBackdrop()
+    val contentBackdrop = rememberLayerBackdrop()
 
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
@@ -78,16 +86,20 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         }
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(ui.bgGradient)
-    ) {
-        // 内容层：同时作为液态玻璃的 backdrop 来源（含滚动内容）
+    Box(Modifier.fillMaxSize()) {
+        // 层 1：背景渐变（液态玻璃的"壁纸"采样源）
         Box(
             Modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
+                .matchParentSize()
+                .layerBackdrop(bgBackdrop)
+                .background(ui.bgGradient)
+        )
+
+        // 层 2：内容层（透明背景，浮于背景之上；同时作为底栏折射的内容源）
+        Box(
+            Modifier
+                .matchParentSize()
+                .layerBackdrop(contentBackdrop)
         ) {
             NavHost(
                 navController = navController,
@@ -108,7 +120,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
             ) {
                 composable(Routes.HOME) {
                     HomeScreen(
-                        backdrop = backdrop,
+                        backdrop = bgBackdrop,
                         onPractice = { navigateTab(1) },
                         onExam = { navigateTab(2) },
                         onWrong = { navigateTab(3) },
@@ -119,11 +131,11 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 }
                 composable(Routes.PRACTICE_PATTERN) { entry ->
                     val src = entry.arguments?.getString("src") ?: "all"
-                    PracticeScreen(backdrop = backdrop, src = src)
+                    PracticeScreen(backdrop = bgBackdrop, src = src)
                 }
                 composable(Routes.EXAM_CONFIG) {
                     ExamConfigScreen(
-                        backdrop = backdrop,
+                        backdrop = bgBackdrop,
                         onStart = { examId ->
                             navController.navigate("examRun/$examId") { launchSingleTop = true }
                         }
@@ -132,7 +144,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 composable(Routes.EXAM_RUN_PATTERN) { entry ->
                     val examId = entry.arguments?.getString("examId")?.toLongOrNull() ?: 0L
                     ExamScreen(
-                        backdrop = backdrop,
+                        backdrop = bgBackdrop,
                         examId = examId,
                         onSubmit = { id ->
                             navController.navigate("examResult/$id") {
@@ -146,7 +158,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 composable(Routes.EXAM_RESULT_PATTERN) { entry ->
                     val examId = entry.arguments?.getString("examId")?.toLongOrNull() ?: 0L
                     ExamResultScreen(
-                        backdrop = backdrop,
+                        backdrop = bgBackdrop,
                         examId = examId,
                         onHome = {
                             navController.navigate(Routes.HOME) {
@@ -161,14 +173,14 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 }
                 composable(Routes.WRONG) {
                     WrongBookScreen(
-                        backdrop = backdrop,
+                        backdrop = bgBackdrop,
                         onPractice = {
                             navController.navigate("practice?src=wrong") { launchSingleTop = true }
                         }
                     )
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(backdrop = backdrop)
+                    SettingsScreen(backdrop = bgBackdrop)
                 }
             }
         }
@@ -196,7 +208,8 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
             GlassBottomTabs(
                 selectedTabIndex = { tabIndex.coerceAtLeast(0) },
                 onTabSelected = { index -> navigateTab(index) },
-                backdrop = backdrop,
+                // 折射"背景 + 滚动内容"：内容从底栏下方滑过时透过玻璃可见
+                backdrop = rememberCombinedBackdrop(bgBackdrop, contentBackdrop),
                 tabsCount = 5
             ) { index ->
                 // index == -1：玻璃底胶囊与隐藏染色层要求渲染"整排 5 个图标位"（官方约定）；
