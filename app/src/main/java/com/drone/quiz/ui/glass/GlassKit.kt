@@ -386,7 +386,7 @@ fun GlassSlider(
                 .graphicsLayer {
                     translationX =
                         (-size.width / 2f + trackWidth * dampedDragAnimation.progress)
-                            .fastCoerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
+                            .coerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
                             (if (isLtr) 1f else -1f)
                 }
                 .then(dampedDragAnimation.modifier)
@@ -431,8 +431,8 @@ fun GlassSlider(
                         scaleX = dampedDragAnimation.scaleX
                         scaleY = dampedDragAnimation.scaleY
                         val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
+                        scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress

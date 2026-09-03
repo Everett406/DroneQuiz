@@ -56,7 +56,7 @@ fun SettingsScreen(backdrop: Backdrop) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val settings by ServiceLocator.settings.settings.collectAsState()
+    val settings by ServiceLocator.settings.settings.collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
 
     var bankInfo by remember { mutableStateOf("加载中…") }
     var importMsg by remember { mutableStateOf<String?>(null) }

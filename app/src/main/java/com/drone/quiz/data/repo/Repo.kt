@@ -310,7 +310,7 @@ class Repo(private val db: AppDatabase) {
         val wrongQuestions: List<Question>
     )
 
-    suspend fun recentExams(): Flow<List<ExamRecordEntity>> = eDao.recentExams(20)
+    fun recentExams(): Flow<List<ExamRecordEntity>> = eDao.recentExams(20)
 
     // ---------- 错题本 ----------
 

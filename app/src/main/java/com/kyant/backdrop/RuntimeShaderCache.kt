@@ -11,7 +11,7 @@ internal class RuntimeShaderCacheImpl : RuntimeShaderCache {
     private val runtimeShaders = mutableMapOf<String, RuntimeShader>()
 
     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
-        return runtimeShaders.getOrPut(key) { RuntimeShader(string) }
+        return runtimeShaders.getOrPut(key) { createRuntimeShader(string) }
     }
 
     fun clear() {

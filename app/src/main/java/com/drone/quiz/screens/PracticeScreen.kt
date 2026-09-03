@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
+import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.ui.glass.AppIcons
@@ -74,7 +75,7 @@ fun PracticeScreen(
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
-    val settings by ServiceLocator.settings.settings.collectAsState()
+    val settings by ServiceLocator.settings.settings.collectAsState(initial = AppSettings())
 
     var questions by remember { mutableStateOf<List<Question>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }

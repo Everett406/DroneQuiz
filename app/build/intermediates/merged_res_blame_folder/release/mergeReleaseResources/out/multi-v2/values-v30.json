@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.drone.quiz.app-mergeReleaseResources-50:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "/home/z/.gradle/caches/8.14.3/transforms/8c8df552e4ad09543b3689bb44104f55/transformed/material3-release/res/values-v30/values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}

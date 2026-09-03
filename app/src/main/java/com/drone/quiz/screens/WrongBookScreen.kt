@@ -62,7 +62,7 @@ fun WrongBookScreen(
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
-    val settings by ServiceLocator.settings.settings.collectAsState()
+    val settings by ServiceLocator.settings.settings.collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
     val wrongList by ServiceLocator.repo.activeWrong().collectAsState(initial = emptyList())
     val bounce = rememberBounceState()
 

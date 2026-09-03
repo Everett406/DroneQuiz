@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -58,7 +59,7 @@ class BounceState internal constructor(
                 anim.animateTo(
                     0f,
                     spring(dampingRatio = 0.85f, stiffness = 380f)
-                ) { value, _ ->
+                ) {
                     offset = value
                 }
             }

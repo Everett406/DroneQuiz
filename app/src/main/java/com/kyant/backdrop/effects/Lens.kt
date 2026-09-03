@@ -11,7 +11,6 @@ import com.kyant.backdrop.internal.RoundedRectRefractionShaderString
 import com.kyant.backdrop.internal.RoundedRectRefractionWithDispersionShaderString
 import com.kyant.backdrop.internal.RuntimeShaderEffect
 import com.kyant.backdrop.isRuntimeShaderSupported
-import com.kyant.shapes.RoundedRectangularShape
 
 fun BackdropEffectScope.lens(
     @FloatRange(from = 0.0) refractionHeight: Float,
@@ -27,50 +26,35 @@ fun BackdropEffectScope.lens(
     }
 
     val cornerRadii = cornerRadii
-    val effect =
-        if (cornerRadii != null) {
-            val shader =
-                if (!chromaticAberration) {
-                    obtainRuntimeShader(
-                        "Refraction",
-                        RoundedRectRefractionShaderString
-                    )
-                } else {
-                    obtainRuntimeShader(
-                        "RefractionWithDispersion",
-                        RoundedRectRefractionWithDispersionShaderString
-                    )
-                }
-            shader.apply {
-                setFloatUniform("size", size.width, size.height)
-                setFloatUniform("offset", -padding, -padding)
-                setFloatUniform("cornerRadii", cornerRadii)
-                setFloatUniform("refractionHeight", refractionHeight)
-                setFloatUniform("refractionAmount", -refractionAmount)
-                setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
-                if (chromaticAberration) {
-                    setFloatUniform("chromaticAberration", 1f)
-                }
-            }
-            RuntimeShaderEffect(shader, "content")
+        ?: throwUnsupportedSDFException()
+    val shader =
+        if (!chromaticAberration) {
+            obtainRuntimeShader(
+                "Refraction",
+                RoundedRectRefractionShaderString
+            )
         } else {
-            throwUnsupportedSDFException()
+            obtainRuntimeShader(
+                "RefractionWithDispersion",
+                RoundedRectRefractionWithDispersionShaderString
+            )
         }
-    effect(effect)
+    shader.apply {
+        setFloatUniform("size", size.width, size.height)
+        setFloatUniform("offset", -padding, -padding)
+        setFloatUniform("cornerRadii", cornerRadii)
+        setFloatUniform("refractionHeight", refractionHeight)
+        setFloatUniform("refractionAmount", -refractionAmount)
+        setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
+        if (chromaticAberration) {
+            setFloatUniform("chromaticAberration", 1f)
+        }
+    }
+    effect(RuntimeShaderEffect(shader, "content"))
 }
 
 private val BackdropEffectScope.cornerRadii: FloatArray?
     get() = when (val shape = shape) {
-        is RoundedRectangularShape -> {
-            val corners = shape.corners(size, layoutDirection, this)
-            floatArrayOf(
-                corners.topLeft,
-                corners.topRight,
-                corners.bottomRight,
-                corners.bottomLeft
-            )
-        }
-
         is AbsoluteRoundedCornerShape -> {
             val size = size
             val maxRadius = size.minDimension / 2f

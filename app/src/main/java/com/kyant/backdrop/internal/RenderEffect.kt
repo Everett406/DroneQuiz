@@ -5,7 +5,6 @@ import androidx.annotation.RequiresApi
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.asAndroidColorFilter
-import androidx.compose.ui.graphics.asAndroidRenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import com.kyant.backdrop.RuntimeShader
 import com.kyant.backdrop.asAndroidRuntimeShader

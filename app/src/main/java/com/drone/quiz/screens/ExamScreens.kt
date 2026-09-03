@@ -2,6 +2,7 @@ package com.drone.quiz.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -86,7 +87,8 @@ fun ExamConfigScreen(
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
-    val settings by ServiceLocator.settings.settings.collectAsState()
+    val settings by ServiceLocator.settings.settings
+        .collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
 
     var count by remember { mutableIntStateOf(50) }
     var judgeRatio by remember { mutableStateOf(0.3f) }
