@@ -338,7 +338,7 @@ private fun FastScrollHandle(
                     }
                 }
                 .pointerInput(lastIndex, trackHeight) {
-                    androidx.compose.foundation.gestures.detectTapGestures { offset ->
+                    detectTapGestures { offset ->
                         fraction = (offset.y / trackHeight).coerceIn(0f, 1f)
                         dragging = true
                         scope.launch {
