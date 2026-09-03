@@ -1,0 +1,26 @@
+DroneQuiz — 无人机装调题库刷题 APP
+Copyright 2026 Everett406
+
+This product includes software developed by Kyant0.
+
+  * AndroidLiquidGlass (backdrop) — https://github.com/Kyant0/AndroidLiquidGlass
+    Licensed under the Apache License, Version 2.0.
+    Vendored into this repository under app/src/main/java/com/kyant/backdrop/
+    with the following modifications:
+      - commonMain + androidMain merged into a single Android source set
+        (expect/actual declarations collapsed to Android implementations);
+      - lens() decoupled from the external Kyant0 shapes library
+        (only the CornerBasedShape branch retained);
+      - org.jetbrains.annotations references removed.
+
+  * DampedDragAnimation / InteractiveHighlight / DragGestureInspector
+    utilities originate from the same project's catalog samples
+    (Apache License, Version 2.0), vendored under
+    com/kyant/backdrop/catalog/utils/.
+
+Android, Jetpack Compose, Room, DataStore, WorkManager and related
+AndroidX libraries are developed by Google LLC and subject to their
+respective licenses (Apache License 2.0).
+
+本项目内置于 assets/questions.json 的题库数据由项目需求方提供，
+版权归原始题库编制方所有，仅随本应用分发使用。
