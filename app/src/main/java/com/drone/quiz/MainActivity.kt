@@ -45,6 +45,7 @@ import com.drone.quiz.ui.glass.GlassRuntime
 import com.drone.quiz.ui.nav.AppRoot
 import com.drone.quiz.ui.theme.DroneTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
@@ -69,14 +70,23 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     BootGuard.log(context, "load", "开始加载题库")
+                    // 等待 DataStore 首次真实发射，避免用组合态默认值误判题库版本
+                    val persisted = runCatching {
+                        ServiceLocator.settings.settings.first()
+                    }.getOrDefault(AppSettings())
                     val result = runCatching {
-                        ServiceLocator.repo.ensureBankLoaded(applicationContext)
+                        ServiceLocator.repo.ensureBankLoaded(applicationContext, persisted.bankVersion)
                     }
                     result.onFailure {
                         BootGuard.log(context, "load", "题库加载失败(已忽略): ${it.javaClass.name}: ${it.message}")
                     }
-                    result.onSuccess {
-                        BootGuard.log(context, "load", "题库就绪")
+                    result.onSuccess { loadedVersion ->
+                        if (loadedVersion > 0) {
+                            BootGuard.log(context, "load", "题库就绪（版本 $loadedVersion，学习数据已随题库升级重置）")
+                            runCatching { ServiceLocator.settings.setBankVersion(loadedVersion) }
+                        } else {
+                            BootGuard.log(context, "load", "题库就绪")
+                        }
                     }
                     ready = true
                     BootGuard.log(context, "load", "主界面开始渲染")

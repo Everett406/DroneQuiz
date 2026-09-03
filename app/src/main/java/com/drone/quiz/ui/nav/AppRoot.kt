@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -198,12 +199,21 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 backdrop = backdrop,
                 tabsCount = 5
             ) { index ->
-                when (index) {
-                    0 -> TabIconSlot(0, AppIcons.Home)
-                    1 -> TabIconSlot(1, AppIcons.Cards)
-                    2 -> TabIconSlot(2, AppIcons.Timer)
-                    3 -> TabIconSlot(3, AppIcons.BookWrong)
-                    else -> TabIconSlot(4, AppIcons.Tune)
+                // index == -1：玻璃底胶囊与隐藏染色层要求渲染"整排 5 个图标位"（官方约定）；
+                // 此前 -1 误入 else 分支只渲染了一个全宽 Tune 图标，导致底栏 5 个图标全部消失
+                val slot: @Composable RowScope.(Int) -> Unit = { i ->
+                    when (i) {
+                        0 -> TabIconSlot(0, AppIcons.Home)
+                        1 -> TabIconSlot(1, AppIcons.Cards)
+                        2 -> TabIconSlot(2, AppIcons.Timer)
+                        3 -> TabIconSlot(3, AppIcons.BookWrong)
+                        else -> TabIconSlot(4, AppIcons.Tune)
+                    }
+                }
+                if (index == -1) {
+                    repeat(5) { i -> slot(i) }
+                } else {
+                    slot(index)
                 }
             }
         }

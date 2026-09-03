@@ -19,7 +19,8 @@ data class AppSettings(
     val removeThreshold: Int = 2, // 错题移除：连续答对 N 次
     val dailyNotify: Boolean = false,
     val practiceOrder: Int = 0,  // 0 顺序 1 随机
-    val effects: Boolean = true  // 画面特效（液态玻璃）；异常退出后自动降级时为 false 效果
+    val effects: Boolean = true, // 画面特效（液态玻璃）；异常退出后自动降级时为 false 效果
+    val bankVersion: Int = 0     // 已加载题库的版本（与 assets questions.json 的 version 比对）
 )
 
 class SettingsStore(private val context: Context) {
@@ -33,6 +34,7 @@ class SettingsStore(private val context: Context) {
         val dailyNotify = booleanPreferencesKey("daily_notify")
         val practiceOrder = intPreferencesKey("practice_order")
         val effects = booleanPreferencesKey("glass_effects")
+        val bankVersion = intPreferencesKey("bank_version")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -44,7 +46,8 @@ class SettingsStore(private val context: Context) {
             removeThreshold = p[K.removeThreshold] ?: 2,
             dailyNotify = p[K.dailyNotify] ?: false,
             practiceOrder = p[K.practiceOrder] ?: 0,
-            effects = p[K.effects] ?: true
+            effects = p[K.effects] ?: true,
+            bankVersion = p[K.bankVersion] ?: 0
         )
     }
 
@@ -56,4 +59,5 @@ class SettingsStore(private val context: Context) {
     suspend fun setDailyNotify(v: Boolean) = context.dataStore.edit { it[K.dailyNotify] = v }
     suspend fun setPracticeOrder(v: Int) = context.dataStore.edit { it[K.practiceOrder] = v }
     suspend fun setEffects(v: Boolean) = context.dataStore.edit { it[K.effects] = v }
+    suspend fun setBankVersion(v: Int) = context.dataStore.edit { it[K.bankVersion] = v }
 }

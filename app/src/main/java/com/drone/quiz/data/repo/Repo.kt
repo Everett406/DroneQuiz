@@ -63,12 +63,39 @@ class Repo(private val db: AppDatabase) {
 
     fun countFlow(): Flow<Int> = qDao.countFlow()
 
-    suspend fun ensureBankLoaded(context: Context) = withContext(Dispatchers.IO) {
-        if (qDao.count() == 0) {
-            runCatching {
-                context.assets.open("questions.json").use { importBank(it.readBytes()) }
+    /**
+     * 启动时保证题库就绪并处理版本升级：
+     * - 库空 → 导入内置题库
+     * - 已记录题库版本 ≠ 内置题库版本 → 清空全部学习数据（记录/统计/模考/错题/打卡）后重新导入
+     *   （题库内容与 id 均会变化，旧学习数据必然失配，整体重置最干净）
+     *
+     * @param storedBankVersion DataStore 中记录的已加载题库版本（0 = 从未记录）
+     * @return 实际加载生效的题库版本；未发生任何导入时返回 -1
+     */
+    suspend fun ensureBankLoaded(context: Context, storedBankVersion: Int): Int = withContext(Dispatchers.IO) {
+        val assetsVersion = runCatching {
+            context.assets.open("questions.json").use { input ->
+                val text = input.readBytes().decodeToString()
+                val probe = json.decodeFromString<ImportBank>(text)
+                probe.version
+            }
+        }.getOrDefault(1)
+
+        val needsImport = qDao.count() == 0 || storedBankVersion != assetsVersion
+        if (!needsImport) return@withContext -1
+
+        if (qDao.count() > 0) {
+            // 题库升级：先清掉依赖旧题 id 的全部学习数据
+            db.withTransaction {
+                rDao.clearRecords(); rDao.clearStats(); rDao.clearStreaks()
+                eDao.clearExams(); eDao.clearExamAnswers()
+                wDao.clear()
             }
         }
+        runCatching {
+            context.assets.open("questions.json").use { importBank(it.readBytes()) }
+        }
+        assetsVersion
     }
 
     suspend fun importBank(bytes: ByteArray): ImportResult = withContext(Dispatchers.IO) {

@@ -645,7 +645,9 @@ fun GlassToggle(
             Modifier
                 .align(Alignment.CenterStart)
                 .graphicsLayer {
-                    translationX = (size.width - 24.dp.toPx() - 4.dp.toPx()) * progress.value
+                    // 轨道 52dp、圆钮 24dp、两侧各留 3dp：圆钮从 x=3dp 滑到 x=25dp
+                    // （此前误用圆钮自身 size 计算位移，导致圆钮始终停在左边）
+                    translationX = 3.dp.toPx() + (52f - 24f - 6f).dp.toPx() * progress.value
                 }
                 .size(24.dp)
                 .shadow(2.dp, RoundedCornerShape(50))

@@ -113,6 +113,12 @@ interface ExamDao {
 
     @Query("SELECT * FROM exam_answers WHERE examId = :examId AND picked IS NULL")
     suspend fun unanswered(examId: Long): List<ExamAnswerEntity>
+
+    @Query("DELETE FROM exam_records")
+    suspend fun clearExams()
+
+    @Query("DELETE FROM exam_answers")
+    suspend fun clearExamAnswers()
 }
 
 @Dao
