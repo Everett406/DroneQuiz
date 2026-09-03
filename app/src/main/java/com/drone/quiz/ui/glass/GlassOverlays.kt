@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,14 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
+
+/**
+ * 弹窗打开时置 true：AppRoot 据此对内容层施加真模糊（iOS 风格）。
+ * 注意：弹窗面板本身已通过 GlassOverlayPortal 渲染在模糊区之外，不会被连帶模糊。
+ */
+object OverlayBlur {
+    var active by mutableStateOf(false)
+}
 
 /**
  * 弹窗传送门。

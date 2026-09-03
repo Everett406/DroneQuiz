@@ -47,6 +47,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**

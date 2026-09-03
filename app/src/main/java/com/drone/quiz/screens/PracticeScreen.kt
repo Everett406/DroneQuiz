@@ -293,10 +293,11 @@ fun PracticeRunScreen(
                     // 邻页向圆心轻收（弧面压缩），产生“转盘半径”的纵深感
                     Box(
                         Modifier.graphicsLayer {
-                            // 显式 offset/pageSize：正值 = 页在圆心右侧（不依赖 pageOffset 语义）
-                            val li = pagerState.layoutInfo
-                            val info = li.visiblePagesInfo.firstOrNull { it.page == page }
-                            val off = (info?.offset ?: 0) / li.pageSize.toFloat().coerceAtLeast(1f)
+                            // 有符号页偏移：0 = 当前页，正值 = 页在圆心右侧（与 Pager 版本无关的算法）
+                            // off = (page - currentPage) - currentPageOffsetFraction
+                            // 拖向下一页时当前页 off 变负（向左离场），下一页 off 趋 0（自右侧入场）
+                            val off = ((page - pagerState.currentPage) -
+                                pagerState.currentPageOffsetFraction).coerceIn(-1.2f, 1.2f)
                             val a = abs(off)
                             cameraDistance = 24f * density
                             rotationY = off * 20f
