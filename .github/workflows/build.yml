@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION_NAME: 2.0.2
-  APP_VERSION_TAG: v2.0.2
+  APP_VERSION_NAME: 2.1.0
+  APP_VERSION_TAG: v2.1.0
 
 jobs:
   build:
@@ -56,12 +56,12 @@ jobs:
           name: DroneQuiz ${{ env.APP_VERSION_TAG }}
           files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            无人机装调题库刷题 APP v2.0.2
-            - 启动守护：面包屑日志 + 启动心跳，任何形式异常退出（含渲染层 native 崩溃）下次启动自动诊断
-            - 自愈能力：检测到异常退出自动进入安全模式（关闭画面特效），保证 APP 始终可用
-            - 设置新增「画面特效」开关，可手动开关液态玻璃
-            - 固定签名：此后所有版本可直接覆盖安装，无需再卸载旧版（本次安装仍需卸载一次旧版）
-            - 修复模考交卷崩溃（wrongbook.addedAt）、真液态玻璃（Kyant0 backdrop）
+            无人机装调题库刷题 APP v2.1.0
+            - 【根治首次启动闪退】按官方 backdrop 架构重构：滚动内容内组件不再采样记录层（消除 RenderThread SIGSEGV 循环），
+              改用 iOS regular material 质感材质；底栏/弹层保留真折射液态玻璃
+            - 修复滑杆整体偏下（轨道/滑块垂直居中）
+            - 按钮按压动效、滑杆/开关样式重做
+            - 固定签名，可直接覆盖安装
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

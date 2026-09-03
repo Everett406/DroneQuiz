@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.scale
@@ -75,15 +77,19 @@ import kotlin.math.tanh
 /**
  * 全局玻璃特效开关。
  * 安全模式（启动异常自动降级）或用户在设置中关闭后，
- * 所有玻璃组件退化为纯 Compose 渲染（无 RenderEffect/AGSL），保证可用性。
+ * 所有折射玻璃退化为质感材质（无 RenderEffect/AGSL），保证可用性。
  */
 object GlassRuntime {
     var enabled by mutableStateOf(true)
 }
 
 /**
- * 静态玻璃表面：真折射（AGSL lens）+ 真模糊 + vibrancy + 表面着色。
- * shape 必须是 CornerBasedShape（RoundedCornerShape）。
+ * 【官方 backdrop 库硬约束】drawBackdrop 节点不得位于 Modifier.layerBackdrop 记录层内部，
+ * 否则形成"内容绘制自身"的循环引用 → RenderThread SIGSEGV（官方 FAQ / glass-bottom-sheet 教程）。
+ *
+ * 因此本 APP 的玻璃使用规则：
+ * - 滚动内容流中的卡片/按钮/滑杆/开关：默认使用 [glassMaterial]（iOS regular material 观感）
+ * - 记录层外的浮动元素（底栏、弹窗、悬浮条）：refracts = true 使用真折射玻璃
  */
 fun Modifier.glass(
     backdrop: Backdrop,
@@ -113,6 +119,39 @@ fun Modifier.glass(
 }
 
 /**
+ * 内容流质感材质：半透明渐变表面 + 顶部高光描边 + 轻阴影。
+ * 不采样 backdrop，无任何循环风险；同时也是安全模式的降级形态。
+ */
+@Composable
+fun Modifier.glassMaterial(shape: Shape, elevated: Boolean = false): Modifier {
+    val ui = LocalUi.current
+    return this
+        .shadow(
+            elevation = (if (elevated) 10 else 5).dp,
+            shape = shape,
+            ambientColor = Color.Black.copy(alpha = if (ui.isDark) 0.30f else 0.06f),
+            spotColor = Color.Black.copy(alpha = if (ui.isDark) 0.42f else 0.10f)
+        )
+        .clip(shape)
+        .background(
+            if (ui.isDark) Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.13f), Color.White.copy(alpha = 0.07f))
+            ) else Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.82f), Color.White.copy(alpha = 0.56f))
+            )
+        )
+        .border(
+            width = 0.75.dp,
+            brush = if (ui.isDark) Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.05f))
+            ) else Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.28f))
+            ),
+            shape = shape
+        )
+}
+
+/**
  * 按压缩放（非玻璃元素也有的"按下去"手感）。
  */
 @Composable
@@ -136,7 +175,7 @@ fun rememberPressScale(
 }
 
 /**
- * 玻璃卡片容器。
+ * 玻璃卡片容器。内容流中默认质感材质；浮动元素传 refracts = true 使用真折射。
  */
 @Composable
 fun GlassCard(
@@ -144,43 +183,40 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 26.dp,
     surfaceAlpha: Float = 0.5f,
+    refracts: Boolean = false,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
     val ui = LocalUi.current
     val shape = RoundedCornerShape(cornerRadius)
-    val press = if (onClick != null) rememberPressScale() else Modifier
     val clickMod = if (onClick != null) Modifier.clickable(
         interactionSource = null,
         indication = null,
         onClick = onClick
     ) else Modifier
+    val surfaceMod = if (refracts && GlassRuntime.enabled) {
+        Modifier.glass(
+            backdrop = backdrop,
+            shape = shape,
+            blurDp = 18.dp,
+            lensHeightDp = 14.dp,
+            lensAmountDp = 20.dp,
+            surfaceColor = ui.surface.copy(alpha = surfaceAlpha)
+        )
+    } else {
+        Modifier.glassMaterial(shape)
+    }
     Box(
         modifier
-            .then(press)
-            .then(
-                if (!GlassRuntime.enabled) {
-                    Modifier
-                        .clip(shape)
-                        .background(ui.surfaceStrong)
-                } else {
-                    Modifier.glass(
-                        backdrop = backdrop,
-                        shape = shape,
-                        blurDp = 18.dp,
-                        lensHeightDp = 14.dp,
-                        lensAmountDp = 20.dp,
-                        surfaceColor = ui.surface.copy(alpha = surfaceAlpha)
-                    )
-                }
-            )
+            .then(surfaceMod)
             .then(clickMod),
         content = content
     )
 }
 
 /**
- * 液态玻璃按钮（按下时折射增强、轻微膨胀、位置跟随手势）。
+ * 玻璃按钮（按压缩放；refracts 时按下折射增强、轻微膨胀、位置跟手）。
+ * 内容流中默认质感材质胶囊。
  */
 @Composable
 fun GlassButton(
@@ -191,6 +227,7 @@ fun GlassButton(
     surfaceColor: Color = Color.Unspecified,
     heightDp: Dp = 50.dp,
     isInteractive: Boolean = true,
+    refracts: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
@@ -199,24 +236,54 @@ fun GlassButton(
     }
     val ui = LocalUi.current
 
-    val containerModifier = if (!GlassRuntime.enabled) {
-        // 安全模式：纯色胶囊按钮，保留按压反馈
+    val pressSource = remember { MutableInteractionSource() }
+    val pressed by pressSource.collectIsPressedAsState()
+    val pressScale = animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 600f),
+        label = "btnPressScale"
+    )
+
+    val glassActive = refracts && GlassRuntime.enabled
+
+    val containerModifier = if (!glassActive) {
+        // 材质模式（内容流默认 / 安全模式）：质感胶囊，保留按压缩放
         modifier
+            .graphicsLayer {
+                scaleX = pressScale.value
+                scaleY = pressScale.value
+            }
+            .shadow(5.dp, RoundedCornerShape(50), spotColor = Color.Black.copy(alpha = 0.12f))
             .clip(RoundedCornerShape(50))
             .background(
                 if (surfaceColor != Color.Unspecified) surfaceColor
-                else ui.surfaceStrong
+                else if (ui.isDark) Color.White.copy(alpha = 0.14f)
+                else Color.White.copy(alpha = 0.72f)
+            )
+            .border(
+                0.75.dp,
+                if (ui.isDark) Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.06f))
+                ) else Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.30f))
+                ),
+                RoundedCornerShape(50)
             )
             .clickable(
-                interactionSource = null,
-                indication = LocalIndication.current,
+                interactionSource = pressSource,
+                indication = null,
                 role = Role.Button,
                 onClick = onClick
             )
             .height(heightDp)
             .padding(horizontal = 18.dp)
     } else {
+        // 真折射模式：官方 LiquidButton 式按压折射增强 + 跟手位移
         modifier
+            .graphicsLayer {
+                scaleX = pressScale.value
+                scaleY = pressScale.value
+            }
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedCornerShape(50) },
@@ -262,8 +329,8 @@ fun GlassButton(
                 }
             )
             .clickable(
-                interactionSource = null,
-                indication = if (isInteractive) null else LocalIndication.current,
+                interactionSource = pressSource,
+                indication = null,
                 role = Role.Button,
                 onClick = onClick
             )
@@ -299,15 +366,16 @@ fun GlassIconButton(
     modifier: Modifier = Modifier,
     sizeDp: Dp = 46.dp,
     iconSize: Dp = 21.dp,
-    iconTint: Color = Color.Unspecified
+    iconTint: Color = Color.Unspecified,
+    refracts: Boolean = false
 ) {
     val ui = LocalUi.current
     Box(modifier) {
         GlassButton(
             onClick = onClick,
             backdrop = backdrop,
-            surfaceColor = ui.surface.copy(alpha = 0.55f),
-            heightDp = sizeDp
+            heightDp = sizeDp,
+            refracts = refracts
         ) {
             androidx.compose.material3.Icon(
                 imageVector = icon,
@@ -321,6 +389,7 @@ fun GlassIconButton(
 
 /**
  * 可拖动玻璃滑杆（点击 + 连续拖动，支持步进吸附）。
+ * 内容流中默认质感材质；轨道与滑块严格垂直居中。
  */
 @Composable
 fun GlassSlider(
@@ -329,18 +398,20 @@ fun GlassSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     step: Float = 0f,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    refracts: Boolean = false
 ) {
     val ui = LocalUi.current
+    val glassActive = refracts && GlassRuntime.enabled
     val trackColor =
         if (!ui.isDark) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
     val accentColor = ui.ink
 
-    val trackBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
     val blurPx = with(density) { 8.dp.toPx() }
     val lens1 = with(density) { 10.dp.toPx() }
     val lens2 = with(density) { 14.dp.toPx() }
+    val trackBackdrop = rememberLayerBackdrop()
 
     fun snap(v: Float): Float =
         if (step > 0f) {
@@ -391,12 +462,18 @@ fun GlassSlider(
                 }
         }
 
+        // 轨道区：24dp 高的居中容器，6dp 轨道 + 填充条严格垂直居中
         Box(
             Modifier
-                .then(if (GlassRuntime.enabled) Modifier.layerBackdrop(trackBackdrop) else Modifier)
+                .fillMaxWidth()
+                .height(24.dp)
+                .then(if (glassActive) Modifier.layerBackdrop(trackBackdrop) else Modifier),
+            contentAlignment = Alignment.CenterStart
         ) {
             Box(
                 Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
                     .clip(RoundedCornerShape(50))
                     .background(trackColor)
                     .pointerInput(animationScope) {
@@ -409,8 +486,6 @@ fun GlassSlider(
                             onValueChange(snap(targetValue))
                         }
                     }
-                    .height(6.dp)
-                    .fillMaxWidth()
             )
 
             Box(
@@ -428,7 +503,9 @@ fun GlassSlider(
             )
         }
 
+        // 滑块：40x24，与轨道同一容器垂直居中（修复此前"偏下"）
         val thumbBase = Modifier
+            .align(Alignment.CenterStart)
             .graphicsLayer {
                 translationX =
                     (-size.width / 2f + trackWidth * dampedDragAnimation.progress)
@@ -437,11 +514,11 @@ fun GlassSlider(
             }
             .then(dampedDragAnimation.modifier)
 
-        if (!GlassRuntime.enabled) {
-            // 安全模式：实色滑块 + 轻阴影，无 RenderEffect
+        if (!glassActive) {
+            // 材质模式：实色滑块 + 轻阴影，无 RenderEffect
             Box(
                 thumbBase
-                    .shadow(4.dp, RoundedCornerShape(50))
+                    .shadow(4.dp, RoundedCornerShape(50), spotColor = Color.Black.copy(alpha = 0.22f))
                     .clip(RoundedCornerShape(50))
                     .background(if (ui.isDark) Color(0xFFF2EBDD) else Color.White)
                     .size(40.dp, 24.dp)
@@ -450,85 +527,88 @@ fun GlassSlider(
             Box(
                 thumbBase
                     .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(
-                        backdrop,
-                        rememberBackdrop(trackBackdrop) { drawBackdrop ->
-                            val progress = dampedDragAnimation.pressProgress
-                            val scaleX = lerp(2f / 3f, 1f, progress)
-                            val scaleY = lerp(0f, 1f, progress)
-                            scale(scaleX, scaleY) {
-                                drawBackdrop()
+                        backdrop = rememberCombinedBackdrop(
+                            backdrop,
+                            rememberBackdrop(trackBackdrop) { drawBackdrop ->
+                                val progress = dampedDragAnimation.pressProgress
+                                val scaleX = lerp(2f / 3f, 1f, progress)
+                                val scaleY = lerp(0f, 1f, progress)
+                                scale(scaleX, scaleY) {
+                                    drawBackdrop()
+                                }
                             }
-                        }
-                    ),
-                    shape = { RoundedCornerShape(50) },
-                    effects = {
-                        val progress = dampedDragAnimation.pressProgress
-                        blur(blurPx * (1f - progress))
-                        lens(
-                            lens1 * progress,
-                            lens2 * progress,
-                            chromaticAberration = true
-                        )
-                    },
-                    highlight = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Highlight.Ambient.copy(
-                            width = Highlight.Ambient.width / 1.5f,
-                            blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                            alpha = progress
-                        )
-                    },
-                    shadow = {
-                        Shadow(radius = 4.dp, color = Color.Black.copy(alpha = 0.05f))
-                    },
-                    innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(radius = 4.dp * progress, alpha = progress)
-                    },
-                    layerBlock = {
-                        scaleX = dampedDragAnimation.scaleX
-                        scaleY = dampedDragAnimation.scaleY
-                        val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
-                    },
-                    onDrawSurface = {
-                        val progress = dampedDragAnimation.pressProgress
-                        drawRect(
-                            Color.White.copy(
-                                alpha = (1f - progress) * if (ui.isDark) 0.25f else 0.9f
+                        ),
+                        shape = { RoundedCornerShape(50) },
+                        effects = {
+                            val progress = dampedDragAnimation.pressProgress
+                            blur(blurPx * (1f - progress))
+                            lens(
+                                lens1 * progress,
+                                lens2 * progress,
+                                chromaticAberration = true
                             )
-                        )
-                    }
-                )
-                .size(40.dp, 24.dp)
+                        },
+                        highlight = {
+                            val progress = dampedDragAnimation.pressProgress
+                            Highlight.Ambient.copy(
+                                width = Highlight.Ambient.width / 1.5f,
+                                blurRadius = Highlight.Ambient.blurRadius / 1.5f,
+                                alpha = progress
+                            )
+                        },
+                        shadow = {
+                            Shadow(radius = 4.dp, color = Color.Black.copy(alpha = 0.05f))
+                        },
+                        innerShadow = {
+                            val progress = dampedDragAnimation.pressProgress
+                            InnerShadow(radius = 4.dp * progress, alpha = progress)
+                        },
+                        layerBlock = {
+                            scaleX = dampedDragAnimation.scaleX
+                            scaleY = dampedDragAnimation.scaleY
+                            val velocity = dampedDragAnimation.velocity / 10f
+                            scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
+                            scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
+                        },
+                        onDrawSurface = {
+                            val progress = dampedDragAnimation.pressProgress
+                            drawRect(
+                                Color.White.copy(
+                                    alpha = (1f - progress) * if (ui.isDark) 0.25f else 0.9f
+                                )
+                            )
+                        }
+                    )
+                    .size(40.dp, 24.dp)
             )
         }
     }
 }
 
 /**
- * 玻璃开关。
+ * 玻璃开关。内容流中默认质感材质轨道。
  */
 @Composable
 fun GlassToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     backdrop: Backdrop,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    refracts: Boolean = false
 ) {
     val ui = LocalUi.current
+    val glassActive = refracts && GlassRuntime.enabled
     val progress = animateFloatAsState(
         targetValue = if (checked) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f),
         label = "toggle"
     )
 
-    val containerMod = if (!GlassRuntime.enabled) {
+    val containerMod = if (!glassActive) {
         modifier
+            .shadow(3.dp, RoundedCornerShape(50), spotColor = Color.Black.copy(alpha = 0.10f))
             .clip(RoundedCornerShape(50))
-            .background(if (checked) ui.ink else ui.line)
+            .background(if (checked) ui.ink else (if (ui.isDark) Color.White.copy(0.16f) else ui.line))
             .clickable(
                 interactionSource = null,
                 indication = null,
@@ -568,6 +648,7 @@ fun GlassToggle(
                     translationX = (size.width - 24.dp.toPx() - 4.dp.toPx()) * progress.value
                 }
                 .size(24.dp)
+                .shadow(2.dp, RoundedCornerShape(50))
                 .clip(RoundedCornerShape(50))
                 .background(Color.White)
         )
