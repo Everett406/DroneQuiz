@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.drone.quiz.ServiceLocator
 import com.drone.quiz.ui.theme.LocalUi
 
 /**
@@ -150,37 +152,6 @@ fun androidx.compose.foundation.lazy.grid.LazyGridState.remainingBottomPx(): Flo
 }
 
 /**
- * 顶部柔化：内容滚入固定标题下方时按 alpha 渐隐（DstIn 蒙版，
- * 不依赖背景色，任意渐变/壁纸/玻璃面板上都干净）。
- *
- * v2.6.2 重写（用户实测两问题：柔化"要么有要么没有"+出现时闪一下/重影伪影）：
- * 1. 强度改为 draw 阶段经 scrolledPx() lambda 读取——Modifier 实例全程稳定，
- *    不再随动画每帧重建离屏层（重建瞬间旧 layer 残影=伪影、黑帧=闪一下）；
- * 2. 强度直接跟随"顶部已滚出像素 / fadeHeight"连续变化——滑出多少渐显多少，
- *    跟手无延迟，真正的"渐渐出来"（此前 0/1 布尔+tween 的体感是突变）。
- */
-fun Modifier.softTopFade(
-    fadeHeight: Dp = 26.dp,
-    scrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f }
-): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
-        val h = fadeHeight.toPx()
-        val s = (scrolledPx() / h).coerceIn(0f, 1f)
-        if (s <= 0.01f) return@drawWithContent
-        if (h > 0f && size.height > h) {
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = 0f), 1f to Color.Black.copy(alpha = s),
-                    startY = 0f, endY = h
-                ),
-                blendMode = BlendMode.DstIn
-            )
-        }
-    }
-
-/**
  * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
  * 同样 draw 阶段读强度：topScrolledPx = 顶部已滚出像素，
  * bottomRemainingPx = 距底部剩余像素；贴边的一侧自动无柔化，题号不再被裁切。
@@ -219,6 +190,52 @@ fun Modifier.softVerticalEdges(
             }
         }
     }
+
+/**
+ * 标题下缘雾化条（v2.6.3：彻底替代列表离屏蒙版柔化，根除伪影）。
+ *
+ * 此前方案：对整个列表做离屏 + DstIn 渐隐蒙版——蒙版层与列表内液态玻璃卡的
+ * 折射层相互作，产生重影/色块伪影（蒙版×玻璃为方案固有问题，modifier 稳定化
+ * 只能减轻不能根除，用户 v2.6.2 实测确认"依然存在，只是减轻了一点点"）。
+ *
+ * 新方案：在内容之上叠一条"背景色雾"——纯渐变色块，零离屏、零蒙版、零
+ * graphicsLayer，与玻璃卡完全无互作，必然无伪影。内容滚入标题下方时被雾
+ * 遮没，视觉等效柔化。雾色跟随主题（亮米白/深墨），壁纸模式取纱色保持一致。
+ * 滚离顶部才渐显（连续跟手），停在顶部时无雾、首屏内容不被遮挡。
+ */
+@Composable
+fun TopFog(
+    modifier: Modifier = Modifier,
+    height: Dp = 36.dp,
+    scrolledPx: (() -> Float)? = null
+) {
+    val ui = LocalUi.current
+    val settings by ServiceLocator.settings.settings.collectAsState(
+        initial = com.drone.quiz.data.settings.AppSettings()
+    )
+    val base = if (settings.wallpaper.isBlank()) {
+        if (ui.isDark) Color(0xFF1C1815) else Color(0xFFFAF6EF)
+    } else {
+        if (ui.isDark) Color(0xFF161310) else Color(0xFFF6F1E6)
+    }
+    // 强度：顶部已滚出像素 / 雾高（连续跟手）；未传滚动源则恒显
+    val strength = if (scrolledPx != null) {
+        val hPx = with(androidx.compose.ui.platform.LocalDensity.current) { height.toPx() }
+        (scrolledPx() / hPx).coerceIn(0f, 1f)
+    } else 1f
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(
+                Brush.verticalGradient(
+                    0f to base.copy(alpha = 0.98f * strength),
+                    0.5f to base.copy(alpha = 0.55f * strength),
+                    1f to base.copy(alpha = 0f)
+                )
+            )
+    )
+}
 
 /**
  * 屏幕大标题（每页最顶部）。

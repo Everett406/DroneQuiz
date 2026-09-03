@@ -6,7 +6,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -31,16 +36,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.drone.quiz.BuildConfig
+import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.scrolledFromTopPx
-import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
 import com.drone.quiz.ui.glass.AppIcons
@@ -96,18 +104,44 @@ fun SettingsScreen(backdrop: Backdrop) {
         }.onFailure { bankInfo = "题库为空，请导入" }
     }
 
-    // 壁纸选择器：导入后复制到私有目录（重启/源文件删除后仍可用）
+    // 壁纸选择器：导入后复制到私有目录（重启/源文件删除后仍可用）。
+    // v2.6.3 修复"更换壁纸不生效"：此前固定写 wallpaper.jpg，DataStore 路径字符串不变，
+    // 背景层的 LaunchedEffect(settings.wallpaper) 不重触发，永远显示第一次的图；
+    // 现在文件名带唯一时间戳（路径必变→必然重新解码），并在导入成功后清理旧文件。
+
     val wallpaperPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
             scope.launch {
                 runCatching {
-                    val dst = java.io.File(context.filesDir, "wallpaper.jpg")
+                    val dst = java.io.File(context.filesDir, "custom_${System.currentTimeMillis()}.jpg")
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         dst.outputStream().use { input.copyTo(it) }
                     } ?: error("无法读取图片")
+                    val old = settings.wallpaper
                     ServiceLocator.settings.setWallpaper(dst.absolutePath)
+                    // 新路径已生效，清理旧文件（内置/导入均存私有目录）
+                    if (old.startsWith(context.filesDir.absolutePath) && old != dst.absolutePath) {
+                        java.io.File(old).delete()
+                    }
+                }
+            }
+        }
+    }
+
+    // 内置壁纸：选择后同样复制到私有目录（复用同一条加载链路，支持模糊/纱/折射）
+    fun useBuiltinWallpaper(resId: Int, key: String) {
+        scope.launch {
+            runCatching {
+                val dst = java.io.File(context.filesDir, "builtin_${key}_${System.currentTimeMillis()}.jpg")
+                context.resources.openRawResource(resId).use { input ->
+                    dst.outputStream().use { input.copyTo(it) }
+                }
+                val old = settings.wallpaper
+                ServiceLocator.settings.setWallpaper(dst.absolutePath)
+                if (old.startsWith(context.filesDir.absolutePath) && old != dst.absolutePath) {
+                    java.io.File(old).delete()
                 }
             }
         }
@@ -152,8 +186,7 @@ fun SettingsScreen(backdrop: Backdrop) {
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp) { scrollState.scrolledFromTopPx() }
-        ) {
+                        ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -271,6 +304,56 @@ fun SettingsScreen(backdrop: Backdrop) {
                     color = ui.textSub, fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )
+                // ---- 内置纹路：点击即设为全局背景（复制进私有目录，支持模糊/纱/折射） ----
+                val builtins = listOf(
+                    Triple("山野清晨", R.drawable.wp_forest_light, "forest_light"),
+                    Triple("林海深处", R.drawable.wp_forest_deep, "forest_deep"),
+                    Triple("云上航线", R.drawable.wp_sky, "sky"),
+                    Triple("黄昏原野", R.drawable.wp_dusk, "dusk")
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    builtins.forEach { (label, resId, key) ->
+                        val selected = settings.wallpaper.contains("builtin_$key")
+                        Column(
+                            Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(92.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .then(
+                                        if (selected)
+                                            Modifier.border(2.dp, ui.accent, RoundedCornerShape(14.dp))
+                                        else Modifier
+                                    )
+                                    .clickable(
+                                        interactionSource = null,
+                                        indication = null
+                                    ) { useBuiltinWallpaper(resId, key) }
+                            ) {
+                                Image(
+                                    painter = painterResource(resId),
+                                    contentDescription = label,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.matchParentSize()
+                                )
+                            }
+                            Text(
+                                label,
+                                color = if (selected) ui.accent else ui.textSub,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -530,7 +613,11 @@ fun SettingsScreen(backdrop: Backdrop) {
 
         Spacer(Modifier.height(130.dp))
         }
-        }
+        
+            // 标题雾化条：滚入标题下方的内容被背景色雾遮没（零离屏零蒙版，无伪影），
+            // 滚离顶部才渐显，停在顶部时无雾
+            TopFog { scrollState.scrolledFromTopPx() }
+}
     }
 
     if (showClearConfirm) {
