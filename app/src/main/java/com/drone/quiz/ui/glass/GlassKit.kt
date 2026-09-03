@@ -5,7 +5,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -41,7 +43,9 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
@@ -53,6 +57,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastCoerceIn
+import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.drone.quiz.ui.theme.LocalUi
@@ -407,7 +412,9 @@ fun GlassSlider(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
-        var didDrag by remember { mutableStateOf(false) }
+        // 拖拽进行中标志：暂停“外部值 → 滑块”同步循环。
+        // 否则进度类滑块（onValueChange 回写页面位置）会与拖拽互相拉扯（橡皮筋），拖不动
+        var isDragging by remember { mutableStateOf(false) }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -417,47 +424,66 @@ fun GlassSlider(
                 initialScale = 1f,
                 pressedScale = 1.5f,
                 onDragStarted = {},
-                onDragStopped = {
-                    if (didDrag) {
-                        onValueChange(snap(targetValue))
-                    }
-                },
-                onDrag = { _, dragAmount ->
-                    if (!didDrag) {
-                        didDrag = dragAmount.x != 0f
-                    }
-                    val delta = (valueRange.endInclusive - valueRange.start) * (dragAmount.x / trackWidth)
-                    onValueChange(
-                        snap(
-                            if (isLtr) (targetValue + delta).coerceIn(valueRange)
-                            else (targetValue - delta).coerceIn(valueRange)
-                        )
-                    )
-                }
+                onDragStopped = {},
+                onDrag = { _, _ -> }
             )
         }
         androidx.compose.runtime.LaunchedEffect(dampedDragAnimation) {
             snapshotFlow { value() }
                 .collectLatest { v ->
-                    if (abs(dampedDragAnimation.targetValue - v) > 0.001f) {
+                    if (!isDragging && abs(dampedDragAnimation.targetValue - v) > 0.001f) {
                         dampedDragAnimation.updateValue(v)
                     }
                 }
         }
 
-        // 轨道区：24dp 高的居中容器（点击热区），6dp 轨道 + 填充条严格垂直居中
+        fun valueAtX(x: Float): Float {
+            val fraction = (x / trackWidth).fastCoerceIn(0f, 1f)
+            val span = valueRange.endInclusive - valueRange.start
+            return if (isLtr) valueRange.start + span * fraction
+            else valueRange.endInclusive - span * fraction
+        }
+
+        // 轨道区：40dp 高的触控容器，6dp 轨道 + 填充条严格垂直居中。
+        // 统一手势：按下即跳到该位置，按住左右拖动实时跟随。
+        // 每个事件均消费（consume），父级 verticalScroll/横向翻页无法再抢走手势——
+        // 修复配置页/设置页内滑块“只能点、不能拖”的问题
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(24.dp)
-                .pointerInput(animationScope) {
-                    detectTapGestures { position ->
-                        val delta = (valueRange.endInclusive - valueRange.start) * (position.x / trackWidth)
-                        val targetValue =
-                            (if (isLtr) valueRange.start + delta
-                            else valueRange.endInclusive - delta).coerceIn(valueRange)
-                        dampedDragAnimation.animateToValue(snap(targetValue))
-                        onValueChange(snap(targetValue))
+                .height(40.dp)
+                .pointerInput(valueRange, step, isLtr) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        isDragging = true
+                        dampedDragAnimation.press()
+                        val downValue = snap(valueAtX(down.position.x))
+                        dampedDragAnimation.updateValue(downValue)
+                        onValueChange(downValue)
+                        var pointer = down.id
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change =
+                                event.changes.fastFirstOrNull { it.id == pointer } ?: break
+                            if (change.changedToUpIgnoreConsumed()) {
+                                change.consume()
+                                break
+                            }
+                            if (change.isConsumed) break // 被其他手势接管：结束本次拖拽
+                            if (change.positionChange() != Offset.Zero) {
+                                val v = snap(valueAtX(change.position.x))
+                                dampedDragAnimation.updateValue(v)
+                                onValueChange(v)
+                                change.consume()
+                            }
+                        }
+                        // 松手：吸附到最终值并回调一次，再恢复同步循环
+                        val finalValue = snap(dampedDragAnimation.targetValue)
+                        dampedDragAnimation.updateValue(finalValue)
+                        onValueChange(finalValue)
+                        isDragging = false
+                        dampedDragAnimation.release()
                     }
                 }
                 .then(if (glassActive) Modifier.layerBackdrop(trackBackdrop) else Modifier),
@@ -486,7 +512,7 @@ fun GlassSlider(
             )
         }
 
-        // 滑块：40x24，与轨道同一容器垂直居中
+        // 滑块：40x24，与轨道同一容器垂直居中（纯视觉；手势统一在轨道区处理）
         val thumbBase = Modifier
             .align(Alignment.CenterStart)
             .graphicsLayer {
@@ -495,7 +521,6 @@ fun GlassSlider(
                         .coerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) *
                         (if (isLtr) 1f else -1f)
             }
-            .then(dampedDragAnimation.modifier)
 
         if (!glassActive) {
             // 材质模式：实色滑块 + 轻阴影，无 RenderEffect

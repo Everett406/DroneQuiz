@@ -1,6 +1,9 @@
 package com.drone.quiz.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.drone.quiz.BuildConfig
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.screens.common.ScreenTitle
@@ -58,7 +62,33 @@ fun SettingsScreen(backdrop: Backdrop) {
 
     var bankInfo by remember { mutableStateOf("加载中…") }
     var importMsg by remember { mutableStateOf<String?>(null) }
+    var notifyHint by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
+
+    // 通知权限：Android 13+ 需运行时请求 POST_NOTIFICATIONS，否则提醒无法弹出
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            scope.launch {
+                ServiceLocator.settings.setDailyNotify(true)
+                ReminderScheduler.ensureChannel(context)
+                ReminderScheduler.schedule(context)
+            }
+            notifyHint = null
+        } else {
+            notifyHint = "未授予通知权限，提醒无法推送；可在系统设置中授予权限后再开启"
+        }
+    }
+
+    fun enableDailyNotify() {
+        scope.launch {
+            ServiceLocator.settings.setDailyNotify(true)
+            ReminderScheduler.ensureChannel(context)
+            ReminderScheduler.schedule(context)
+        }
+        notifyHint = null
+    }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -265,26 +295,50 @@ fun SettingsScreen(backdrop: Backdrop) {
         // ---- 提醒 ----
         SectionLabel("提醒", Modifier.padding(top = 16.dp))
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Row(
-                Modifier.padding(18.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("每日打卡通知", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("每天 20:00 提醒刷题", color = ui.textSub, fontSize = 12.sp)
+            Column(Modifier.padding(18.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("每日打卡通知", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.dailyNotify) "每天 20:00 提醒刷题 · 已开启"
+                            else "每天 20:00 提醒刷题 · 首次开启需通知权限",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    GlassToggle(
+                        checked = { settings.dailyNotify },
+                        onCheckedChange = { v ->
+                            when {
+                                !v -> scope.launch {
+                                    ServiceLocator.settings.setDailyNotify(false)
+                                    ReminderScheduler.cancel(context)
+                                }
+
+                                Build.VERSION.SDK_INT >= 33 &&
+                                    ContextCompat.checkSelfPermission(
+                                        context, Manifest.permission.POST_NOTIFICATIONS
+                                    ) != PackageManager.PERMISSION_GRANTED ->
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+
+                                else -> enableDailyNotify()
+                            }
+                        },
+                        backdrop = backdrop
+                    )
                 }
-                GlassToggle(
-                    checked = { settings.dailyNotify },
-                    onCheckedChange = { v ->
-                        scope.launch {
-                            ServiceLocator.settings.setDailyNotify(v)
-                            if (v) ReminderScheduler.schedule(context)
-                            else ReminderScheduler.cancel(context)
-                        }
-                    },
-                    backdrop = backdrop
-                )
+                notifyHint?.let {
+                    Text(
+                        it,
+                        color = ui.wrong,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
 

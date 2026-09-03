@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -141,13 +143,15 @@ fun GlassBottomTabs(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
-        var currentIndex by remember(selectedTabIndex) {
-            mutableIntStateOf(selectedTabIndex())
+        // 稳定 lambda 引用：避免重组时 LaunchedEffect/remember 因 key 变化重置内部状态
+        val selectedTabProvider = rememberUpdatedState(selectedTabIndex)
+        var currentIndex by remember {
+            mutableIntStateOf(selectedTabProvider.value())
         }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
-                initialValue = selectedTabIndex().toFloat(),
+                initialValue = selectedTabProvider.value().toFloat(),
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
@@ -175,8 +179,8 @@ fun GlassBottomTabs(
                 }
             )
         }
-        LaunchedEffect(selectedTabIndex) {
-            snapshotFlow { selectedTabIndex() }
+        LaunchedEffect(Unit) {
+            snapshotFlow { selectedTabProvider.value() }
                 .collectLatest { index ->
                     currentIndex = index
                 }
@@ -185,8 +189,10 @@ fun GlassBottomTabs(
             snapshotFlow { currentIndex }
                 .drop(1)
                 .collectLatest { index ->
-                    dampedDragAnimation.animateToValue(index.toFloat())
+                    // 关键：先回调切页、后播放动画——动画被取消也不影响页面切换
+                    // （此前回调排在动画完成后，拖拽连续操作时回调丢失 → "滑了但页面没切"）
                     onTabSelected(index)
+                    dampedDragAnimation.animateToValue(index.toFloat())
                 }
         }
 
@@ -233,9 +239,10 @@ fun GlassBottomTabs(
             content = { tabIcon(-1) }
         )
 
-        // 2. 隐藏的染色内容副本（alpha 0，仅记录到 tabsBackdrop）
+        // 2. 隐藏的染色内容副本（alpha 0，仅记录到 tabsBackdrop；禁用点击避免与底层重复触发）
         androidx.compose.runtime.CompositionLocalProvider(
-            LocalTabIconTint provides accentColor
+            LocalTabIconTint provides accentColor,
+            LocalTabClickEnabled provides false
         ) {
             Row(
                 Modifier
@@ -334,20 +341,39 @@ fun GlassBottomTabs(
 
 val LocalTabIconTint = androidx.compose.runtime.staticCompositionLocalOf { Color.Unspecified }
 
+/** 隐藏染色层置 false：单击只由底层玻璃胶囊的图标位响应，避免双重触发。 */
+val LocalTabClickEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 /**
- * 底栏单个图标位。
+ * 底栏单个图标位（官方 LiquidBottomTab 同款：整个图标区可点，Role.Tab）。
+ * @param onClick 单击回调；null 或处于隐藏染色层时不响应点击
  */
 @Composable
 fun RowScope.TabIconSlot(
     index: Int,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: (() -> Unit)? = null
 ) {
     val tintOverride = LocalTabIconTint.current
+    val clickEnabled = LocalTabClickEnabled.current
     val ui = LocalUi.current
+    val clickMod = if (onClick != null && clickEnabled) {
+        Modifier
+            .clip(Capsule())
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                role = Role.Tab,
+                onClick = onClick
+            )
+    } else {
+        Modifier
+    }
     Box(
         Modifier
             .weight(1f)
-            .height(56.dp),
+            .height(56.dp)
+            .then(clickMod),
         contentAlignment = Alignment.Center
     ) {
         androidx.compose.material3.Icon(

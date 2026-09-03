@@ -46,6 +46,8 @@ import com.drone.quiz.ui.nav.AppRoot
 import com.drone.quiz.ui.theme.DroneTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
 
@@ -74,19 +76,34 @@ class MainActivity : ComponentActivity() {
                     val persisted = runCatching {
                         ServiceLocator.settings.settings.first()
                     }.getOrDefault(AppSettings())
-                    val result = runCatching {
-                        ServiceLocator.repo.ensureBankLoaded(applicationContext, persisted.bankVersion)
-                    }
-                    result.onFailure {
-                        BootGuard.log(context, "load", "题库加载失败(已忽略): ${it.javaClass.name}: ${it.message}")
-                    }
-                    result.onSuccess { loadedVersion ->
-                        if (loadedVersion > 0) {
-                            BootGuard.log(context, "load", "题库就绪（版本 $loadedVersion，学习数据已随题库升级重置）")
-                            runCatching { ServiceLocator.settings.setBankVersion(loadedVersion) }
-                        } else {
-                            BootGuard.log(context, "load", "题库就绪")
+                    // 导入放入独立协程：不随 UI 等待取消，超时后仍在后台完成并持久化版本
+                    val importJob = launch {
+                        val result = runCatching {
+                            ServiceLocator.repo.ensureBankLoaded(applicationContext, persisted.bankVersion)
                         }
+                        result.onSuccess { loadedVersion ->
+                            if (loadedVersion > 0) {
+                                BootGuard.log(
+                                    context, "load",
+                                    "题库就绪（版本 $loadedVersion，学习数据已随题库升级重置）"
+                                )
+                                runCatching { ServiceLocator.settings.setBankVersion(loadedVersion) }
+                            } else {
+                                BootGuard.log(context, "load", "题库就绪")
+                            }
+                        }
+                        result.onFailure {
+                            BootGuard.log(context, "load", "题库加载失败: ${it.javaClass.name}: ${it.message}")
+                        }
+                    }
+                    // 最多等 8 秒：超时也放行主界面，绝不停留在"正在加载题库"死等
+                    // （刷题页检测到题数 0→N 会自动重载）
+                    val finished = withTimeoutOrNull(8_000) {
+                        importJob.join()
+                        true
+                    } ?: false
+                    if (!finished) {
+                        BootGuard.log(context, "load", "题库加载超时(>8s)，先行进入主界面，导入后台继续")
                     }
                     ready = true
                     BootGuard.log(context, "load", "主界面开始渲染")

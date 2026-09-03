@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -36,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +67,7 @@ import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 @Composable
@@ -78,6 +81,8 @@ fun PracticeScreen(
 
     var questions by remember { mutableStateOf<List<Question>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf(false) }
+    var reloadTick by remember { mutableIntStateOf(0) }
     var typeFilter by remember { mutableStateOf<String?>(null) }
     var catFilter by remember { mutableStateOf<String?>(null) }
     var categories by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
@@ -92,20 +97,43 @@ fun PracticeScreen(
         }
     }
 
-    LaunchedEffect(src, typeFilter, catFilter) {
+    LaunchedEffect(src, typeFilter, catFilter, reloadTick) {
         loading = true
-        questions = if (src == "wrong") {
-            ServiceLocator.repo.loadWrongPractice()
-        } else {
-            ServiceLocator.repo.loadPractice(
-                category = catFilter,
-                type = typeFilter,
-                random = settings.practiceOrder == 1
-            )
+        loadError = false
+        // 超时 + 异常兑底：任何情况下都不会永远停在“正在加载题库…”
+        val result = withTimeoutOrNull(10_000) {
+            runCatching {
+                if (src == "wrong") {
+                    ServiceLocator.repo.loadWrongPractice()
+                } else {
+                    ServiceLocator.repo.loadPractice(
+                        category = catFilter,
+                        type = typeFilter,
+                        random = settings.practiceOrder == 1
+                    )
+                }
+            }
         }
+        questions = result?.getOrNull().orEmpty()
+        loadError = result == null || result.isFailure
         answers.clear()
-        pagerState.scrollToPage(0)
         loading = false
+    }
+
+    // Pager 组合后再归零页码（此前在加载协程内调用，Pager 可能尚未上屏）
+    LaunchedEffect(questions) {
+        if (questions.isNotEmpty()) pagerState.scrollToPage(0)
+    }
+
+    // 题库就绪自动恢复：启动门控超时放行/导入后台完成后，题数 0→N 自动重载
+    LaunchedEffect(Unit) {
+        var prev = -1
+        ServiceLocator.repo.countFlow().collect { c ->
+            if (c > 0 && prev == 0 && questions.isEmpty() && !loading) {
+                reloadTick++
+            }
+            prev = c
+        }
     }
 
     fun onPick(q: Question, index: Int) {
@@ -193,14 +221,35 @@ fun PracticeScreen(
             }
         } else if (questions.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(AppIcons.Cards, null, tint = ui.textSub, modifier = Modifier.size(40.dp))
-                    Text(
-                        if (src == "wrong") "错题本是空的，继续保持！" else "没有符合条件的题目",
-                        color = ui.textSub,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 10.dp)
-                    )
+                if (loadError) {
+                    // 加载失败/超时：给出重试入口，不再无限转圈
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(AppIcons.Cards, null, tint = ui.textSub, modifier = Modifier.size(40.dp))
+                        Text(
+                            "题库加载失败，请重试",
+                            color = ui.textSub,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                        GlassButton(
+                            onClick = { reloadTick++ },
+                            backdrop = backdrop,
+                            heightDp = 40.dp,
+                            modifier = Modifier.padding(top = 14.dp)
+                        ) {
+                            Text("重试", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(AppIcons.Cards, null, tint = ui.textSub, modifier = Modifier.size(40.dp))
+                        Text(
+                            if (src == "wrong") "错题本是空的，继续保持！" else "没有符合条件的题目",
+                            color = ui.textSub,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    }
                 }
             }
         } else {
@@ -219,10 +268,11 @@ fun PracticeScreen(
                 )
             }
 
-            // ---- 底部玻璃操作条 ----
+            // ---- 底部玻璃操作条（避开手势条；滑块与按钮拉开间距） ----
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -248,7 +298,7 @@ fun PracticeScreen(
                     backdrop = backdrop,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 14.dp)
                 )
                 GlassIconButton(
                     onClick = {

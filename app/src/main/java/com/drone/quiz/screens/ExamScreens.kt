@@ -5,6 +5,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,10 +15,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +44,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,6 +60,8 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
+import com.drone.quiz.ui.glass.GlassBottomSheet
+import com.drone.quiz.ui.glass.SheetVisibility
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceContainer
@@ -283,6 +290,7 @@ fun ExamScreen(
     var remaining by remember { mutableIntStateOf(ExamSessionHolder.durationSec) }
     var showConfirm by remember { mutableStateOf(false) }
     var showQuit by remember { mutableStateOf(false) }
+    var showPanel by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
     val answers = remember { mutableStateMapOf<Long, Int>() }
     val pagerState = rememberPagerState { total }
@@ -344,6 +352,12 @@ fun ExamScreen(
                 )
             }
             GlassIconButton(
+                onClick = { showPanel = true },
+                backdrop = backdrop,
+                icon = AppIcons.Grid
+            )
+            Spacer(Modifier.width(8.dp))
+            GlassIconButton(
                 onClick = { showQuit = true },
                 backdrop = backdrop,
                 icon = AppIcons.Close,
@@ -363,6 +377,8 @@ fun ExamScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f),
+            // 题目卡顶部对齐（此前 Pager 默认垂直居中，短题悬在屏幕中间不易阅读）
+            verticalAlignment = Alignment.Top,
             key = { questions[it].id }
         ) { page ->
             val q = questions[page]
@@ -382,10 +398,11 @@ fun ExamScreen(
             )
         }
 
-        // 底部操作条
+        // 底部操作条（避开手势指示条；滑块与左右按钮拉开间距防误触）
         Row(
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -411,7 +428,7 @@ fun ExamScreen(
                 backdrop = backdrop,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp)
+                    .padding(horizontal = 14.dp)
             )
             GlassIconButton(
                 onClick = {
@@ -456,6 +473,91 @@ fun ExamScreen(
                 onExit()
             },
             onDismiss = { showQuit = false }
+        )
+    }
+
+    // ---- 答题卡面板（玻璃化：与刷题页题号面板同款，同窗折射背景） ----
+    SheetVisibility(visible = showPanel) {
+        GlassBottomSheet(
+            backdrop = backdrop,
+            onDismiss = { showPanel = false }
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "答题卡",
+                        color = ui.text,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ExamSheetLegend(ui.ink.copy(alpha = 0.25f), "已答")
+                    ExamSheetLegend(ui.ink.copy(alpha = 0.08f), "未答")
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(6),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                        .padding(vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(total) { i ->
+                        val q = questions[i]
+                        ExamSheetCell(
+                            number = i + 1,
+                            answered = answers[q.id] != null,
+                            isCurrent = pagerState.currentPage == i,
+                            onClick = {
+                                scope.launch { pagerState.animateScrollToPage(i) }
+                                showPanel = false
+                            }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamSheetLegend(color: Color, label: String) {
+    val ui = LocalUi.current
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp)) {
+        Box(
+            Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Text(label, color = ui.textSub, fontSize = 11.sp, modifier = Modifier.padding(start = 3.dp))
+    }
+}
+
+/** 答题卡格子：模考进行中只区分已答/未答（不提示对错，避免影响作答心态）。 */
+@Composable
+private fun ExamSheetCell(number: Int, answered: Boolean, isCurrent: Boolean, onClick: () -> Unit) {
+    val ui = LocalUi.current
+    Box(
+        Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(if (answered) ui.ink.copy(alpha = 0.25f) else ui.ink.copy(alpha = 0.08f))
+            .then(
+                if (isCurrent) Modifier.border(2.dp, ui.ink, CircleShape)
+                else Modifier.border(1.dp, ui.ink.copy(alpha = 0.08f), CircleShape)
+            )
+            .clickable(interactionSource = null, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "$number",
+            color = if (answered) ui.text else ui.textSub,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold
         )
     }
 }

@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION_NAME: 2.3.1
-  APP_VERSION_TAG: v2.3.1
+  APP_VERSION_NAME: 2.3.2
+  APP_VERSION_TAG: v2.3.2
 
 jobs:
   build:
@@ -56,19 +56,33 @@ jobs:
           name: DroneQuiz ${{ env.APP_VERSION_TAG }}
           files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            无人机装调题库刷题 APP v2.3.1 —— 修复启动崩溃（热修复）
+            无人机装调题库刷题 APP v2.3.2 —— 交互与功能批量修复
             
-            【修复：启动即闪退（v2.3.0 回归，强烈建议升级）】
-            - 现象：安装 v2.3.0 后启动即异常退出，报告 UnsupportedOperationException:
-              "Only RoundedRectangularShape or CornerBasedShape is supported in lens effects."
-            - 根因：vendor 的 lens 折射效果丢失了 Kyant Shapes（RoundedRectangularShape）分支，
-              而底栏/按钮/滑杆/开关全部使用官方 Capsule 胶囊形状 → 首帧即抛异常
-            - 修复：补回 RoundedRectangularShape 角半径计算（与上游 AndroidLiquidGlass 一致），
-              Capsule 连续曲率胶囊的折射效果恢复正常
-            - 加固：lens 遇到真正不支持的形状时改为优雅降级（仅保留模糊、不折射），
-              任何情况下不再因此崩溃；AGSL 着色器编译失败时同样保底不闪退
+            【底栏】
+            - 新增单击切换：点任意 tab 图标直接跳页（此前只能拖拽高亮块）
+            - 修复拖拽切换概率失效：页面切换回调提前到动画前，
+              连续拖拽/动画被打断时不再丢失切换
             
-            v2.3.0 完整更新（液态玻璃全面重构 + 数据层修复）见上一版本说明或 CHANGELOG.md
+            【刷题】
+            - 修复"一直加载题库"：加载增加超时兑底，失败给出重试按钮；
+              题库后台导入完成后自动刷新；启动加载最多等 8 秒即放行主界面
+            
+            【滑杆】
+            - 全部滑杆支持按住拖动（此前部分只能点按：拖拽手势会被页面滚动/进度回写抢走）
+            - 触控区由 24dp 加高到 40dp，更好按；拖动中不再与外部值互相拉扯
+            
+            【模考】
+            - 题目卡改为顶部对齐（此前垂直居中悬在屏幕中间）
+            - 底部进度滑杆避开手势指示条（防止与系统手势误触），与左右按钮拉开间距
+            - 新增玻璃答题卡面板：顶栏网格按钮打开，点题号直接跳题，已答/未答一目了然
+            
+            【通知】
+            - 每日打卡通知开启时请求通知权限（Android 13+ 此前无法弹出）；
+              拒绝授权时明确提示
+            
+            【说明】若从 v2.3.0 升级后看到的是"实色非玻璃"界面：那是启动守护的安全模式
+            在生效（v2.3.0 崩溃触发过自动降级）。v2.3.1 已修复崩溃，正常启动一次后
+            液态玻璃自动恢复；也可在 设置-画面特效 手动开启。
             
             固定签名，可直接覆盖安装 v2.x
           overwrite_files: true

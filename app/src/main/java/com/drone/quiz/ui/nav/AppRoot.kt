@@ -214,13 +214,14 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
             ) { index ->
                 // index == -1：玻璃底胶囊与隐藏染色层要求渲染"整排 5 个图标位"（官方约定）；
                 // 此前 -1 误入 else 分支只渲染了一个全宽 Tune 图标，导致底栏 5 个图标全部消失
+                // 单击 tab 即切换（官方 LiquidBottomTab 同款 Role.Tab），拖拽选中块仍可用
                 val slot: @Composable RowScope.(Int) -> Unit = { i ->
                     when (i) {
-                        0 -> TabIconSlot(0, AppIcons.Home)
-                        1 -> TabIconSlot(1, AppIcons.Cards)
-                        2 -> TabIconSlot(2, AppIcons.Timer)
-                        3 -> TabIconSlot(3, AppIcons.BookWrong)
-                        else -> TabIconSlot(4, AppIcons.Tune)
+                        0 -> TabIconSlot(0, AppIcons.Home) { navigateTab(0) }
+                        1 -> TabIconSlot(1, AppIcons.Cards) { navigateTab(1) }
+                        2 -> TabIconSlot(2, AppIcons.Timer) { navigateTab(2) }
+                        3 -> TabIconSlot(3, AppIcons.BookWrong) { navigateTab(3) }
+                        else -> TabIconSlot(4, AppIcons.Tune) { navigateTab(4) }
                     }
                 }
                 if (index == -1) {
