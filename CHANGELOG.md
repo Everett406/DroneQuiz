@@ -13,7 +13,7 @@
 - **架构修复（核心）**：`AppRoot` 由"单记录层包内容"改为**双记录层**——`bgBackdrop` 只记录背景渐变（官方 demo 的"壁纸"角色），`contentBackdrop` 记录内容。此前玻璃折射采样的是大面透明像素（背景在记录层之外），导致"看不出折射"；现在：
   - 内容流卡片/按钮/滑杆/开关全部升级为**真折射玻璃**（官方 `LazyScrollContainerContent` 同款模式：元素不在背景记录层内，零循环采样、零 SIGSEGV 风险）
   - 底栏折射 `bgBackdrop + contentBackdrop` 组合层，滚动内容从底栏下穿过时透过玻璃可见
-- **Capsule 连续曲率胶囊**：引入官方 shapes 依赖 `io.github.kyant0:shapes:1.2.1`，底栏三层结构、按钮、滑杆轨道/滑块、开关轨道/圆钮全部替换为官方同款 `Capsule()`，折射边缘更柔润
+- **Capsule 连续曲率胶囊**：官方 shapes（Kyant0/Shapes，Apache-2.0）源码 vendor 到 `com.kyant.shapes`（maven 产物要求 compileSdk 37 + AGP 9.1 并连带升级 Compose，暂不跟进；源码仅依赖 compose-ui 可直接内联），底栏三层结构、按钮、滑杆轨道/滑块、开关轨道/圆钮全部替换为官方同款 `Capsule()`，折射边缘更柔润
 - **开关重做**：`GlassToggle` 按官方 `LiquidToggle` 逐行对齐——玻璃圆钮可拖拽、按压膨胀、轨道颜色随状态渐变；明确不可加外层 clickable（`inspectDragGestures` 不消费事件，避免双触发）
 - **滑杆对齐官方 `LiquidSlider`**：滑块折射"背景+轨道放大"（`rememberBackdrop` 自定义绘制）、按压色差镜片、点击热区由 6dp 轨道扩大到 24dp 容器
 - **弹窗玻璃化**：题号面板（原 `ModalBottomSheet`）与全部确认对话框（原 `AlertDialog`）替换为同窗口自绘玻璃组件 `GlassBottomSheet` / `GlassConfirmDialog`——独立窗口无法采样主窗口 backdrop，故必须同窗绘制；遮罩点按/返回键关闭，面板内点按消费防误关
@@ -32,7 +32,7 @@
 
 ### 工程
 
-- 依赖新增 `io.github.kyant0:shapes:1.2.1`（Maven Central）
+- vendor 官方 Kyant0/Shapes 源码（Apache-2.0，NOTICE 已署名）
 - CI `build.yml` 版本号同步至 2.3.0 / v2.3.0
 
 ## [2.2.0] - 2026-09-03

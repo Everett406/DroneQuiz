@@ -83,8 +83,9 @@ dependencies {
 
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
-    // 官方同款连续曲率形状（Capsule/RoundedRectangle），折射 SDF 边缘最柔润
-    implementation("io.github.kyant0:shapes:1.2.1")
+    // 官方同款连续曲率形状（Capsule/RoundedRectangle）已改为源码 vendor 到 com.kyant.shapes
+    // （maven 坐标 io.github.kyant0:shapes:1.2.1 的 AAR 要求 compileSdk 37 + AGP 9.1，
+    //  会连带把 Compose 拉到 1.12，工程工具链暂不跟进；源码仅依赖 compose-ui，直接内联）
 
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")
