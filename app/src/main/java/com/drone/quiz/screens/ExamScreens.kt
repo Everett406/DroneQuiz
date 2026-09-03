@@ -826,6 +826,8 @@ fun ExamResultScreen(
         mutableStateOf(ExamSessionHolder.outcome?.takeIf { ExamSessionHolder.examId == examId })
     }
     var loadingDone by remember(examId) { mutableStateOf(outcome != null) }
+    // 错题解析展开态（v2.7.4 重构时漏声明致 CI #40 失败，已补）
+    var showWrongList by remember(examId) { mutableStateOf(false) }
 
     // 删除本次记录（右上角三点入口；每周限 2 次，弹窗告知）
     var showDeleteConfirm by remember { mutableStateOf(false) }
