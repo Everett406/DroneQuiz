@@ -39,6 +39,7 @@ import androidx.core.content.ContextCompat
 import com.drone.quiz.BuildConfig
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.screens.common.ScreenTitle
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
 import com.drone.quiz.ui.glass.AppIcons

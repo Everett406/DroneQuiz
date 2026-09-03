@@ -23,6 +23,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -137,9 +138,10 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 .layerBackdrop(bgBackdrop)
                 .background(ui.bgGradient)
         ) {
-            if (wallBmp != null) {
+            val bmp = wallBmp
+            if (bmp != null) {
                 Image(
-                    bitmap = wallBmp!!,
+                    bitmap = bmp,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
