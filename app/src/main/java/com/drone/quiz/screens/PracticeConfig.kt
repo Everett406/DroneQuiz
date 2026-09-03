@@ -41,6 +41,7 @@ import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.glass.GlassButton
@@ -58,6 +59,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun PracticeConfigScreen(
     backdrop: Backdrop,
+    onSearch: () -> Unit = {},
     onStart: (src: String, type: String, cat: String, resume: Boolean) -> Unit
 ) {
     val ui = LocalUi.current
@@ -86,18 +88,57 @@ fun PracticeConfigScreen(
         }
     }
 
-    BounceContainer(
+    Column(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
     ) {
+        // ---- 固定标题 + 搜索入口（不随滚动） ----
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            ScreenTitle("刷题", "选择范围，开始你的练习", Modifier.padding(vertical = 16.dp))
+            GlassCard(
+                backdrop = backdrop,
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                cornerRadius = 20.dp,
+                onClick = onSearch
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        AppIcons.Search, null,
+                        tint = ui.textSub, modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        "搜索题目 / 选项 / 解析",
+                        color = ui.textSub, fontSize = 14.sp,
+                        modifier = Modifier.padding(start = 10.dp)
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        AppIcons.ChevronRight, null,
+                        tint = ui.textSub, modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        BounceContainer(
+            Modifier
+                .weight(1f)
+                .softTopFade(30.dp)
+        ) {
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-            ScreenTitle("刷题", "选择范围，开始你的练习", Modifier.padding(vertical = 16.dp))
 
             // ---- 题型范围 ----
             SectionLabel("题目范围")
@@ -211,6 +252,7 @@ fun PracticeConfigScreen(
             }
 
             Spacer(Modifier.height(130.dp))
+        }
         }
     }
 }

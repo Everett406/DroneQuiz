@@ -21,7 +21,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -115,6 +120,57 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
         fontWeight = FontWeight.SemiBold
     )
 }
+
+/**
+ * 顶部柔化：内容滚入固定标题下方时按 alpha 渐隐（DstIn 蒙版，
+ * 不依赖背景色，任意渐变/壁纸/玻璃面板上都干净）。
+ */
+fun Modifier.softTopFade(fadeHeight: Dp = 26.dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val h = fadeHeight.toPx()
+        if (h > 0f && size.height > h) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    0f to Color.Transparent, 1f to Color.Black,
+                    startY = 0f, endY = h
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
+
+/**
+ * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
+ */
+fun Modifier.softVerticalEdges(top: Dp = 20.dp, bottom: Dp = 24.dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val th = top.toPx()
+        val bh = bottom.toPx()
+        if (size.height > th + bh) {
+            if (th > 0f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Transparent, 1f to Color.Black,
+                        startY = 0f, endY = th
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (bh > 0f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black, 1f to Color.Transparent,
+                        startY = size.height - bh, endY = size.height
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+        }
+    }
 
 /**
  * 屏幕大标题（每页最顶部）。

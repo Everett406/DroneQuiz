@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Repo
+import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -53,6 +55,7 @@ import com.drone.quiz.ui.glass.BounceLazyColumn
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.flow.combine
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,6 +71,7 @@ fun HomeScreen(
 ) {
     val ui = LocalUi.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val settings by ServiceLocator.settings.settings.collectAsState(initial = AppSettings())
 
     data class HomeStats(
         val total: Int = 0,
@@ -113,38 +117,54 @@ fun HomeScreen(
     }
 
     val coverage = if (stats.total > 0) stats.answeredDistinct.toFloat() / stats.total else 0f
-    val estimate = ((stats.accuracy * 0.75f) + (coverage * 0.25f)).coerceIn(0f, 1f)
+    // 预估通过率：参考设置中的及格线 —— 正确率相对及格分的达标程度为主，覆盖率加权
+    // （此前固定阈值不随及格分变化，用户改及格分后无反馈）
+    val passRatio = (stats.accuracy / (settings.passScore.coerceAtLeast(1) / 100f)).coerceIn(0f, 1f)
+    val estimate = (passRatio * 0.7f + coverage * 0.3f).coerceIn(0f, 1f)
 
-    BounceLazyColumn(
-        modifier = Modifier
+    // 打卡里程碑：3/7/14/21/30/50/100 天逐级递进
+    val milestone = listOf(3, 7, 14, 21, 30, 50, 100).firstOrNull { it > stats.streak } ?: (stats.streak + 10)
+    val streakHint = when {
+        stats.streak == 0 -> "今天开刷，把连击续上"
+        stats.streak < 3 -> "开局顺利，再接再厉"
+        stats.streak < 7 -> "手感正热，冲一周连击"
+        else -> "稳定输出，保持节奏"
+    }
+
+    Column(
+        Modifier
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        item {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("无人机题库", color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "装调考证 · 每日精进",
-                        color = ui.textSub,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-                GlassIconButton(
-                    onClick = onSettings,
-                    backdrop = backdrop,
-                    icon = AppIcons.Tune
+        // ---- 固定标题（不随滚动；内容滚入时在其下缘柔化渐隐） ----
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("无人机题库", color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "装调考证 · 每日精进",
+                    color = ui.textSub,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
+            GlassIconButton(
+                onClick = onSettings,
+                backdrop = backdrop,
+                icon = AppIcons.Tune
+            )
         }
 
-        // ---- 总览：进度环 + 预估通过率 ----
+        BounceLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .softTopFade(30.dp)
+        ) {
+            // ---- 总览：进度环 + 预估通过率 ----
         item {
             GlassCard(
                 backdrop = backdrop,
@@ -228,7 +248,7 @@ fun HomeScreen(
             }
         }
 
-        // ---- 打卡双卡（纵向排版，彻底避免宽度挤压） ----
+        // ---- 打卡双卡（连击里程碑 + 今日） ----
         item {
             Row(
                 Modifier
@@ -242,20 +262,53 @@ fun HomeScreen(
                     cornerRadius = 22.dp
                 ) {
                     Column(Modifier.padding(16.dp)) {
-                        Icon(
-                            AppIcons.Flame,
-                            null,
-                            tint = ui.accent,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                AppIcons.Flame,
+                                null,
+                                tint = ui.accent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                "${stats.streak} 天",
+                                color = ui.text,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
+                        }
                         Text(
-                            "${stats.streak} 天",
-                            color = ui.text,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 8.dp)
+                            streakHint,
+                            color = ui.textSub, fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 6.dp)
                         )
-                        Text("连续打卡", color = ui.textSub, fontSize = 12.sp)
+                        // 距下一里程碑进度条
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(ui.ink.copy(alpha = 0.1f))
+                        ) {
+                            val p = (stats.streak.toFloat() / milestone).coerceIn(0f, 1f)
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(p)
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(ui.accent, ui.accent.copy(alpha = 0.7f))
+                                        )
+                                    )
+                            )
+                        }
+                        Text(
+                            "再练 ${milestone - stats.streak} 天达成 $milestone 天连击",
+                            color = ui.textSub, fontSize = 10.sp,
+                            modifier = Modifier.padding(top = 5.dp)
+                        )
                     }
                 }
                 GlassCard(
@@ -440,6 +493,7 @@ fun HomeScreen(
         }
 
         item { Spacer(Modifier.height(130.dp)) }
+    }
     }
 }
 

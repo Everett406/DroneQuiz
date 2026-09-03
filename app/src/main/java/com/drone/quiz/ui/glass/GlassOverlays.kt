@@ -2,6 +2,7 @@ package com.drone.quiz.ui.glass
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -12,6 +13,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,18 +37,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
+import kotlinx.coroutines.launch
 
 /**
  * 弹窗打开时置 true：AppRoot 据此对内容层施加真模糊（iOS 风格）。
@@ -109,6 +115,8 @@ private fun GlassOverlayPanel(
     panelModifier: Modifier,
     backdrop: Backdrop,
     onDismiss: () -> Unit,
+    panelOffsetProvider: (() -> Float)? = null,
+    headerStrip: (@Composable ColumnScope.() -> Unit)? = null,
     panel: @Composable ColumnScope.() -> Unit
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -132,6 +140,11 @@ private fun GlassOverlayPanel(
             Modifier
                 .align(contentAlignment)
                 .then(panelModifier)
+                .then(
+                    if (panelOffsetProvider != null) Modifier.graphicsLayer {
+                        translationY = panelOffsetProvider().coerceAtLeast(0f)
+                    } else Modifier
+                )
                 .pointerInput(Unit) { detectTapGestures { } } // 消费面板内点按，防误关
         ) {
             Column(
@@ -147,6 +160,7 @@ private fun GlassOverlayPanel(
                         surfaceColor = LocalUi.current.surface.copy(alpha = 0.62f)
                     )
             ) {
+                if (headerStrip != null) headerStrip()
                 panel()
             }
         }
@@ -187,8 +201,8 @@ private fun GlassOverlayRegistration(
 
 /**
  * iOS 26 风玻璃底部面板（替代 ModalBottomSheet）。
- * visible=false 时面板下滑退场；OverlayBlur 跟随 visible。
- * idle（未打开且退场完毕）时槽位内容渲染为空，不遮挡其他弹窗。
+ * - 无深色遮罩：内容层真模糊已足够层次（用户反馈）；scrim 仅作点击关闭的透明层
+ * - 顶部小把手：拖动把手区可下滑跟手，松手超过阈值关闭、否则弹性回位
  */
 @Composable
 fun GlassBottomSheet(
@@ -210,9 +224,19 @@ fun GlassBottomSheet(
             ) + fadeOut(tween(180))
         ) {
             val ui = LocalUi.current
+            val density = LocalDensity.current
+            val dismissThreshold = with(density) { 110.dp.toPx() }
+            val dragY = remember { Animatable(0f) }
+            val dragScope = rememberCoroutineScope()
+
+            // 每次打开复位拖拽偏移
+            androidx.compose.runtime.LaunchedEffect(visible) {
+                if (visible) dragY.snapTo(0f)
+            }
+
             GlassOverlayPanel(
-                // 极淡 scrim 配合内容层真模糊；不再有明显黑罩感
-                scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
+                // 无深色遮罩：透明层仅承担点击关闭
+                scrimColor = Color.Transparent,
                 contentAlignment = Alignment.BottomCenter,
                 panelShape = RoundedCornerShape(28.dp),
                 panelModifier = Modifier
@@ -224,7 +248,55 @@ fun GlassBottomSheet(
                             .calculateBottomPadding()
                     ),
                 backdrop = backdrop,
-                onDismiss = onDismiss
+                onDismiss = onDismiss,
+                panelOffsetProvider = { dragY.value },
+                headerStrip = {
+                    // 把手 + 可拖拽热区（仅顶部条响应拖拽，不与内部网格滚动冲突）
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures(
+                                    onDragStart = { dragScope.launch { dragY.stop() } },
+                                    onVerticalDrag = { change, dy ->
+                                        change.consume()
+                                        dragScope.launch {
+                                            dragY.snapTo((dragY.value + dy).coerceAtLeast(0f))
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        dragScope.launch {
+                                            if (dragY.value > dismissThreshold) {
+                                                onDismiss()
+                                            } else {
+                                                dragY.animateTo(
+                                                    0f,
+                                                    spring(dampingRatio = 0.85f, stiffness = 380f)
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onDragCancel = {
+                                        dragScope.launch {
+                                            dragY.animateTo(
+                                                0f,
+                                                spring(dampingRatio = 0.85f, stiffness = 380f)
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                            .padding(top = 10.dp, bottom = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            Modifier
+                                .size(width = 40.dp, height = 4.5.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(ui.textSub.copy(alpha = 0.45f))
+                        )
+                    }
+                }
             ) {
                 content()
                 Spacer(Modifier.height(16.dp))

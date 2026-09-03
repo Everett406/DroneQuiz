@@ -40,7 +40,10 @@ data class AppSettings(
     val dailyNotify: Boolean = false,
     val practiceOrder: Int = 0,  // 0 顺序 1 随机
     val effects: Boolean = true, // 画面特效（液态玻璃）；异常退出后自动降级时为 false 效果
-    val bankVersion: Int = 0     // 已加载题库的版本（与 assets questions.json 的 version 比对）
+    val bankVersion: Int = 0,    // 已加载题库的版本（与 assets questions.json 的 version 比对）
+    val glassBlur: Int = 1,      // 底栏玻璃模糊档位：0 低 / 1 中 / 2 高
+    val wallpaper: String = "",  // 全局壁纸文件路径（空 = 默认渐变）
+    val wallpaperBlur: Boolean = false // 壁纸是否模糊化（作玻璃背景纹路）
 )
 
 class SettingsStore(private val context: Context) {
@@ -56,6 +59,9 @@ class SettingsStore(private val context: Context) {
         val effects = booleanPreferencesKey("glass_effects")
         val bankVersion = intPreferencesKey("bank_version")
         val practiceSession = stringPreferencesKey("practice_session")
+        val glassBlur = intPreferencesKey("glass_blur_level")
+        val wallpaper = stringPreferencesKey("wallpaper_path")
+        val wallpaperBlur = booleanPreferencesKey("wallpaper_blur")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -70,7 +76,10 @@ class SettingsStore(private val context: Context) {
             dailyNotify = p[K.dailyNotify] ?: false,
             practiceOrder = p[K.practiceOrder] ?: 0,
             effects = p[K.effects] ?: true,
-            bankVersion = p[K.bankVersion] ?: 0
+            bankVersion = p[K.bankVersion] ?: 0,
+            glassBlur = p[K.glassBlur] ?: 1,
+            wallpaper = p[K.wallpaper] ?: "",
+            wallpaperBlur = p[K.wallpaperBlur] ?: false
         )
     }
 
@@ -100,4 +109,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setPracticeOrder(v: Int) = context.dataStore.edit { it[K.practiceOrder] = v }
     suspend fun setEffects(v: Boolean) = context.dataStore.edit { it[K.effects] = v }
     suspend fun setBankVersion(v: Int) = context.dataStore.edit { it[K.bankVersion] = v }
+    suspend fun setGlassBlur(v: Int) = context.dataStore.edit { it[K.glassBlur] = v.coerceIn(0, 2) }
+    suspend fun setWallpaper(path: String) = context.dataStore.edit { it[K.wallpaper] = path }
+    suspend fun setWallpaperBlur(v: Boolean) = context.dataStore.edit { it[K.wallpaperBlur] = v }
 }

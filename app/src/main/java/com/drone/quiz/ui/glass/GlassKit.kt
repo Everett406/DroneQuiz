@@ -699,7 +699,14 @@ fun GlassToggle(
                 thumbBase
                     .shadow(2.dp, RoundedCornerShape(50), spotColor = Color.Black.copy(alpha = 0.2f))
                     .clip(RoundedCornerShape(50))
-                    .background(if (ui.isDark) Color(0xFFF2EBDD) else Color.White)
+                    .drawBehind {
+                        // 深色下开启态轨道为奶色，钮身同步转深保持对比
+                        // （此前白钮贴奶轨几乎看不出差异）；浅色维持白钮
+                        drawRect(
+                            if (ui.isDark) lerp(Color(0xFFF2EBDD), Color(0xFF2B2620), dampedDragAnimation.value)
+                            else Color.White
+                        )
+                    }
                     .size(40f.dp, 24f.dp)
             )
         } else {
@@ -757,7 +764,15 @@ fun GlassToggle(
                         },
                         onDrawSurface = {
                             val progress = dampedDragAnimation.pressProgress
-                            drawRect(Color.White.copy(alpha = 1f - progress))
+                            // 深色开启态轨道为奶色，玻璃钮面叠深色保持对比；浅色维持白面
+                            if (ui.isDark) {
+                                drawRect(
+                                    lerp(Color(0xFFF2EBDD), Color(0xFF2B2620), dampedDragAnimation.value)
+                                        .copy(alpha = 0.88f)
+                                )
+                            } else {
+                                drawRect(Color.White.copy(alpha = 1f - progress))
+                            }
                         }
                     )
                     .size(40f.dp, 24f.dp)

@@ -33,6 +33,13 @@ interface QuestionDao {
     @Query("SELECT DISTINCT category FROM questions ORDER BY category")
     suspend fun categories(): List<String>
 
+    @Query(
+        "SELECT * FROM questions WHERE text LIKE '%' || :q || '%' " +
+            "OR options LIKE '%' || :q || '%' OR explanation LIKE '%' || :q || '%' " +
+            "ORDER BY id LIMIT 80"
+    )
+    suspend fun search(q: String): List<QuestionEntity>
+
     @Query("SELECT category AS category, COUNT(*) AS cnt FROM questions GROUP BY category ORDER BY category")
     suspend fun catCounts(): List<CatCount>
 

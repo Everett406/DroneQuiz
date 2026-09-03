@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -21,10 +22,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -38,6 +43,7 @@ import com.drone.quiz.screens.ExamScreen
 import com.drone.quiz.screens.HomeScreen
 import com.drone.quiz.screens.PracticeConfigScreen
 import com.drone.quiz.screens.PracticeRunScreen
+import com.drone.quiz.screens.SearchScreen
 import com.drone.quiz.screens.SettingsScreen
 import com.drone.quiz.screens.WrongBookScreen
 import com.drone.quiz.ui.glass.AppIcons
@@ -64,6 +70,7 @@ object Routes {
     const val EXAM_RESULT_PATTERN = "examResult/{examId}"
     const val WRONG = "wrong"
     const val SETTINGS = "settings"
+    const val SEARCH = "search"
 
     /** Tab 页对应的 destination route（practice 的 destination route 是 pattern 形式） */
     val tabDestinations = listOf(HOME, PRACTICE_PATTERN, EXAM_CONFIG, WRONG, SETTINGS)
@@ -114,13 +121,33 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         LocalContentBackdrop provides contentBackdrop
     ) {
         Box(Modifier.fillMaxSize()) {
-        // 层 1：背景渐变（液态玻璃的"壁纸"采样源）
+        // 层 1：背景（默认渐变 / 可选全局壁纸作"纹路"，可模糊）
+        var wallBmp by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+        androidx.compose.runtime.LaunchedEffect(settings.wallpaper) {
+            wallBmp = if (settings.wallpaper.isBlank()) null
+            else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    android.graphics.BitmapFactory.decodeFile(settings.wallpaper)?.asImageBitmap()
+                }.getOrNull()
+            }
+        }
         Box(
             Modifier
                 .matchParentSize()
                 .layerBackdrop(bgBackdrop)
                 .background(ui.bgGradient)
-        )
+        ) {
+            if (wallBmp != null) {
+                Image(
+                    bitmap = wallBmp!!,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .then(if (settings.wallpaperBlur) Modifier.blur(24.dp) else Modifier)
+                )
+            }
+        }
 
         // 层 2：内容层（透明背景，浮于背景之上；同时作为底栏折射的内容源）
         Box(
@@ -162,12 +189,22 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 composable(Routes.PRACTICE_PATTERN) {
                     PracticeConfigScreen(
                         backdrop = bgBackdrop,
+                        onSearch = {
+                            navController.navigate(Routes.SEARCH) { launchSingleTop = true }
+                        },
                         onStart = { src2, type, cat, resume ->
                             val catEnc = android.net.Uri.encode(cat)
                             navController.navigate(
                                 "practiceRun?src=$src2&type=$type&cat=$catEnc&resume=$resume"
                             ) { launchSingleTop = true }
                         }
+                    )
+                }
+                // 题目搜索（题干/选项/解析全文检索）
+                composable(Routes.SEARCH) {
+                    SearchScreen(
+                        backdrop = bgBackdrop,
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 // 全屏刷题页（非 Tab destination → 无底栏遮挡；返回即回到配置页）

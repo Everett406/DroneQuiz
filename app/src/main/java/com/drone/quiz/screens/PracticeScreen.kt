@@ -57,6 +57,7 @@ import com.drone.quiz.data.settings.PracticeSession
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.softVerticalEdges
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -135,7 +136,24 @@ fun PracticeRunScreen(
             } else {
                 sessionMode = false
                 answers.clear()
-                loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                // 自动接续：存在同筛选参数的会话快照 → 无缝恢复
+                // （刷过的题保留对错标记、直接定位到上次进度；换筛选=开新会话）
+                val snap = runCatching { ServiceLocator.settings.currentPracticeSession() }.getOrNull()
+                if (src == "all" && snap != null && snap.src == "all" &&
+                    snap.type == type && snap.cat == cat
+                ) {
+                    val qs = ServiceLocator.repo.loadPracticeByIds(snap.ids)
+                    if (qs.isNotEmpty()) {
+                        sessionMode = true
+                        snap.answers.forEach { (k, v) -> k.toLongOrNull()?.let { answers[it] = v } }
+                        restoredTick++
+                        qs
+                    } else {
+                        loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                    }
+                } else {
+                    loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                }
             }
             }
         }
@@ -386,7 +404,9 @@ fun PracticeRunScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(340.dp)
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = 14.dp)
+                        // 上下边缘柔化：首末行渐隐而非硬切
+                        .softVerticalEdges(top = 16.dp, bottom = 22.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

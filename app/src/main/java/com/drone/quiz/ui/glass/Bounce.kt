@@ -28,32 +28,32 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 /**
- * iOS 式上下过冲回弹（rubber-band），v2.5.1 按社区标准实现（sinasamaki
- * "Overscroll animations in Jetpack Compose" 的 NestedScroll 方案）重写。
+ * iOS 式上下过冲回弹（rubber-band）v4。
  *
- * 此前两版手感差的根因：
- * - v2.4.x：90ms 定时器兜底与手势抢状态（抖动）；
- * - v2.5.0：显示曲线起手斜率只有 0.55（一起手就跟不上手）+ 渐近线仅 110dp +
- *   回弹弹簧把松手速度当初速度且无钳制（会甩过头荡到另一侧）。
+ * v3 用户反馈"停止滑动它就停了、没有惯性"的两处根因：
+ * 1. 过冲量存在 Animatable 里，拖动/惯性每帧经 scope.launch{ snapTo } 异步写入——
+ *    fling 结束的 onPostFling 与排队中的 snapTo 存在时序竞态：读到旧值 0 就跳过回弹，
+ *    随后 snapTo 又把过冲量写回非零 → amount 残留。此后每次松手 onPreFling 都误入
+ *    "过冲处理"分支并同步挂起几百毫秒（软弹簧动画），fling 被延迟到回弹结束才开始，
+ *    体感就是"甩完先顿一下、惯性没了"。
+ * 2. onPreFling 内同步挂起动画本身就会阻塞嵌套滚动链。
  *
- * 本版要点：
- * - 原始过冲量与显示量分离：显示量 = 缓动曲线(原始量 / 容器高度×1.5) × 容器高度。
- *   CubicBezier(0.5, 0.5, 1.0, 0.25) 起手斜率恰为 1:1（绝对跟手），越拉越"韧"，
- *   渐近线为容器高度（iOS 同款用 dimension，不是固定小上限）。
- * - 拖动过冲用 snapTo 直写（零延迟）；已过冲时只允许向零回退，不许反向叠加。
- * - 松手甩动的三种走向（onPreFling，exponentialDecay 预测）：
- *   · 甩不回内容侧 → StiffnessLow 软弹簧带速度回弹，速度全部消费；
- *   · 会冲过零点 → 过冲量按摩擦衰减滑行，过零瞬间 snapTo(0)，
- *     剩余速度原样交还列表继续滚动（iOS 式无缝衔接，不吞甩动）；
- *   · 零速度松手 → 直接软弹回。
- * - 惯性撞边：onPostScroll 只做显示跟踪，fling 结束 onPostFling 带残余速度软弹回。
+ * v4 结构：
+ * - 原始过冲量 rawAmount 为 mutableFloatStateOf，拖动/惯性路径**同步直写**（零协程、
+ *   零竞态、零延迟）；只有"松手回弹"用 Animatable 驱动（期间拖动会立刻取消它）。
+ * - onPreFling **绝不同步挂起动画**：
+ *   · 未过冲 → 原样交还速度（普通 fling 完全不受影响，这是用户反馈的场景）；
+ *   · 过冲 + 向内容侧强甩（会过零）→ 立刻交还全部速度（列表立即带着惯性滚），
+ *     过冲量异步摩擦衰减归零，与滚动并行（iOS 式衔接，无跳变、无阻塞）；
+ *   · 过冲 + 甩不回/往外甩 → 异步软弹簧带速度回弹，速度消费（子列表在边缘无路可滚）；
+ *   · 零速度松手 → 异步软弹回。
  */
 class BounceState internal constructor(
     private val scope: CoroutineScope
 ) {
 
-    /** 原始过冲量（无界）。 */
-    private val amount = Animatable(0f)
+    /** 原始过冲量（无界，同步直写）。 */
+    private var rawAmount by mutableFloatStateOf(0f)
 
     /** 显示位移（px），由缓动曲线从原始量饱和映射而来。 */
     var offset by mutableFloatStateOf(0f)
@@ -62,23 +62,32 @@ class BounceState internal constructor(
     /** 容器高度（px），onSizeChanged 更新；决定过冲渐近线。 */
     private var length = 1f
 
-    // 起手 1:1 跟手、渐进变重的橡胶曲线
+    /** 松手回弹动画（拖动开始时取消）。 */
+    private val releaseAnim = Animatable(0f)
+    private var releaseJob: kotlinx.coroutines.Job? = null
+
+    // 起手 1:1 跟手、渐进变重的橡胶曲线（sinasamaki 社区标准同款）
     private val easing = CubicBezierEasing(0.5f, 0.5f, 1.0f, 0.25f)
 
     private fun applyDisplay() {
-        val a = amount.value
+        val a = rawAmount
         offset = sign(a) * easing.transform(abs(a) / (length * 1.5f)).coerceIn(0f, 1f) * length
     }
 
     /** 过冲量累加：已过冲时只允许向零回退，不许反向叠加。 */
     private fun accumulated(delta: Float): Float {
-        val previous = amount.value
+        val previous = rawAmount
         val next = previous + delta
         return when {
             previous > 0f -> next.coerceAtLeast(0f)
             previous < 0f -> next.coerceAtMost(0f)
             else -> next
         }
+    }
+
+    private fun cancelRelease() {
+        releaseJob?.cancel()
+        releaseJob = null
     }
 
     /** 容器尺寸变化时由修饰符回调。 */
@@ -88,89 +97,87 @@ class BounceState internal constructor(
 
     val connection = object : NestedScrollConnection {
 
-        // 拖动中已过冲：过冲层优先消费（snapTo 直写，零延迟跟手）
+        // 拖动中已过冲：过冲层优先消费（同步直写，零延迟跟手）
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            if (amount.value != 0f && source != NestedScrollSource.SideEffect) {
-                scope.launch {
-                    amount.snapTo(accumulated(available.y))
-                    applyDisplay()
-                }
+            if (rawAmount != 0f && source != NestedScrollSource.SideEffect) {
+                cancelRelease()
+                rawAmount = accumulated(available.y)
+                applyDisplay()
                 return available
             }
             return Offset.Zero
         }
 
         // 子列表到边后的剩余量（拖动/惯性）：转入过冲显示；不消费，
-        // 速度信息保留给 onPostFling 做带速度回弹
+        // 速度信息保留给松手/惯性结束阶段
         override fun onPostScroll(
             consumed: Offset,
             available: Offset,
             source: NestedScrollSource
         ): Offset {
             if (available.y != 0f) {
-                scope.launch {
-                    amount.snapTo(accumulated(available.y))
-                    applyDisplay()
-                }
+                cancelRelease()
+                rawAmount = accumulated(available.y)
+                applyDisplay()
             }
             return Offset.Zero
         }
 
         override suspend fun onPreFling(available: Velocity): Velocity {
-            if (amount.value != 0f && available.y != 0f) {
-                val previousSign = sign(amount.value)
-                var unconsumed = available.y
-                // 过零预测（不依赖 DecayAnimationSpec.calculateTargetValue——
-                // 新版 Compose 已移除该成员）：惯性滑行距离 ≈ |v|×0.5s（spline 衰减经验值），
-                // 能越过剩余过冲量即判定会过零
-                val towardZero = sign(available.y) != previousSign
-                val willCross = towardZero && abs(available.y) * 0.5f > abs(amount.value)
-                if (!willCross) {
-                    // 甩不回内容侧：软弹簧带松手速度回弹，速度全部消费
-                    amount.animateTo(
-                        0f,
-                        spring(stiffness = 200f),
-                        initialVelocity = available.y
-                    ) { applyDisplay() }
-                } else {
-                    // 强甩向内容侧：摩擦衰减滑行，过零瞬间交还剩余速度（无缝衔接）
-                    try {
-                        amount.animateDecay(
-                            initialVelocity = available.y,
+            // 注意：本函数内部零挂起点、立即返回——绝不阻塞嵌套滚动链
+            if (rawAmount == 0f) return available   // 普通滚动：fling 原样放行，零干扰
+
+            val previousSign = sign(rawAmount)
+            val amountAbs = abs(rawAmount)
+            val v = available.y
+
+            if (v != 0f && sign(v) != previousSign && abs(v) * 0.5f > amountAbs) {
+                // 强甩向内容侧（会过零）：全部速度立刻交还列表（惯性立即生效），
+                // 过冲量异步摩擦衰减归零，与滚动并行
+                cancelRelease()
+                releaseJob = scope.launch {
+                    runCatching {
+                        releaseAnim.snapTo(rawAmount)
+                        releaseAnim.animateDecay(
+                            initialVelocity = v,
                             animationSpec = exponentialDecay()
                         ) {
+                            rawAmount = value
+                            applyDisplay()
                             if (sign(value) != previousSign) {
-                                unconsumed -= velocity
-                                scope.launch {
-                                    amount.snapTo(0f)
-                                    applyDisplay()
-                                }
+                                rawAmount = 0f
+                                applyDisplay()
+                                throw kotlinx.coroutines.CancellationException("bounce crossed zero")
                             }
                         }
-                    } catch (_: Exception) {
-                        // snapTo(0) 会取消本衰减动画（预期路径），吞掉即可
+                    }
+                    if (!scope.isActive) return@launch
+                    rawAmount = 0f
+                    applyDisplay()
+                }
+                return available
+            }
+
+            // 甩不回 / 往外甩 / 零速度：异步软弹簧带速度回弹，速度消费
+            // （子列表在边缘无路可滚，消费不影响体验）
+            cancelRelease()
+            releaseJob = scope.launch {
+                runCatching {
+                    releaseAnim.snapTo(rawAmount)
+                    releaseAnim.animateTo(
+                        0f,
+                        spring(stiffness = 200f),
+                        initialVelocity = v
+                    ) {
+                        rawAmount = value
+                        applyDisplay()
                     }
                 }
-                return Velocity(0f, unconsumed)
+                if (!scope.isActive) return@launch
+                rawAmount = 0f
+                applyDisplay()
             }
-            if (amount.value != 0f) {
-                // 零速度松手：直接软弹回
-                amount.animateTo(0f, spring(stiffness = 200f)) { applyDisplay() }
-                return Velocity.Zero
-            }
-            return available
-        }
-
-        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-            // 惯性撞边结束：带残余速度软弹回
-            if (amount.value != 0f) {
-                amount.animateTo(
-                    0f,
-                    spring(stiffness = 200f),
-                    initialVelocity = available.y
-                ) { applyDisplay() }
-            }
-            return available
+            return Velocity.Zero
         }
     }
 }
@@ -188,6 +195,7 @@ fun rememberBounceState(): BounceState {
 fun BounceLazyColumn(
     modifier: Modifier = Modifier,
     state: BounceState = rememberBounceState(),
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     content: LazyListScope.() -> Unit
 ) {
     Box(
@@ -196,7 +204,7 @@ fun BounceLazyColumn(
             .onSizeChanged { state.onContainerSizeChanged(it.height) }
             .nestedScroll(state.connection)
     ) {
-        LazyColumn(content = content)
+        LazyColumn(state = listState, content = content)
     }
 }
 

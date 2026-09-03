@@ -55,6 +55,8 @@ import com.drone.quiz.data.repo.Repo
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.screens.common.softVerticalEdges
+import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -103,18 +105,27 @@ fun ExamConfigScreen(
 
     val recentExams by ServiceLocator.repo.recentExams().collectAsState(initial = emptyList())
 
-    BounceContainer(
+    Column(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
     ) {
+        // ---- 固定标题 ----
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            ScreenTitle("模考", "模拟真实考试 · 倒计时自动交卷", Modifier.padding(vertical = 16.dp))
+        }
+
+        BounceContainer(
+            Modifier
+                .weight(1f)
+                .softTopFade(30.dp)
+        ) {
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-            ScreenTitle("模考", "模拟真实考试 · 倒计时自动交卷", Modifier.padding(vertical = 16.dp))
 
             // ---- 考试设置：2×2 紧凑网格 ----
             // 此前四张大卡各占一大截，题目数量/判断占比/时长/及格分挤满整屏，
@@ -299,6 +310,7 @@ fun ExamConfigScreen(
             }
 
             Spacer(Modifier.height(130.dp))
+        }
         }
     }
 }
@@ -598,7 +610,9 @@ fun ExamScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(340.dp)
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = 14.dp)
+                        // 上下边缘柔化：首末行渐隐而非硬切（用户圈选反馈）
+                        .softVerticalEdges(top = 16.dp, bottom = 22.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

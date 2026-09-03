@@ -39,7 +39,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
+import com.drone.quiz.ServiceLocator
+import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.ui.theme.LocalUi
+import androidx.compose.runtime.collectAsState
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -80,6 +83,10 @@ fun GlassBottomTabs(
     val ui = LocalUi.current
     val accentColor = ui.ink // 选中项透玻璃呈现墨色（浅色主题）/奶油色（深色主题）
     val containerColor = ui.surface.copy(alpha = if (ui.isDark) 0.4f else 0.35f)
+
+    // 玻璃模糊度三档（设置-外观可调）：低 4dp / 中 8dp / 高 14dp
+    val glassSettings by ServiceLocator.settings.settings.collectAsState(initial = AppSettings())
+    val barBlurDp = when (glassSettings.glassBlur) { 0 -> 4.dp; 2 -> 14.dp; else -> 8.dp }
 
     // 安全模式：实色胶囊底栏，无 RenderEffect，保留选中胶囊与切换
     if (!GlassRuntime.enabled) {
@@ -217,7 +224,7 @@ fun GlassBottomTabs(
                     shape = { Capsule() },
                     effects = {
                         vibrancy()
-                        blur(8.dp.toPx())
+                        blur(barBlurDp.toPx())
                         lens(24.dp.toPx(), 24.dp.toPx())
                     },
                     layerBlock = {
@@ -255,7 +262,7 @@ fun GlassBottomTabs(
                         effects = {
                             val progress = dampedDragAnimation.pressProgress
                             vibrancy()
-                            blur(8.dp.toPx())
+                            blur(barBlurDp.toPx())
                             lens(
                                 24.dp.toPx() * progress,
                                 24.dp.toPx() * progress

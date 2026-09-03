@@ -180,6 +180,12 @@ class Repo(private val db: AppDatabase) {
         ids.mapNotNull { map[it]?.toQuestion() }
     }
 
+    /** 题目搜索：题干 / 选项 / 解析 全文 LIKE。 */
+    suspend fun searchQuestions(query: String): List<Question> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) emptyList() else qDao.search(q).map { it.toQuestion() }
+    }
+
     private fun QuestionEntity.toQuestion() = Question(
         id = id,
         category = category,

@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/** 描边风格（箭头/细线类图标保留）。 */
 private fun icon(
     name: String,
     size: Dp = 24.dp,
@@ -32,137 +33,201 @@ private fun icon(
     ) { block() }
 }.build()
 
-// ---------- 底栏图标（描边风格，几何绘制） ----------
+/** 填充风格（v2.6.0：Tab 栏与常用图标改为填充式，穿透感更强）。 */
+private fun filledIcon(
+    name: String,
+    size: Dp = 24.dp,
+    viewport: Float = 24f,
+    evenOdd: Boolean = false,
+    block: PathBuilder.() -> Unit
+): ImageVector = ImageVector.Builder(
+    name = name,
+    defaultWidth = size,
+    defaultHeight = size,
+    viewportWidth = viewport,
+    viewportHeight = viewport
+).apply {
+    path(
+        fill = SolidColor(Color(0xFF000000)),
+        fillAlpha = 1f,
+        pathFillType = if (evenOdd) PathFillType.EvenOdd else PathFillType.NonZero,
+        stroke = null
+    ) { block() }
+}.build()
+
+// ---------- 底栏图标（填充风格） ----------
 
 object AppIcons {
 
+    /** 首页：填充小屋 + 门洞（EvenOdd 挖空）。 */
     val Home: ImageVector by lazy {
-        icon("AppHome") {
-            // 屋顶 + 房体
-            moveTo(4f, 11f)
-            lineTo(12f, 4f)
-            lineTo(20f, 11f)
-            // 房体
-            moveTo(6f, 10f)
-            lineTo(6f, 19f)
-            lineTo(18f, 19f)
-            lineTo(18f, 10f)
-            // 门
-            moveTo(10f, 19f)
-            lineTo(10f, 14f)
-            lineTo(14f, 14f)
-            lineTo(14f, 19f)
+        filledIcon("AppHome", evenOdd = true) {
+            // 屋身一体轮廓
+            moveTo(12f, 2.8f)
+            lineTo(21f, 10.2f)
+            lineTo(21f, 19.2f)
+            curveTo(21f, 20.2f, 20.2f, 21f, 19.2f, 21f)
+            lineTo(4.8f, 21f)
+            curveTo(3.8f, 21f, 3f, 20.2f, 3f, 19.2f)
+            lineTo(3f, 10.2f)
+            close()
+            // 门洞
+            moveTo(10.1f, 21f)
+            lineTo(10.1f, 14.4f)
+            curveTo(10.1f, 13.7f, 10.6f, 13.2f, 11.3f, 13.2f)
+            lineTo(12.7f, 13.2f)
+            curveTo(13.4f, 13.2f, 13.9f, 13.7f, 13.9f, 14.4f)
+            lineTo(13.9f, 21f)
+            close()
         }
     }
 
+    /** 刷题：双层卡片（后卡顶边 + 前卡填充 + 对勾挖空）。 */
     val Cards: ImageVector by lazy {
-        icon("AppCards") {
-            // 后卡片
-            moveTo(7f, 3.5f)
-            lineTo(18.5f, 3.5f)
-            curveTo(19.3f, 3.5f, 20f, 4.2f, 20f, 5f)
-            lineTo(20f, 13.5f)
-            // 前卡片
-            moveTo(5.5f, 7.5f)
-            lineTo(17f, 7.5f)
-            curveTo(17.8f, 7.5f, 18.5f, 8.2f, 18.5f, 9f)
-            lineTo(18.5f, 19f)
-            curveTo(18.5f, 19.8f, 17.8f, 20.5f, 17f, 20.5f)
-            lineTo(5.5f, 20.5f)
-            curveTo(4.7f, 20.5f, 4f, 19.8f, 4f, 19f)
-            lineTo(4f, 9f)
-            curveTo(4f, 8.2f, 4.7f, 7.5f, 5.5f, 7.5f)
+        filledIcon("AppCards", evenOdd = true) {
+            // 后卡片（仅露出顶部一截）
+            moveTo(7f, 3.2f)
+            lineTo(18.6f, 3.2f)
+            curveTo(19.7f, 3.2f, 20.6f, 4.1f, 20.6f, 5.2f)
+            lineTo(20.6f, 13.8f)
+            lineTo(18.4f, 13.8f)
+            lineTo(18.4f, 5.4f)
+            curveTo(18.4f, 5.2f, 18.2f, 5f, 18f, 5f)
+            lineTo(7f, 5f)
             close()
-            // 对勾
-            moveTo(7.5f, 14f)
-            lineTo(10f, 16.5f)
-            lineTo(14.5f, 11.5f)
+            // 前卡片 + 对勾挖空
+            moveTo(6f, 6.6f)
+            lineTo(17.4f, 6.6f)
+            curveTo(18.5f, 6.6f, 19.4f, 7.5f, 19.4f, 8.6f)
+            lineTo(19.4f, 19f)
+            curveTo(19.4f, 20.1f, 18.5f, 21f, 17.4f, 21f)
+            lineTo(6f, 21f)
+            curveTo(4.9f, 21f, 4f, 20.1f, 4f, 19f)
+            lineTo(4f, 8.6f)
+            curveTo(4f, 7.5f, 4.9f, 6.6f, 6f, 6.6f)
+            close()
+            // 对勾（挖空）
+            moveTo(7.4f, 13.6f)
+            lineTo(9.1f, 11.9f)
+            lineTo(11.2f, 14f)
+            lineTo(14.9f, 10.3f)
+            lineTo(16.6f, 12f)
+            lineTo(11.2f, 17.4f)
+            close()
         }
     }
 
+    /** 模考：填充秒表 + 镂空指针。 */
     val Timer: ImageVector by lazy {
-        icon("AppTimer") {
+        filledIcon("AppTimer", evenOdd = true) {
+            // 顶部按钮与柄
+            moveTo(9.2f, 2f)
+            lineTo(14.8f, 2f)
+            curveTo(15.3f, 2f, 15.7f, 2.4f, 15.7f, 2.9f)
+            curveTo(15.7f, 3.4f, 15.3f, 3.8f, 14.8f, 3.8f)
+            lineTo(13f, 3.8f)
+            lineTo(13f, 5f)
+            lineTo(11f, 5f)
+            lineTo(11f, 3.8f)
+            lineTo(9.2f, 3.8f)
+            curveTo(8.7f, 3.8f, 8.3f, 3.4f, 8.3f, 2.9f)
+            curveTo(8.3f, 2.4f, 8.7f, 2f, 9.2f, 2f)
+            close()
             // 表体
-            moveTo(12f, 21f)
-            curveTo(7.6f, 21f, 4f, 17.4f, 4f, 13f)
-            curveTo(4f, 8.6f, 7.6f, 5f, 12f, 5f)
-            curveTo(16.4f, 5f, 20f, 8.6f, 20f, 13f)
-            curveTo(20f, 17.4f, 16.4f, 21f, 12f, 21f)
+            moveTo(12f, 21.8f)
+            curveTo(7.2f, 21.8f, 3.3f, 17.9f, 3.3f, 13.1f)
+            curveTo(3.3f, 8.3f, 7.2f, 4.4f, 12f, 4.4f)
+            curveTo(16.8f, 4.4f, 20.7f, 8.3f, 20.7f, 13.1f)
+            curveTo(20.7f, 17.9f, 16.8f, 21.8f, 12f, 21.8f)
             close()
-            // 顶部按钮
-            moveTo(10f, 2f)
-            lineTo(14f, 2f)
-            // 指针
-            moveTo(12f, 13f)
-            lineTo(12f, 8.5f)
-            moveTo(12f, 13f)
-            lineTo(15f, 14.5f)
+            // 指针（挖空，竖针 + 斜针连成一体）
+            moveTo(11.1f, 13.1f)
+            lineTo(11.1f, 8.6f)
+            lineTo(12.9f, 8.6f)
+            lineTo(12.9f, 12.2f)
+            lineTo(15.4f, 13.7f)
+            lineTo(14.5f, 15.3f)
+            lineTo(11.1f, 13.3f)
+            close()
         }
     }
 
+    /** 错题本：填充书 + X 挖空。 */
     val BookWrong: ImageVector by lazy {
-        icon("AppBookWrong") {
-            // 书本
-            moveTo(4f, 5f)
-            curveTo(4f, 4.2f, 4.7f, 3.5f, 5.5f, 3.5f)
-            lineTo(18.5f, 3.5f)
-            curveTo(19.3f, 3.5f, 20f, 4.2f, 20f, 5f)
-            lineTo(20f, 19f)
-            curveTo(20f, 19.8f, 19.3f, 20.5f, 18.5f, 20.5f)
-            lineTo(5.5f, 20.5f)
-            curveTo(4.7f, 20.5f, 4f, 19.8f, 4f, 19f)
+        filledIcon("AppBookWrong", evenOdd = true) {
+            moveTo(5.6f, 3.4f)
+            lineTo(18.4f, 3.4f)
+            curveTo(19.5f, 3.4f, 20.4f, 4.3f, 20.4f, 5.4f)
+            lineTo(20.4f, 19f)
+            curveTo(20.4f, 20.1f, 19.5f, 21f, 18.4f, 21f)
+            lineTo(5.6f, 21f)
+            curveTo(4.5f, 21f, 3.6f, 20.1f, 3.6f, 19f)
+            lineTo(3.6f, 5.4f)
+            curveTo(3.6f, 4.3f, 4.5f, 3.4f, 5.6f, 3.4f)
             close()
-            // X 标记
-            moveTo(9.2f, 9.2f)
-            lineTo(14.8f, 14.8f)
-            moveTo(14.8f, 9.2f)
-            lineTo(9.2f, 14.8f)
+            // X（挖空，12 点多边形）
+            moveTo(8.6f, 7.2f)
+            lineTo(12f, 10.6f)
+            lineTo(15.4f, 7.2f)
+            lineTo(16.8f, 8.6f)
+            lineTo(13.4f, 12f)
+            lineTo(16.8f, 15.4f)
+            lineTo(15.4f, 16.8f)
+            lineTo(12f, 13.4f)
+            lineTo(8.6f, 16.8f)
+            lineTo(7.2f, 15.4f)
+            lineTo(10.6f, 12f)
+            lineTo(7.2f, 8.6f)
+            close()
         }
     }
 
+    /** 设置：三条填充滑轨 + 圆形滑钮。 */
     val Tune: ImageVector by lazy {
-        icon("AppTune") {
-            // 三条滑杆线
-            moveTo(4f, 7f)
-            lineTo(20f, 7f)
-            moveTo(4f, 12f)
-            lineTo(20f, 12f)
-            moveTo(4f, 17f)
-            lineTo(20f, 17f)
-            // 三个滑块（实心圆点视觉：小圆）
-            moveTo(15f, 7f)
-            lineTo(15f, 7.01f)
-            moveTo(8f, 12f)
-            lineTo(8f, 12.01f)
-            moveTo(12.5f, 17f)
-            lineTo(12.5f, 17.01f)
+        filledIcon("AppTune") {
+            fun bar(y: Float) {
+                moveTo(3.4f, y - 1.1f)
+                lineTo(20.6f, y - 1.1f)
+                curveTo(21.2f, y - 1.1f, 21.7f, y - 0.6f, 21.7f, y)
+                curveTo(21.7f, y + 0.6f, 21.2f, y + 1.1f, 20.6f, y + 1.1f)
+                lineTo(3.4f, y + 1.1f)
+                curveTo(2.8f, y + 1.1f, 2.3f, y + 0.6f, 2.3f, y)
+                curveTo(2.3f, y - 0.6f, 2.8f, y - 1.1f, 3.4f, y - 1.1f)
+                close()
+            }
+            fun knob(x: Float, y: Float) {
+                moveTo(x, y - 2.5f)
+                curveTo(x + 1.4f, y - 2.5f, x + 2.5f, y - 1.4f, x + 2.5f, y)
+                curveTo(x + 2.5f, y + 1.4f, x + 1.4f, y + 2.5f, x, y + 2.5f)
+                curveTo(x - 1.4f, y + 2.5f, x - 2.5f, y + 1.4f, x - 2.5f, y)
+                curveTo(x - 2.5f, y - 1.4f, x - 1.4f, y - 2.5f, x, y - 2.5f)
+                close()
+            }
+            bar(6.5f); knob(15.2f, 6.5f)
+            bar(12f); knob(8.4f, 12f)
+            bar(17.5f); knob(12.6f, 17.5f)
         }
     }
 
     // ---------- 通用 ----------
 
+    /** 答题卡入口：四格填充。 */
     val Grid: ImageVector by lazy {
-        icon("AppGrid") {
-            moveTo(4.5f, 4.5f)
-            lineTo(9.5f, 4.5f)
-            lineTo(9.5f, 9.5f)
-            lineTo(4.5f, 9.5f)
-            close()
-            moveTo(14.5f, 4.5f)
-            lineTo(19.5f, 4.5f)
-            lineTo(19.5f, 9.5f)
-            lineTo(14.5f, 9.5f)
-            close()
-            moveTo(4.5f, 14.5f)
-            lineTo(9.5f, 14.5f)
-            lineTo(9.5f, 19.5f)
-            lineTo(4.5f, 19.5f)
-            close()
-            moveTo(14.5f, 14.5f)
-            lineTo(19.5f, 14.5f)
-            lineTo(19.5f, 19.5f)
-            lineTo(14.5f, 19.5f)
-            close()
+        filledIcon("AppGrid") {
+            fun cell(x: Float, y: Float) {
+                moveTo(x + 1.3f, y)
+                lineTo(x + 4.7f, y)
+                curveTo(x + 5.5f, y, x + 6f, y + 0.5f, x + 6f, y + 1.3f)
+                lineTo(x + 6f, y + 4.7f)
+                curveTo(x + 6f, y + 5.5f, x + 5.5f, y + 6f, x + 4.7f, y + 6f)
+                lineTo(x + 1.3f, y + 6f)
+                curveTo(x + 0.5f, y + 6f, x, y + 5.5f, x, y + 4.7f)
+                lineTo(x, y + 1.3f)
+                curveTo(x, y + 0.5f, x + 0.5f, y, x + 1.3f, y)
+                close()
+            }
+            cell(3.2f, 3.2f); cell(14.8f, 3.2f)
+            cell(3.2f, 14.8f); cell(14.8f, 14.8f)
         }
     }
 
@@ -182,99 +247,158 @@ object AppIcons {
         }
     }
 
+    /** 对勾（填充粗笔）。 */
     val Check: ImageVector by lazy {
-        icon("AppCheck") {
-            moveTo(5f, 12.5f)
-            lineTo(10f, 17.5f)
-            lineTo(19f, 7f)
+        filledIcon("AppCheck") {
+            moveTo(9.9f, 18.1f)
+            lineTo(4.5f, 12.7f)
+            lineTo(6f, 11.2f)
+            lineTo(9.9f, 15.1f)
+            lineTo(18f, 6.2f)
+            lineTo(19.5f, 7.6f)
+            close()
         }
     }
 
+    /** 关闭（填充粗叉）。 */
     val Close: ImageVector by lazy {
-        icon("AppClose") {
-            moveTo(6f, 6f)
-            lineTo(18f, 18f)
-            moveTo(18f, 6f)
-            lineTo(6f, 18f)
+        filledIcon("AppClose") {
+            moveTo(6.4f, 4.6f)
+            lineTo(12f, 10.2f)
+            lineTo(17.6f, 4.6f)
+            lineTo(19.4f, 6.4f)
+            lineTo(13.8f, 12f)
+            lineTo(19.4f, 17.6f)
+            lineTo(17.6f, 19.4f)
+            lineTo(12f, 13.8f)
+            lineTo(6.4f, 19.4f)
+            lineTo(4.6f, 17.6f)
+            lineTo(10.2f, 12f)
+            lineTo(4.6f, 6.4f)
+            close()
         }
     }
 
+    /** 火焰（外焰填充 + 内焰挖空）。 */
     val Flame: ImageVector by lazy {
-        icon("AppFlame") {
-            moveTo(12f, 21f)
-            curveTo(8.7f, 21f, 6f, 18.3f, 6f, 15f)
-            curveTo(6f, 10f, 12f, 3f, 12f, 3f)
-            curveTo(12f, 3f, 18f, 10f, 18f, 15f)
-            curveTo(18f, 18.3f, 15.3f, 21f, 12f, 21f)
+        filledIcon("AppFlame", evenOdd = true) {
+            moveTo(12f, 2.4f)
+            curveTo(12f, 2.4f, 18.6f, 9.6f, 18.6f, 14.8f)
+            curveTo(18.6f, 18.6f, 15.7f, 21.5f, 12f, 21.5f)
+            curveTo(8.3f, 21.5f, 5.4f, 18.6f, 5.4f, 14.8f)
+            curveTo(5.4f, 9.6f, 12f, 2.4f, 12f, 2.4f)
             close()
-            moveTo(12f, 21f)
-            curveTo(10.3f, 21f, 9f, 19.7f, 9f, 18f)
-            curveTo(9f, 15.5f, 12f, 12.5f, 12f, 12.5f)
-            curveTo(12f, 12.5f, 15f, 15.5f, 15f, 18f)
-            curveTo(15f, 19.7f, 13.7f, 21f, 12f, 21f)
+            moveTo(12f, 19.9f)
+            curveTo(10.1f, 19.9f, 8.7f, 18.5f, 8.7f, 16.6f)
+            curveTo(8.7f, 14.2f, 12f, 11.2f, 12f, 11.2f)
+            curveTo(12f, 11.2f, 15.3f, 14.2f, 15.3f, 16.6f)
+            curveTo(15.3f, 18.5f, 13.9f, 19.9f, 12f, 19.9f)
+            close()
         }
     }
 
+    /** 播放（填充三角）。 */
     val Play: ImageVector by lazy {
-        icon("AppPlay") {
-            moveTo(8f, 5.5f)
-            lineTo(18f, 12f)
-            lineTo(8f, 18.5f)
+        filledIcon("AppPlay") {
+            moveTo(8.2f, 5.4f)
+            lineTo(18.4f, 12f)
+            lineTo(8.2f, 18.6f)
             close()
         }
     }
 
+    /** 通知铃（填充铃身 + 铃锤）。 */
     val Bell: ImageVector by lazy {
-        icon("AppBell") {
-            moveTo(12f, 3.5f)
-            curveTo(9f, 3.5f, 7f, 5.8f, 7f, 9f)
-            lineTo(7f, 13f)
-            lineTo(5.5f, 16.5f)
-            lineTo(18.5f, 16.5f)
-            lineTo(17f, 13f)
-            lineTo(17f, 9f)
-            curveTo(17f, 5.8f, 15f, 3.5f, 12f, 3.5f)
+        filledIcon("AppBell") {
+            moveTo(12f, 2.9f)
+            curveTo(9.2f, 2.9f, 7f, 5.3f, 7f, 8.3f)
+            lineTo(7f, 12.8f)
+            lineTo(5.6f, 15.6f)
+            curveTo(5.3f, 16.1f, 5.7f, 16.7f, 6.3f, 16.7f)
+            lineTo(17.7f, 16.7f)
+            curveTo(18.3f, 16.7f, 18.7f, 16.1f, 18.4f, 15.6f)
+            lineTo(17f, 12.8f)
+            lineTo(17f, 8.3f)
+            curveTo(17f, 5.3f, 14.8f, 2.9f, 12f, 2.9f)
             close()
-            moveTo(10f, 19.5f)
-            curveTo(10.4f, 20.4f, 11.1f, 21f, 12f, 21f)
-            curveTo(12.9f, 21f, 13.6f, 20.4f, 14f, 19.5f)
+            moveTo(9.9f, 18.9f)
+            lineTo(14.1f, 18.9f)
+            curveTo(13.8f, 20.1f, 13f, 21.1f, 12f, 21.1f)
+            curveTo(11f, 21.1f, 10.2f, 20.1f, 9.9f, 18.9f)
+            close()
         }
     }
 
+    /** 导入题库（填充下载箭头 + 托盘）。 */
     val Import: ImageVector by lazy {
-        icon("AppImport") {
-            moveTo(12f, 3.5f)
-            lineTo(12f, 14f)
-            moveTo(7.5f, 10f)
-            lineTo(12f, 14.5f)
-            lineTo(16.5f, 10f)
-            moveTo(4.5f, 17.5f)
-            lineTo(4.5f, 19f)
-            curveTo(4.5f, 19.8f, 5.2f, 20.5f, 6f, 20.5f)
-            lineTo(18f, 20.5f)
-            curveTo(18.8f, 20.5f, 19.5f, 19.8f, 19.5f, 19f)
-            lineTo(19.5f, 17.5f)
+        filledIcon("AppImport") {
+            moveTo(11f, 3.2f)
+            lineTo(13f, 3.2f)
+            lineTo(13f, 10.6f)
+            lineTo(16f, 7.6f)
+            lineTo(17.4f, 9f)
+            lineTo(12f, 14.4f)
+            lineTo(6.6f, 9f)
+            lineTo(8f, 7.6f)
+            lineTo(11f, 10.6f)
+            close()
+            moveTo(6f, 15.8f)
+            lineTo(8f, 15.8f)
+            lineTo(8f, 18.2f)
+            lineTo(16f, 18.2f)
+            lineTo(16f, 15.8f)
+            lineTo(18f, 15.8f)
+            curveTo(18.8f, 15.8f, 19.5f, 16.5f, 19.5f, 17.3f)
+            lineTo(19.5f, 19f)
+            curveTo(19.5f, 19.8f, 18.8f, 20.5f, 18f, 20.5f)
+            lineTo(6f, 20.5f)
+            curveTo(5.2f, 20.5f, 4.5f, 19.8f, 4.5f, 19f)
+            lineTo(4.5f, 17.3f)
+            curveTo(4.5f, 16.5f, 5.2f, 15.8f, 6f, 15.8f)
+            close()
         }
     }
 
+    /** 删除（填充垃圾桶 + 镂空条纹）。 */
     val Trash: ImageVector by lazy {
-        icon("AppTrash") {
-            moveTo(4.5f, 6.5f)
-            lineTo(19.5f, 6.5f)
-            moveTo(9f, 6.5f)
-            lineTo(9f, 4.5f)
-            lineTo(15f, 4.5f)
-            lineTo(15f, 6.5f)
-            moveTo(6.5f, 6.5f)
-            lineTo(7.5f, 19f)
-            curveTo(7.6f, 19.8f, 8.2f, 20.5f, 9f, 20.5f)
-            lineTo(15f, 20.5f)
-            curveTo(15.8f, 20.5f, 16.4f, 19.8f, 16.5f, 19f)
-            lineTo(17.5f, 6.5f)
-            moveTo(10f, 10f)
-            lineTo(10f, 17f)
-            moveTo(14f, 10f)
-            lineTo(14f, 17f)
+        filledIcon("AppTrash", evenOdd = true) {
+            // 盖 + 提手
+            moveTo(9f, 3.4f)
+            lineTo(15f, 3.4f)
+            curveTo(15.6f, 3.4f, 16f, 3.8f, 16f, 4.4f)
+            lineTo(16f, 5.2f)
+            lineTo(19.4f, 5.2f)
+            curveTo(20f, 5.2f, 20.4f, 5.6f, 20.4f, 6.2f)
+            curveTo(20.4f, 6.8f, 20f, 7.2f, 19.4f, 7.2f)
+            lineTo(4.6f, 7.2f)
+            curveTo(4f, 7.2f, 3.6f, 6.8f, 3.6f, 6.2f)
+            curveTo(3.6f, 5.6f, 4f, 5.2f, 4.6f, 5.2f)
+            lineTo(8f, 5.2f)
+            lineTo(8f, 4.4f)
+            curveTo(8f, 3.8f, 8.4f, 3.4f, 9f, 3.4f)
+            close()
+            // 桶身
+            moveTo(6.6f, 8.6f)
+            lineTo(17.4f, 8.6f)
+            curveTo(18f, 8.6f, 18.4f, 9.1f, 18.4f, 9.7f)
+            lineTo(17.7f, 19.2f)
+            curveTo(17.6f, 20.2f, 16.8f, 21f, 15.8f, 21f)
+            lineTo(8.2f, 21f)
+            curveTo(7.2f, 21f, 6.4f, 20.2f, 6.3f, 19.2f)
+            lineTo(5.6f, 9.7f)
+            curveTo(5.6f, 9.1f, 6f, 8.6f, 6.6f, 8.6f)
+            close()
+            // 两条镂空条纹
+            moveTo(10.2f, 10.6f)
+            lineTo(11.2f, 10.6f)
+            lineTo(11.2f, 18f)
+            lineTo(10.2f, 18f)
+            close()
+            moveTo(12.8f, 10.6f)
+            lineTo(13.8f, 10.6f)
+            lineTo(13.8f, 18f)
+            lineTo(12.8f, 18f)
+            close()
         }
     }
 
@@ -295,25 +419,62 @@ object AppIcons {
         }
     }
 
+    /** 更多（填充圆点）。 */
     val Dots: ImageVector by lazy {
-        icon("AppDots") {
-            moveTo(5.5f, 12f)
-            lineTo(5.51f, 12f)
-            moveTo(12f, 12f)
-            lineTo(12.01f, 12f)
-            moveTo(18.5f, 12f)
-            lineTo(18.51f, 12f)
+        filledIcon("AppDots") {
+            fun dot(x: Float) {
+                moveTo(x, 9.8f)
+                curveTo(x + 1.2f, 9.8f, x + 2.2f, 10.8f, x + 2.2f, 12f)
+                curveTo(x + 2.2f, 13.2f, x + 1.2f, 14.2f, x, 14.2f)
+                curveTo(x - 1.2f, 14.2f, x - 2.2f, 13.2f, x - 2.2f, 12f)
+                curveTo(x - 2.2f, 10.8f, x - 1.2f, 9.8f, x, 9.8f)
+                close()
+            }
+            dot(5.5f); dot(12f); dot(18.5f)
         }
     }
 
+    /** 筛选（填充漏斗）。 */
     val Filter: ImageVector by lazy {
-        icon("AppFilter") {
-            moveTo(4f, 6f)
-            lineTo(20f, 6f)
-            moveTo(7f, 12f)
-            lineTo(17f, 12f)
-            moveTo(10f, 18f)
-            lineTo(14f, 18f)
+        filledIcon("AppFilter") {
+            moveTo(4.4f, 4.6f)
+            lineTo(19.6f, 4.6f)
+            curveTo(20.4f, 4.6f, 20.8f, 5.5f, 20.3f, 6.1f)
+            lineTo(14.6f, 12.6f)
+            lineTo(14.6f, 17.8f)
+            curveTo(14.6f, 18.3f, 14.3f, 18.7f, 13.9f, 18.9f)
+            lineTo(10.9f, 20.3f)
+            curveTo(10.3f, 20.6f, 9.6f, 20.2f, 9.6f, 19.5f)
+            lineTo(9.6f, 12.6f)
+            lineTo(3.7f, 6.1f)
+            curveTo(3.2f, 5.5f, 3.6f, 4.6f, 4.4f, 4.6f)
+            close()
+        }
+    }
+
+    /** 搜索（填充放大镜：圆环 + 柄）。 */
+    val Search: ImageVector by lazy {
+        filledIcon("AppSearch", evenOdd = true) {
+            // 圆环（外圆 + 内圆挖空）
+            moveTo(10.5f, 3.4f)
+            curveTo(6.6f, 3.4f, 3.4f, 6.6f, 3.4f, 10.5f)
+            curveTo(3.4f, 14.4f, 6.6f, 17.6f, 10.5f, 17.6f)
+            curveTo(14.4f, 17.6f, 17.6f, 14.4f, 17.6f, 10.5f)
+            curveTo(17.6f, 6.6f, 14.4f, 3.4f, 10.5f, 3.4f)
+            close()
+            moveTo(10.5f, 5.6f)
+            curveTo(13.2f, 5.6f, 15.4f, 7.8f, 15.4f, 10.5f)
+            curveTo(15.4f, 13.2f, 13.2f, 15.4f, 10.5f, 15.4f)
+            curveTo(7.8f, 15.4f, 5.6f, 13.2f, 5.6f, 10.5f)
+            curveTo(5.6f, 7.8f, 7.8f, 5.6f, 10.5f, 5.6f)
+            close()
+            // 柄
+            moveTo(15.1f, 13.7f)
+            lineTo(20.1f, 18.7f)
+            curveTo(20.6f, 19.2f, 20.6f, 19.9f, 20.1f, 20.3f)
+            curveTo(19.7f, 20.8f, 18.9f, 20.8f, 18.5f, 20.3f)
+            lineTo(13.5f, 15.3f)
+            close()
         }
     }
 }

@@ -99,6 +99,23 @@ fun SettingsScreen(backdrop: Backdrop) {
         }.onFailure { bankInfo = "题库为空，请导入" }
     }
 
+    // 壁纸选择器：导入后复制到私有目录（重启/源文件删除后仍可用）
+    val wallpaperPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val dst = java.io.File(context.filesDir, "wallpaper.jpg")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        dst.outputStream().use { input.copyTo(it) }
+                    } ?: error("无法读取图片")
+                    ServiceLocator.settings.setWallpaper(dst.absolutePath)
+                }
+            }
+        }
+    }
+
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -123,18 +140,27 @@ fun SettingsScreen(backdrop: Backdrop) {
     }
 
     // 全局同款 iOS 回弹：与首页/错题本/刷题页一致（此前设置页是硬边界）
-    BounceContainer(
+    Column(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
     ) {
+        // ---- 固定标题（不随滚动；内容滚入时在其下缘柔化渐隐） ----
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            ScreenTitle("设置", "外观 / 刷题 / 数据", Modifier.padding(vertical = 16.dp))
+        }
+
+        BounceContainer(
+            Modifier
+                .weight(1f)
+                .softTopFade(30.dp)
+        ) {
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-        ScreenTitle("设置", "外观 / 刷题 / 数据", Modifier.padding(vertical = 16.dp))
 
         // ---- 外观 ----
         SectionLabel("外观")
@@ -206,6 +232,91 @@ fun SettingsScreen(backdrop: Backdrop) {
                         },
                         backdrop = backdrop
                     )
+                }
+                // 底栏玻璃模糊度：三档可调
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("底栏玻璃模糊", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            listOf("轻透", "适中", "朦胧").getOrElse(settings.glassBlur) { "适中" },
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("低", "中", "高"),
+                        selectedIndex = settings.glassBlur,
+                        onSelect = { scope.launch { ServiceLocator.settings.setGlassBlur(it) } },
+                        modifier = Modifier.width(150.dp)
+                    )
+                }
+            }
+        }
+
+        // ---- 全局壁纸（背景纹路，可模糊） ----
+        SectionLabel("全局壁纸", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Column(Modifier.padding(18.dp)) {
+                Text(
+                    if (settings.wallpaper.isBlank()) "未设置 · 使用默认渐变"
+                    else "已设置 · 作全局背景纹路",
+                    color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "导入后作为各页面的背景质感；开启模糊后更含蓄、文字更易读",
+                    color = ui.textSub, fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GlassButton(
+                        onClick = { wallpaperPicker.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        ) },
+                        backdrop = backdrop,
+                        surfaceColor = ui.ink,
+                        heightDp = 40.dp
+                    ) {
+                        Text(
+                            if (settings.wallpaper.isBlank()) "导入壁纸" else "更换壁纸",
+                            color = ui.onInk, fontSize = 13.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (settings.wallpaper.isNotBlank()) {
+                        GlassButton(
+                            onClick = { scope.launch { ServiceLocator.settings.setWallpaper("") } },
+                            backdrop = backdrop,
+                            surfaceColor = ui.surface.copy(alpha = 0.6f),
+                            heightDp = 40.dp
+                        ) {
+                            Text("恢复默认", color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (settings.wallpaper.isNotBlank()) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("壁纸模糊", color = ui.textSub, fontSize = 11.sp)
+                            GlassToggle(
+                                checked = { settings.wallpaperBlur },
+                                onCheckedChange = { v ->
+                                    scope.launch { ServiceLocator.settings.setWallpaperBlur(v) }
+                                },
+                                backdrop = backdrop
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -428,6 +539,7 @@ fun SettingsScreen(backdrop: Backdrop) {
         }
 
         Spacer(Modifier.height(130.dp))
+        }
         }
     }
 
