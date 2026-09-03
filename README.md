@@ -1,8 +1,8 @@
 <div align="center">
 
-# DroneQuiz · 无人机装调题库
+# 题屿 · TiYu
 
-**Android 原生刷题 / 模考 / 错题本应用 · Jetpack Compose · 液态玻璃 UI**
+**原「无人机装调题库 DroneQuiz」— Android 原生刷题 / 模考 / 错题本应用 · Jetpack Compose · 液态玻璃 UI**
 
 [![Release](https://img.shields.io/github/v/release/Everett406/DroneQuiz?style=flat-square)](https://github.com/Everett406/DroneQuiz/releases)
 [![Build APK](https://github.com/Everett406/DroneQuiz/actions/workflows/build.yml/badge.svg)](https://github.com/Everett406/DroneQuiz/actions/workflows/build.yml)
@@ -28,6 +28,10 @@
 - [应用架构](#应用架构)
   - [源码结构](#源码结构)
   - [液态玻璃实现（交接重点）](#液态玻璃实现交接重点)
+  - [刷题会话双槽机制（v2.7.4 交接重点）](#刷题会话双槽机制v274-交接重点)
+  - [打赏弹窗机制（v2.7.4）](#打赏弹窗机制v274)
+  - [模考成绩重建与删除限额（v2.7.4）](#模考成绩重建与删除限额v274)
+  - [长列表性能规约](#长列表性能规约)
   - [数据层](#数据层)
 - [构建指南](#构建指南)
 - [CI/CD 与发版流程](#cicd-与发版流程)
@@ -37,6 +41,7 @@
 - [已知限制与注意事项](#已知限制与注意事项)
 - [工具脚本](#工具脚本)
 - [版本历史](#版本历史)
+- [给接手人的建议](#给接手人的建议)
 - [致谢](#致谢)
 - [许可证](#许可证)
 
@@ -44,7 +49,7 @@
 
 ## 项目简介
 
-DroneQuiz 是一款面向**无人机装调员职业技能培训**的离线刷题应用。应用内置 800 道含解析的正式题库，覆盖单选与判断两类题型，提供刷题练习、全真模考、错题本、学习打卡与每日提醒等完整学习闭环，同时支持通过设置页导入自定义题库（JSON 格式）以适配其他科目。
+**题屿**是一款面向**无人机装调员职业技能培训**的离线刷题应用（仓库与包名沿用历史名 DroneQuiz / `com.drone.quiz`，桌面名称与关于页自 v2.7.3 起改为「题屿」）。应用内置 800 道含解析的正式题库，覆盖单选与判断两类题型，提供刷题练习、全真模考、错题本、题目搜索、学习打卡与每日提醒等完整学习闭环，同时支持通过设置页导入自定义题库（JSON 格式）以适配其他科目。
 
 项目采用纯 Kotlin + Jetpack Compose 构建，UI 层基于 Kyant0 的 **AndroidLiquidGlass (backdrop)** 库实现了 Android 平台少见的「液态玻璃」视觉效果（折射、色散、振动度），并为此建立了一整套**运行时守护与自动降级机制**（BootGuard / CrashGuard / 安全模式），保证在低端 GPU 或异常渲染环境下应用始终可用。全部构建、签名与发版流程由 GitHub Actions 自动化完成，本地无需 Android Studio 亦可参与开发。
 
@@ -54,25 +59,34 @@ DroneQuiz 是一款面向**无人机装调员职业技能培训**的离线刷题
 
 ## 功能特性
 
-### 学习功能（五大页面）
+### 学习功能（六大页面）
 
 | 页面 | 功能要点 |
 |------|----------|
-| **首页** | 学习进度环、预估通过率条、近 7 日刷题量柱状图 / 正确率折线（Canvas 自绘）、连续打卡双卡、错题提示、上次模考成绩速览 |
-| **刷题** | 分类 / 题型筛选 chips、`HorizontalPager` 左右滑题、点选即判、答错抖动 + 解析弹簧展开、题号面板（`ModalBottomSheet`，单一数据源）、顺序 / 随机顺序、自动切题 |
-| **模考** | 题数、判断题占比、时长、及格分全部可拖滑杆配置；倒计时（< 60s 红色脉冲）、到时自动交卷、交卷确认对话框、自动阅卷与成绩单 |
-| **错题本** | 答错自动收录、「连续答对 N 次」三档移除策略、错题特训入口、展开解析 |
-| **设置** | 主题三档（跟随系统 / 浅色 / 深色）、字号四档、刷题顺序、自动切题、及格分滑杆、错题移除阈值、每日 20:00 学习提醒（WorkManager）、SAF 导入自定义题库（JSON）、清空学习记录、画面特效开关 |
+| **首页** | 时间问候 + 昵称、学习进度环、预估通过率条、近 7 日刷题量柱状图 / 正确率折线（Canvas 自绘）、连续打卡双卡、错题提示、上次模考成绩速览；全局壁纸之上铺主题纱（wallScrim）保证可读性 |
+| **刷题** | **配置入口页**（`PracticeConfig.kt`：题型 / 分类筛选 chips、顺序 / 随机双模式、「将接续上次进度 · 第 N/M 题」实时提示、重新开始胶囊按钮）→ 全屏刷题页（`HorizontalPager` 左右滑题、点选即判、答错抖动 + 解析弹簧展开、题号面板单一数据源、自动切题）；**顺序与随机两套进度槽独立记忆**（v2.7.4 双槽，见下文）；重新开始按钮带二次确认 |
+| **模考** | 题数、判断题占比、时长、及格分全部可拖滑杆配置；倒计时（< 60s 红色脉冲）、到时自动交卷、交卷确认、玻璃答题卡面板（点号跳题）、自动阅卷；**已完成历史记录可单击回看成绩页**（数据库按 examId 重建，v2.7.4）；进行中记录可继续 / 放弃 / 删除 |
+| **模考成绩页** | 得分 / 用时 / 正误统计、错题解析懒加载列表（`LazyColumn` 滚动流畅，v2.7.4 优化）、右上角浅色「三点」删除本次记录（**每周限删 2 次**，ISO 周自动重置，配额弹窗告知） |
+| **错题本** | 答错自动收录、「连续答对 N 次」三档移除策略、错题特训入口（不占用刷题进度槽）、分类筛选胶囊、展开解析、像素级连续映射滚动把手 |
+| **搜索** | 题干 / 选项 / 解析全文检索、搜索历史（最多 8 条）、结果解析弹簧展开动画 |
+| **设置** | 主题三档、字号四档、**阅读字体四款**（手机自带 / 思源黑体 / 思源宋体 / 霞鹜文楷，内置子集化字体文件）、刷题顺序、自动切题、及格分滑杆、错题移除阈值、每日提醒（WorkManager，刷过当天不打扰）、壁纸（内置 4 张 + 自定义 + 可选模糊）、昵称、底栏玻璃模糊三档、SAF 导入自定义题库（JSON）、清空学习记录、画面特效开关、关于页 |
 
 ### 交互与视觉
 
-- **液态玻璃 UI**：底部导航胶囊、按钮、滑杆、开关、卡片均基于 backdrop 折射渲染，选中图标透过玻璃呈墨色；所有玻璃组件带纯 Compose 降级分支
-- **动画系统**：页面转场统一（淡入 + 轻缩放 280ms，单一动画源）、iOS 式过冲回弹（BounceState）、按压缩放、倒计时脉冲
+- **液态玻璃 UI**：底部导航胶囊、按钮、滑杆、开关、卡片均基于 backdrop 折射渲染；弹窗体系（`GlassOverlays.kt`）提供 `GlassBottomSheet` / `GlassConfirmDialog` / Portal 槽位机制，弹窗展开时页面内容层联动模糊（OverlayBlur）；所有玻璃组件带纯 Compose 降级分支
+- **动画系统**：页面转场统一（淡入 + 轻缩放）、iOS 式过冲回弹（BounceState）、按压缩放、搜索框 Hero 动画、倒计时脉冲
+- **壁纸系统**：内置 4 张主题壁纸（黄昏原野 / 深林 / 浅林 / 天空），支持自定义图片与模糊化处理
 - **配色**：奶油底 + 墨黑主操作 + 橙色点缀（浅色）；暖夜深色主题
 - **稳定性**：全局崩溃捕获、启动心跳守护、自动安全模式、崩溃报告屏内一键复制
 
----
+### 支持作者（打赏，v2.7.4 新增）
 
+- 累计前台使用满 **2 小时**后，温和弹一次打赏弹窗（仅一次）；
+- 点「看看收款码」展示打赏码（白底大图），可一键**保存到相册** `Pictures/题屿`（MediaStore，API 31+ 无需存储权限）；
+- 点「以后别提醒我」则**永久不再弹**；弹窗外关闭视为已弹过；
+- **考试中绝不打扰**：正在模考时达标，会等考试结束回到普通页面后再出现。
+
+---
 ## 安装与使用
 
 ### 系统要求
@@ -94,7 +108,9 @@ DroneQuiz 是一款面向**无人机装调员职业技能培训**的离线刷题
 
 - **题库升级**：升级到内置题库版本更新的 APK 时，应用会自动重置学习数据（题目 id 变化，旧记录无法映射），属预期行为，详见[题库版本机制](#题库版本机制)；
 - **自定义题库**：设置 → 导入题库，选择符合 [questions.json 格式](#题库文件格式)的 JSON 文件；
-- **画面特效**：低端设备若出现卡顿或渲染异常，可在 设置 → 画面特效 关闭液态玻璃（应用也会在检测到异常退出后自动降级）。
+- **刷题进度**：顺序 / 随机两种模式的进度**各自独立记忆**，切回任一模式都接着该模式上次的位置；「重新开始」会清空**当前模式**的进度，且需二次确认；
+- **画面特效**：低端设备若出现卡顿或渲染异常，可在 设置 → 画面特效 关闭液态玻璃（应用也会在检测到异常退出后自动降级）；
+- **打赏弹窗**：累计使用满 2 小时会弹一次，不喜欢点「以后别提醒我」即可永久关闭。
 
 ---
 
@@ -114,7 +130,7 @@ DroneQuiz 是一款面向**无人机装调员职业技能培训**的离线刷题
 | 工具链 | JDK（编译目标 21）、KSP | 21 / 2.2.20-2.0.4 |
 | SDK | compileSdk / targetSdk / minSdk | 36 / 35 / 31 |
 
-液态玻璃核心为 **vendor 进仓库的 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) backdrop 库源码**（`com.kyant.backdrop`，41 个 Kotlin 文件），未以 Gradle 依赖形式引入，原因与改动见[液态玻璃实现](#液态玻璃实现交接重点)。
+液态玻璃核心为 **vendor 进仓库的 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) backdrop 库源码**（`com.kyant.backdrop`），未以 Gradle 依赖形式引入（官方连续曲率形状 `com.kyant.shapes` 同样源码 vendor，因其 AAR 要求 compileSdk 37 + AGP 9.1），原因与改动见[液态玻璃实现](#液态玻璃实现交接重点)。
 
 ---
 
@@ -127,40 +143,49 @@ DroneQuiz/
 ├── app/src/main/
 │   ├── AndroidManifest.xml              # 权限：POST_NOTIFICATIONS、VIBRATE；竖屏锁定
 │   ├── assets/questions.json            # 内置题库（800 题，version=2）
+│   ├── res/
+│   │   ├── font/                        # 内置阅读字体（子集化）：Noto Sans SC、Noto Serif SC、霞鹜文楷 各 regular/medium(bold)
+│   │   ├── raw/support_qr.png           # 打赏收款码（打赏弹窗展示 / 存相册用）
+│   │   └── drawable-nodpi/              # 内置壁纸 wp_dusk / wp_forest_deep / wp_forest_light / wp_sky
 │   └── java/
 │       ├── com/drone/quiz/
-│       │   ├── MainActivity.kt          # 入口 Activity：启动画面、SafeModeBanner、诊断屏路由
+│       │   ├── MainActivity.kt          # 入口 Activity：启动画面、SafeModeBanner、诊断屏路由、前台使用时长 60s 心跳累计
 │       │   ├── QuizApp.kt               # Application：CrashGuard 安装、WorkManager 调度
 │       │   ├── BootGuard.kt             # 启动守护：心跳 / 面包屑 / 异常死亡计数 / 安全模式
 │       │   ├── CrashGuard.kt            # 全局未捕获异常 → last_crash.txt → 启动报告屏
 │       │   ├── data/
 │       │   │   ├── db/                  # Room：AppDatabase / Entities（七表）/ Daos
-│       │   │   ├── repo/Repo.kt         # 数据仓库：题库装载、版本比对、统计聚合
-│       │   │   └── settings/SettingsStore.kt  # DataStore：9 个设置项（含 bankVersion、glass_effects）
+│       │   │   ├── repo/Repo.kt         # 数据仓库：题库装载、版本比对、统计聚合、模考成绩按 examId 重建
+│       │   │   └── settings/SettingsStore.kt  # DataStore：设置项 + 刷题会话双槽 + 打赏状态 + 删除周限额
 │       │   ├── screens/
-│       │   │   ├── HomeScreen.kt        # 首页（进度环 / 可视化图表 / 打卡）
-│       │   │   ├── PracticeScreen.kt    # 刷题（Pager / 题号面板 / 点选即判）
-│       │   │   ├── ExamScreens.kt       # 模考配置 + 考试 + 成绩单
-│       │   │   ├── WrongBookScreen.kt   # 错题本 + 特训
-│       │   │   ├── SettingsScreen.kt    # 设置（含 SAF 题库导入）
+│       │   │   ├── HomeScreen.kt        # 首页（问候 / 进度环 / 可视化图表 / 打卡）
+│       │   │   ├── PracticeConfig.kt    # 刷题配置入口页（筛选 / 顺序随机 / 接续提示 / 重新开始）
+│       │   │   ├── PracticeScreen.kt    # 全屏刷题（Pager / 题号面板 / 点选即判 / 双槽进度落盘）
+│       │   │   ├── ExamScreens.kt       # 模考配置 + 考试 + 成绩单（历史回看 / 三点删除 + 周限额）
+│       │   │   ├── SearchScreen.kt      # 题目搜索（全文检索 / 历史 / 解析展开）
+│       │   │   ├── WrongBookScreen.kt   # 错题本 + 特训（筛选 / 滚动把手）
+│       │   │   ├── SettingsScreen.kt    # 设置（字体 / 壁纸 / 提醒 / SAF 题库导入 / 关于）
 │       │   │   └── common/Common.kt     # 公共组件（进度环、滑杆、确认对话框等）
 │       │   ├── ui/
 │       │   │   ├── glass/               # 液态玻璃组件族
 │       │   │   │   ├── GlassKit.kt      #   GlassRuntime / glass() / GlassCard / GlassButton / GlassSlider / GlassToggle
 │       │   │   │   ├── GlassBottomBar.kt#   底部导航（真折射玻璃胶囊，官方 LiquidBottomTabs 移植）
+│       │   │   │   ├── GlassOverlays.kt #   GlassBottomSheet / GlassConfirmDialog / Portal 槽位 / OverlayBlur 全局状态
 │       │   │   │   ├── Bounce.kt        #   BounceState（iOS 式过冲回弹）/ rememberPressScale
 │       │   │   │   └── AppIcons.kt      #   自绘描边矢量图标（底栏 5 图标 + 通用 glyphs）
-│       │   │   ├── nav/AppRoot.kt       # NavHost：路由 + 统一转场 + glassMaterial() 布局
-│       │   │   └── theme/Theme.kt       # 三档主题 / 四档字号缩放 / 暖夜深色配色
-│       │   └── work/Notify.kt           # 每日 20:00 学习提醒（WorkManager）
-│       └── com/kyant/backdrop/          # ★ vendored Kyant0 backdrop 库（Apache-2.0，勿随意重构）
-│           ├── Backdrop.kt / LayerBackdrop.kt / DrawBackdropModifier.kt
-│           ├── effects/（blur / lens / RenderEffect / ColorFilter）
-│           ├── highlight/ shadow/ internal/（AGSL 着色器、图层记录）
-│           └── catalog/utils/（DampedDragAnimation / InteractiveHighlight 等官方示例工具类）
+│       │   │   ├── nav/AppRoot.kt       # NavHost：路由 + 统一转场 + glassMaterial() 布局 + 打赏弹窗宿主（考试路由判断）
+│       │   │   └── theme/Theme.kt       # 三档主题 / 四档字号 / 阅读字体四款 / 暖夜深色配色
+│       │   ├── util/GallerySave.kt      # MediaStore 存相册工具（打赏码保存到 Pictures/题屿，API 31+ 免权限）
+│       │   └── work/Notify.kt           # 每日学习提醒（WorkManager，刷过当天不打扰）
+│       ├── com/kyant/backdrop/          # ★ vendored Kyant0 backdrop 库（Apache-2.0，勿随意重构）
+│       │   ├── Backdrop.kt / LayerBackdrop.kt / DrawBackdropModifier.kt
+│       │   ├── effects/（blur / lens / RenderEffect / ColorFilter）
+│       │   ├── highlight/ shadow/ internal/（AGSL 着色器、图层记录）
+│       │   └── catalog/utils/（DampedDragAnimation / InteractiveHighlight 等官方示例工具类）
+│       └── com/kyant/shapes/            # ★ vendored 官方连续曲率形状（Capsule/RoundedRectangle，同因 compileSdk 不升 maven 依赖）
 ├── .github/workflows/build.yml          # CI：构建 → 签名 → Artifact → 自动发 Release
 ├── scripts/                             # 工具脚本（Python，见「工具脚本」节）
-├── CHANGELOG.md / NOTICE / LICENSE
+├── CHANGELOG.md / NOTICE / LICENSE / FONT_LICENSES(assets)
 ├── build.gradle.kts                     # 插件版本集中声明
 └── settings.gradle.kts
 ```
@@ -173,8 +198,8 @@ DroneQuiz/
 
 | 层 | 内容 | 说明 |
 |----|------|------|
-| 库层 | `com.kyant.backdrop.*`（vendored） | 官方 backdrop 库源码并入仓库：合并 `expect/actual` 为 Android 单源集、`lens()` 解除对外部 shapes 库的依赖、剥离 org.intellij 注解 |
-| 组件层 | `GlassKit.kt` / `GlassBottomBar.kt` | `glass()` 修饰符（vibrancy + blur + AGSL lens 折射/色散）、`GlassCard` / `GlassButton` / `GlassSlider` / `GlassToggle`（官方 DampedDrag 移植，支持点选 + 拖动 + 步进吸附）、`GlassBottomTabs`（底层玻璃胶囊 + 隐藏染色副本 + 选中块折射染色图标，支持拖动切换） |
+| 库层 | `com.kyant.backdrop.*`、`com.kyant.shapes.*`（vendored） | 官方库源码并入仓库：合并 `expect/actual` 为 Android 单源集、`lens()` 解除对外部 shapes 库的依赖、剥离 org.intellij 注解；shapes 因 maven AAR 要求 compileSdk 37 + AGP 9.1 而改源码内联 |
+| 组件层 | `GlassKit.kt` / `GlassBottomBar.kt` / `GlassOverlays.kt` | `glass()` 修饰符（vibrancy + blur + AGSL lens 折射/色散）、`GlassCard` / `GlassButton` / `GlassSlider` / `GlassToggle`（官方 DampedDrag 移植，支持点选 + 拖动 + 步进吸附）、`GlassBottomTabs`（底层玻璃胶囊 + 隐藏染色副本 + 选中块折射染色图标，支持拖动切换）、`GlassBottomSheet` / `GlassConfirmDialog` / Portal 槽位弹窗体系（AppRoot 统一 `PortalHost` 承载，弹窗展开联动内容层 OverlayBlur） |
 | 材质层 | `Modifier.glassMaterial()` | iOS regular material 观感（半透明渐变表面 + 顶部高光描边 + 轻阴影），**无采样循环风险**，用于页面内容流 |
 
 #### ⚠️ 硬约束：记录层内禁止 drawBackdrop 采样（v2.1.0 血泪教训）
@@ -204,6 +229,40 @@ DroneQuiz/
 - 安全模式下用户可手动重开特效验证是否为特效所致；
 - 兼容性基线：`RenderEffect` 需 API 31+，`RuntimeShader`（AGSL lens 折射）需 API 33+，低版本自动走降级分支。
 
+### 刷题会话双槽机制（v2.7.4 交接重点）
+
+刷题进度是本项目**返工次数最多的模块**（v2.7.2 竞态、v2.7.3 三重加固、v2.7.4 双槽化），现状如下：
+
+- **数据结构**：`PracticeSession`（kotlinx-serialization JSON 存 DataStore）：`src`（all/wrong）、`type`、`cat`、`ids`（题目顺序快照）、`answers`（qid→选项）、`index`（0-based 进度）、`savedAt`；
+- **双槽**：`practice_session`（**顺序模式**槽，沿用旧 key，老版本数据无损迁移）+ `practice_session_random`（**随机模式**槽）。API 一律带 `order` 参数（0/1）：`practiceSession(order)` / `currentPracticeSession(order)` / `setPracticeSession(s, order)`；
+- **落盘规约**：
+  1. `persistSession(...)` 必须传入所属模式的 `order`，开头 `src == "wrong"` 直接短路——**错题特训永不写会话快照**（v2.7.3 教训：单槽时代特训一开就把主刷题进度冲掉）；
+  2. 只在**真实用户行为**（翻页 / 作答）时落盘；会话恢复窗口期（`restoring`）抑制一切"顺手落盘"（v2.7.2 教训：恢复流程尾部落盘把 index 覆写回 0）；
+  3. 随机模式列表来自 `ids.shuffled()` 后**按输入 ids 保序重排**——Room `IN (:ids)` 固定按主键升序返回，必须 `associateBy` 后重排，否则洗牌被吃掉（v2.7.3 教训）；
+  4. 刷题页读设置（如 `practiceOrder`）必须在协程内 `settings.first()` 挂起读真值——**Compose `collectAsState` 首帧快照是默认值**（v2.7.3 教训）；
+- 会话全部刷完不接续（随机模式自然重洗新一轮）。
+
+### 打赏弹窗机制（v2.7.4）
+
+- **计时**：`MainActivity` 前台期间每 60 秒心跳一次 `addUsageMs(60_000)`（`onStop` 取消协程），累计值存 DataStore `usage_ms`（粒度 1 分钟）；
+- **触发**：`AppRoot` 观察设置流，条件全部满足才弹：`usage_ms ≥ 2h` && `!support_prompted` && `!support_refused` && **当前路由非模考进行页**。考试中达标 → 考完回到普通页面后自动出现（条件含路由，路由变化即重评）；
+- **两态 UI**（`GlassBottomSheet`）：询问态（文案 + 按钮）→ 收款码态（`res/raw/support_qr.png` 白底大图 + 保存按钮）；
+- **保存**：`util/GallerySave.kt` 走 MediaStore.Images，`RELATIVE_PATH = Pictures/题屿`，`IS_PENDING` 两段式写入，API 31+ 应用自有媒体**无需任何存储权限**；
+- **语义**：弹窗外部关闭 / 保存完成 = `setSupportPrompted()`（只弹一次）；「以后别提醒我」= `setSupportRefused()`（同时置 prompted，永久静默）。
+
+### 模考成绩重建与删除限额（v2.7.4）
+
+- **成绩重建**：模考每题作答本来就落库 `exam_answers`，因此**任意历史记录都能精确还原**：考试页点击已完成记录 → `onOpenResult(examId)` 导航成绩页 → `Repo.loadExamOutcome(examId)` 从 `exam_records + exam_answers` 重建 `ExamOutcome`（刚交卷的内存 `SessionHolder` 快照优先，DB 兜底）；
+- **删除限额**：成绩页右上角浅色「三点」按钮 → `SettingsStore.examDeleteQuota()` 查本周剩余额度（ISO 周键 `2026-W36` + 计数，跨周自动重置，**每周 2 次**）→ 剩余 0 弹「已用完，下周一恢复」；有额度弹确认框（实时显示剩余次数）→ `abandonExam(examId)` 事务删除成绩+作答 + `recordExamDeletion()` 计数 +1 → `popBackStack`。
+
+### 长列表性能规约
+
+v2.7.4 教训固化：**错题解析展开后 20+ 条全量组合在外层滚动 Column 里、外加玻璃卡逐帧采样 → 每帧测量绘制量巨大，长列表滑动卡顿**。规约：
+
+- 任何可能很长的列表一律 `LazyColumn`（`items(key = 稳定id)`），禁止放 `Column(verticalScroll)` 全量组合；
+- 列表条目内**不要用真折射玻璃**（采样成本随条目数翻倍），用普通 surface / glassMaterial；
+- 展开/收起避免对整列表 `animateContentSize`（逐帧驱动全列表重测量）。
+
 ### 数据层
 
 #### Room 数据库（drone_quiz_v2.db，七表）
@@ -213,27 +272,44 @@ DroneQuiz/
 | `questions` | 题库 | 索引 category / type；id 由 CSV 题号或题干哈希生成 |
 | `practice_records` | 刷题记录 | 索引 qid / ts |
 | `question_stats` | 题目维度统计 | 正确次数 / 作答次数等 |
-| `exam_records` | 模考记录 | 配置、得分、用时 |
-| `exam_answers` | 模考答题明细 | 索引 examId / qid |
+| `exam_records` | 模考记录 | 配置、得分、用时（成绩页重建来源之一） |
+| `exam_answers` | 模考答题明细 | 索引 examId / qid（**成绩按 examId 重建的数据基础**） |
 | `wrongbook` | 错题本 | qid 唯一索引；`addedAt` **非空默认 0**（v2.0 交卷崩溃修复点，所有插入路径必须显式赋值 `System.currentTimeMillis()`） |
 | `streak_log` | 连续打卡 | 按日记录 |
 
 - 迁移策略为 `fallbackToDestructiveMigration()`：**升级改表结构会清库重建**，不要指望旧数据保留；正式发版前如改 schema，建议正确编写 Migration；
 - 模考交卷曾因 `wrongbook.addedAt` 非空约束触发 `SQLiteConstraintException`，此约束已被修复并固化为编码规约。
 
-#### DataStore（settings）
+#### DataStore（settings，键全表）
 
-| 键 | 含义 | 默认值 |
-|----|------|--------|
-| `theme` | 0 跟随系统 / 1 浅色 / 2 深色 | 0 |
-| `font_level` | 字号四档（0.85 / 1.0 / 1.15 / 1.3） | 1 |
-| `auto_next` | 答题后自动切题 | true |
-| `pass_score` | 及格分（50–95，步进 5） | 60 |
-| `remove_threshold` | 错题「连续答对 N 次」移除 | 2 |
-| `daily_notify` | 每日 20:00 提醒 | false |
-| `practice_order` | 0 顺序 / 1 随机 | 0 |
-| `glass_effects` | 画面特效（液态玻璃）开关 | true |
-| `bank_version` | 已加载题库版本（与 assets 比对） | 0 |
+| 键 | 类型 | 含义 | 默认值 |
+|----|------|------|--------|
+| `theme` | int | 0 跟随系统 / 1 浅色 / 2 深色 | 0 |
+| `font_level` | int | 字号四档（0.85 / 1.0 / 1.15 / 1.3） | 1 |
+| `auto_next` | bool | 答题后自动切题 | true |
+| `pass_score` | int | 及格分（50–95，步进 5） | 60 |
+| `remove_threshold` | int | 错题「连续答对 N 次」移除 | 2 |
+| `daily_notify` | bool | 每日提醒 | false |
+| `practice_order` | int | 0 顺序 / 1 随机 | 0 |
+| `glass_effects` | bool | 画面特效（液态玻璃）开关 | true |
+| `bank_version` | int | 已加载题库版本（与 assets 比对） | 0 |
+| `glass_blur_level` | int | 底栏玻璃模糊三档（0/1/2） | 1 |
+| `wallpaper_path` | string | 自定义壁纸文件路径（空 = 内置） | "" |
+| `wallpaper_blur` | bool | 壁纸模糊化 | false |
+| `nickname` | string | 昵称（≤5 字） | "" |
+| `reading_font` | string | 阅读字体 system/sans/serif/kai | "system" |
+| `search_history` | string(JSON) | 搜索历史数组（≤8 条，最新在前） | [] |
+| `usage_ms` | long | 累计前台使用毫秒（打赏门槛） | 0 |
+| `support_prompted` | bool | 打赏弹窗已弹过 | false |
+| `support_refused` | bool | 打赏永久拒绝 | false |
+| `practice_session` | string(JSON) | **顺序模式**刷题会话快照（旧 key，历史数据无损迁移） | — |
+| `practice_session_random` | string(JSON) | **随机模式**刷题会话快照 | — |
+| `exam_del_week` | string | 模考删除限额 ISO 周键（如 2026-W36） | — |
+| `exam_del_count` | int | 本周已删模考记录次数 | 0 |
+
+#### 阅读字体（res/font）
+
+内置四款阅读字体均为**子集化**产物（GB2312 常用字 + 仓库全字符集约 7900 字符，fontTools 处理，6 个 ttf 共约 17MB）：思源黑体 / 思源宋体（Noto Sans / Serif SC，OFL）、霞鹜文楷（LXGW WenKai，OFL）；许可清单见 `app/src/main/assets/FONT_LICENSES.txt`。注册在 `Theme.kt` 的 `ReadingFontOptions`，全局经 MaterialTheme typography 注入，`BasicTextField` 需单独接 `LocalReadingFont`。
 
 #### 题库版本机制
 
@@ -243,7 +319,6 @@ DroneQuiz/
 - 不同 → 清空全部学习数据（刷题记录 / 统计 / 模考 / 错题 / 打卡）后重新导入，并写入新版本号。**替换内置题库时必须递增 `version`，否则存量用户拿不到新题**。
 
 ---
-
 ## 构建指南
 
 ### 环境要求
@@ -287,7 +362,7 @@ sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"
 
 ## CI/CD 与发版流程
 
-CI 由 [.github/workflows/build.yml](.github/workflows/build.yml) 承担，`push` 到 `main` 或手动触发（`workflow_dispatch`）时运行：
+CI 由 [.github/workflows/build.yml](.github/workflows/build.yml) 承担，`push` 到 `main` 或手动触发（`workflow_dispatch`）时运行（纯文档提交不触发，见下）：
 
 ```
 Checkout → JDK 21(Temurin) → Gradle Setup
@@ -298,16 +373,31 @@ Checkout → JDK 21(Temurin) → Gradle Setup
   → softprops/action-gh-release 自动发布到 tag ${APP_VERSION_TAG}
 ```
 
+- workflow 配置了 `paths-ignore: ['**.md']`：**只改 Markdown 文档的提交不会触发构建**，避免同版本号 tag 重复发布；
+- 兜底手段：纯文档 / CI 配置微调的提交，commit message 里带 `[skip ci]` 可强制跳过本次构建；
+- 监控 CI（本仓库开发环境的 `gh` CLI 已不可用，统一用 curl + REST API，Token 走环境变量 `GITHUB_TOKEN`，**严禁写死进任何文件**）：
+
+```bash
+curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  "https://api.github.com/repos/Everett406/DroneQuiz/actions/runs?per_page=5"
+```
+
 ### 发版 Checklist（每版必做，四处同步）
 
-| 位置 | 字段 | 示例 |
-|------|------|------|
-| `app/build.gradle.kts` | `versionCode`（每版 +1）、`versionName` | `6` / `"2.2.0"` |
-| `.github/workflows/build.yml` `env` | `APP_VERSION_NAME`、`APP_VERSION_TAG` | `2.2.0` / `v2.2.0` |
-| `.github/workflows/build.yml` `body:` | Release notes 文案 | 按更新内容撰写 |
-| （建议）`CHANGELOG.md` | 版本变更记录 | 见现有条目 |
+| 顺序 | 位置 | 字段 | 示例 |
+|------|------|------|------|
+| 1 | `app/build.gradle.kts` | `versionCode`（每版 +1）、`versionName` | `23` / `"2.7.5"` |
+| 2 | `.github/workflows/build.yml` `env` | `APP_VERSION_NAME`、`APP_VERSION_TAG` | `2.7.5` / `v2.7.5` |
+| 3 | `.github/workflows/build.yml` `body:` | Release notes 文案 | 按更新内容撰写 |
+| 4 | `CHANGELOG.md` | 版本变更记录 | 见现有条目 |
 
-> ⚠️ 版本号不同步的直接后果：tag 与 APK 实际版本不一致，用户在 Release 下载到旧版本号命名的 APK；且 tag 复用时 `overwrite_files: true` 会覆盖旧附件。
+提交前：
+
+```bash
+python3 scripts/static_check.py   # 括号平衡 + 残留/必备 API 检查，PASS 才准 push
+```
+
+> ⚠️ 版本号不同步的直接后果：tag 与 APK 实际版本不一致，用户在 Release 下载到旧版本号命名的 APK；同版本号 tag 复用会更新既有 Release / 覆盖同名附件，**发版必须递增版本号，不要重复发同一 tag**。
 
 ---
 
@@ -374,6 +464,7 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 | 安全模式下正常，开特效后异常 | 设置 → 画面特效 关闭；将机型 + Android 版本反馈到 Issues |
 | 无法覆盖安装 | 先卸载旧版再装（多为混入了 debug 签名构建或 v2.0.x 旧签名版本） |
 | 想换题库 | 设置 → 导入题库（JSON），格式见上文 |
+| 打赏弹窗不想再看到 | 点「以后别提醒我」即永久关闭 |
 
 ### 开发侧
 
@@ -392,10 +483,12 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 1. **破坏性迁移**：Room 未编写正式 Migration，改表结构升级即清库；正式运营阶段应补充 Migration；
 2. **题库升级重置**：内置题库 `version` 变更会清空全部学习数据（设计如此，因题目 id 不具备跨版本稳定性）；若未来需要保留记录，须改为「题干哈希稳定 id + 迁移映射」方案；
 3. **液态玻璃依赖 GPU 驱动**：AGSL 行为在不同厂商 GPU 上存在差异，已有三层守护兜底，但新增玻璃用法仍需真机验证（见[硬约束](#⚠️-硬约束记录层内禁止-drawbackdrop-采样v210-血泪教训)）；
-4. **minSdk = 31**：Android 11 及以下不在支持范围（RenderEffect 基线）；
+4. **minSdk = 31**：Android 11 及以下不在支持范围（RenderEffect 基线；同时也是 MediaStore 免权限保存打赏码的基线）；
 5. **竖屏锁定**：Manifest 固定 `portrait`，无平板 / 横屏适配计划；
 6. **签名 keystore 不可再生**：丢失即失去固定签名能力（见[签名体系](#签名体系)）；
-7. **无自动化测试**：当前仓库未包含单元 / UI 测试，回归依赖真机手工验证。
+7. **无自动化测试**：当前仓库未包含单元 / UI 测试；`scripts/static_check.py` 只能兜住括号失衡与历史 API 残留等最低级错误，回归依赖真机手工验证；
+8. **打赏计时粒度 1 分钟**：前台时长按 60s 心跳累计，进程被系统直接杀死时最多丢失最后一个心跳周期；
+9. **打赏收款码入仓库**：`res/raw/support_qr.png` 是作者收款码，随 APK 公开分发——这是功能本意（供用户保存后扫码支持），如需更换直接替换该文件即可，**无需改代码**。
 
 ---
 
@@ -403,6 +496,7 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 
 | 脚本 | 用途 | 备注 |
 |------|------|------|
+| `scripts/static_check.py` | **发版前静态自检**（括号平衡 / 历史 API 残留 / 关键特性防误删断言） | push 前必跑；零依赖，有 rg 用 rg、没有自动降级 os.walk |
 | `scripts/convert_bank.py` | 题库 CSV → `assets/questions.json` | 日常题库维护主入口 |
 | `scripts/gen_bank.py` | 初版 801 题参数化生成器 | 历史留存 |
 | `scripts/vendor_backdrop.py` | 从上游 backdrop 仓库源码 vendor 进 `com.kyant.backdrop` | `SRC` 为上游源码本地路径，升级库版本时修改后运行；vendor 后需按 NOTICE 重做 expect/actual 合并等改动 |
@@ -419,19 +513,45 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 | v2.0.2 | 4 | BootGuard 启动守护 + 自动安全模式 + 画面特效开关 + **固定签名** |
 | v2.1.0 | 5 | **根治首启 SIGSEGV**（官方 backdrop 架构：记录层内禁用 drawBackdrop 采样，内容流改 glassMaterial）+ 滑杆居中 / 开关样式修复 |
 | v2.2.0 | 6 | 修复开关圆钮恒停左侧、底栏图标消失 / 幽灵槽；接入正式题库 800 题；题库版本机制 |
+| v2.3.0 | 7 | **液态玻璃全面对齐官方**（GlassKit 组件族重写、Capsule 连续曲率胶囊、弹窗玻璃化）；题库加载死锁 / 模考统计污染修复 |
+| v2.3.1 | 8 | 热修 v2.3.0 首启 lens 崩溃（Lens.kt RoundedRectangularShape 分支补回 + 不支持形状优雅跳过折射） |
+| v2.3.2 | 9 | 底栏单击 / 拖拽切换、滑杆手势统一、题库加载 10s 超时重试、模考答题卡面板、通知运行时权限 |
+| v2.4.0 | 10 | 底栏拖拽根因修复；**刷题页重构**（配置入口页 + 全屏刷题）；刷题会话快照持久化；模考继续 / 放弃；答题卡玻璃面板；弹窗模糊体感 |
+| v2.5.0 | 11 | 弹窗被自身模糊修复；弹窗折射升级；BounceState 过冲回弹重写；界面整理 |
+| v2.5.1 | 12 | 回弹手感 v3；底栏方框 / 圆环伪影；左右切题裁切；应用图标更换 |
+| v2.6.0 | 13 | 滚动惯性丢失修复；刷题记录丢失双根因；**题目搜索**；**全局壁纸**；底栏模糊三档；错题本筛选 + 滚动把手 |
+| v2.6.1 | 14 | 滚动惯性真根因（连续三轮未修透）；fling 过冲挂住；壁纸可读性；每日提醒智能化 |
+| v2.6.2 | 15 | 标题柔化伪影 / 突变 / 重影同根三症；渐显去固定延迟 |
+| v2.6.3 | 16 | 柔化伪影根除（雾条方案）；壁纸更换不生效修复；**内置 4 张壁纸** |
+| v2.6.4 | 17 | 柔化方案回调（雾条废弃，回归蒙版柔化）；过冲越界修复 |
+| v2.7.0 | 18 | 羽化 v3（saveLayer 重做）；首页问候 + 昵称；搜索历史；搜索框 Hero 动画；设置分区重排；错题本把手 v2 |
+| v2.7.1 | 19 | 羽化 v4 生长式蒙版；Hero 动画真正生效；光标 / 问候 / 双卡排版 |
+| v2.7.2 | 20 | **羽化正式砍除**；滚动把手 v3 齿轮感根除（像素级连续映射）；**内置阅读字体四款**；昵称输入框；刷题进度恢复竞态修复 |
+| v2.7.3 | 21 | 随机刷题真随机（Room 保序 + 设置首帧双根因）；进度接续加固（错题特训不再覆写快照）；**更名「题屿」**；错题本间距 / 把手样式微调 |
+| v2.7.4 | 22 | **打赏弹窗**（累计 2h / 考试不扰 / 收款码存相册 / 拒绝永久）；**模考历史回看（DB 重建成绩）+ 三点删除（每周限 2 次）**；**顺序 / 随机双槽进度**；成绩页错题解析 LazyColumn 流畅化；重新开始二次确认胶囊 |
 
 完整变更明细见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
+## 给接手人的建议
+
+1. **先读本文档**「液态玻璃实现」「刷题会话双槽机制」两节——它们分别对应本项目最大的崩溃风险源和返工最多的业务模块；
+2. **再翻 CHANGELOG.md**：每轮修复都记录了根因分析，大部分「为什么这么写」的答案都在里面；
+3. 改代码前跑一次 `python3 scripts/static_check.py` 建立基线，改完再跑一次；
+4. 发版严格走「四处同步 + static_check + push main」流程（见 [CI/CD 与发版流程](#cicd-与发版流程)），CI 失败先看 Actions 日志定位编译错，本仓库的历史 CI 失败几乎全是「重构漏声明 / import 遗漏」一类；
+5. 涉及玻璃渲染的改动，**合并前必须真机冷启动验证首帧**；
+6. keystore 备份永远排第一优先级。
+
+---
+
 ## 致谢
 
-- [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) —— 液态玻璃核心能力来源（backdrop 库，Apache-2.0，vendor 并入并修改，见 [NOTICE](NOTICE)）
+- [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) —— 液态玻璃核心能力来源（backdrop 库 + shapes，Apache-2.0，vendor 并入并修改，见 [NOTICE](NOTICE)）
 - [Jetpack Compose](https://developer.android.com/compose) / [Room](https://developer.android.com/training/data-storage/room) / [WorkManager](https://developer.android.com/topic/libraries/architecture/workmanager) —— AndroidX 全家桶
+- [Noto Sans SC / Noto Serif SC](https://fonts.google.com/noto) 与 [霞鹜文楷 LXGW WenKai](https://github.com/lxgw/LxgwWenKai) —— 内置阅读字体（OFL，子集化嵌入，见 FONT_LICENSES）
 - 《无人机装调题库（含解析）》 —— 题库内容由需求方提供
 
 ## 许可证
 
-本项目代码以 [Apache License 2.0](LICENSE) 发布；`com.kyant.backdrop/` 目录源码源自 Kyant0/AndroidLiquidGlass（Apache-2.0），按其许可要求保留署名与变更说明（见 [NOTICE](NOTICE)）。内置题库内容版权归原始编制方所有，仅随本应用分发使用。
-
-
+本项目代码以 [Apache License 2.0](LICENSE) 发布；`com.kyant.backdrop/`、`com.kyant.shapes/` 目录源码源自 Kyant0/AndroidLiquidGlass（Apache-2.0），按其许可要求保留署名与变更说明（见 [NOTICE](NOTICE)）。内置阅读字体按各自开源许可（OFL）分发，清单见 `app/src/main/assets/FONT_LICENSES.txt`。内置题库内容版权归原始编制方所有，仅随本应用分发使用。

@@ -3,6 +3,9 @@ name: Build APK
 on:
   push:
     branches: [ main ]
+    # 纯文档提交不触发构建：避免同版本号 tag 重复发布
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
 
 permissions:
