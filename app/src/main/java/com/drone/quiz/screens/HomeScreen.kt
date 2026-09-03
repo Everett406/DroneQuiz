@@ -140,7 +140,7 @@ fun HomeScreen(
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        // ---- 固定标题（不随滚动；内容滚入时在其下缘柔化渐隐） ----
+        // ---- 固定标题（问候语 + 昵称，不随滚动；内容滚入时在下缘柔化渐隐） ----
         Row(
             Modifier
                 .fillMaxWidth()
@@ -148,7 +148,17 @@ fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("无人机题库", color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                val hour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+                val greeting = when (hour) {
+                    in 5..10 -> "早上好"
+                    in 11..12 -> "中午好"
+                    in 13..17 -> "下午好"
+                    else -> "晚上好"
+                }
+                Text(
+                    "$greeting，${settings.nickname.ifBlank { "机长" }}",
+                    color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold
+                )
                 Text(
                     "装调考证 · 每日精进",
                     color = ui.textSub,
@@ -163,8 +173,8 @@ fun HomeScreen(
             )
         }
 
-        // 标题雾化条：内容滚入标题下方被背景色雾遮没（零离屏零蒙版，无玻璃互作伪影）；
-        // 滚离顶部才渐显，停在顶部时无雾、进度环等首屏内容不被遮挡
+        // 标题柔化：内容滚入标题下方时渐隐蒙版（saveLayer 方案，见 Common.softTopFade）
+        // 滚离顶部才渐显，停在顶部时无蒙版、进度环等首屏内容不被遮挡
         val homeListState = rememberLazyListState()
         BounceLazyColumn(
             modifier = Modifier
@@ -342,6 +352,34 @@ fun HomeScreen(
                             (stats.todayCorrect * 100) / stats.todayAnswered
                         } else 0
                         Text("正确 $accToday%", color = ui.textSub, fontSize = 12.sp)
+                        // 对错占比条：让卡片下半部分不再空洞（有数据支撑的可视化）
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(ui.ink.copy(alpha = 0.08f))
+                        ) {
+                            val done = stats.todayAnswered.coerceAtLeast(1)
+                            val goodRatio = (stats.todayCorrect.toFloat() / done).coerceIn(0f, 1f)
+                            if (stats.todayAnswered > 0) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(goodRatio)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(50))
+                                        .background(ui.correct)
+                                )
+                            }
+                        }
+                        Text(
+                            if (stats.todayAnswered > 0)
+                                "答对 ${stats.todayCorrect} · 答错 ${stats.todayAnswered - stats.todayCorrect}"
+                            else "今天还没开始，来几题热热手",
+                            color = ui.textSub, fontSize = 10.sp,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
                     }
                 }
             }

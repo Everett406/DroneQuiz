@@ -41,6 +41,7 @@ import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.screens.common.heroSearchField
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
@@ -101,7 +102,8 @@ fun PracticeConfigScreen(
                 backdrop = backdrop,
                 Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 4.dp),
+                    .padding(bottom = 4.dp)
+                    .heroSearchField(),
                 cornerRadius = 20.dp,
                 onClick = onSearch
             ) {

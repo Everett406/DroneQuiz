@@ -36,6 +36,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+androidx.compose.ui.draw.scale
+androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -228,25 +230,46 @@ fun WrongBookScreen(
     }
 }
 
-/** 筛选 chip（紧凑胶囊）。 */
+/** 筛选 chip（紧凑胶囊，微交互：按压缩放回弹 + 选中态颜色渐变过渡）。 */
 @Composable
 private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val ui = LocalUi.current
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 0.88f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = 0.45f, stiffness = 700f
+        ),
+        label = "chipScale"
+    )
+    val bg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) ui.ink else ui.ink.copy(alpha = 0.06f),
+        animationSpec = androidx.compose.animation.core.spring(stiffness = 550f),
+        label = "chipBg"
+    )
+    val borderC by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) ui.ink else ui.ink.copy(alpha = 0.12f),
+        animationSpec = androidx.compose.animation.core.spring(stiffness = 550f),
+        label = "chipBorder"
+    )
+    val fg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) ui.onInk else ui.textSub,
+        animationSpec = androidx.compose.animation.core.spring(stiffness = 550f),
+        label = "chipFg"
+    )
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(if (selected) ui.ink else ui.ink.copy(alpha = 0.06f))
-            .border(
-                1.dp,
-                if (selected) ui.ink else ui.ink.copy(alpha = 0.12f),
-                RoundedCornerShape(50)
-            )
-            .clickable(interactionSource = null, indication = null, onClick = onClick)
+            .scale(scale)
+            .background(bg)
+            .border(1.dp, borderC, RoundedCornerShape(50))
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
         Text(
             text,
-            color = if (selected) ui.onInk else ui.textSub,
+            color = fg,
             fontSize = 12.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
         )
@@ -254,7 +277,12 @@ private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * 右侧快速滚动把手：拖动按比例映射到列表位置（错题量多时直达）。
+ * 右侧快速滚动把手 v2（用户反馈"不顺滑、不好抓"）：
+ * - 好抓：可视拇指加宽至 6dp/加高至 56dp、透明触控轨道加宽至 44dp 全高；
+ * - 顺滑：拖动改为"按下时锁定基准 + 绝对映射"，不再以列表当前位置为增量基准
+ *   （旧实现每帧以 firstVisibleItemIndex 回算，自反馈漂移导致抖动）；
+ * - 支持：拖动跟手缩放高亮、点按轨道直接跳转；
+ * - 拖动中暂停列表回填（松手后恢复跟随）。
  */
 @Composable
 private fun FastScrollHandle(
@@ -266,8 +294,22 @@ private fun FastScrollHandle(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     var trackHeight by remember { mutableFloatStateOf(1f) }
-    val thumbHeight = with(density) { 52.dp.toPx() }
+    val thumbHeightPx = with(density) { 56.dp.toPx() }
     val lastIndex = (itemCount - 1).coerceAtLeast(1)
+
+    var dragging by remember { mutableStateOf(false) }
+    var fraction by remember { mutableFloatStateOf(0f) }
+
+    // 非拖动态：拇指跟随列表位置
+    LaunchedEffect(dragging, lastIndex) {
+        if (!dragging) {
+            androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }
+                .collect { fraction = (it.toFloat() / lastIndex).coerceIn(0f, 1f) }
+        }
+    }
+
+    val trackRange = (trackHeight - thumbHeightPx).coerceAtLeast(1f)
+    val thumbOffsetY = fraction * trackRange
 
     Box(
         modifier
@@ -275,31 +317,53 @@ private fun FastScrollHandle(
             .onSizeChanged { trackHeight = it.height.toFloat() },
         contentAlignment = Alignment.CenterEnd
     ) {
-        val trackRange = (trackHeight - thumbHeight).coerceAtLeast(1f)
-        val fraction = (listState.firstVisibleItemIndex.toFloat() / lastIndex).coerceIn(0f, 1f)
-        val thumbOffsetY = fraction * trackRange
         Box(
             Modifier
-                .width(24.dp)
-                .fillMaxHeight(),
+                .width(44.dp)
+                .fillMaxHeight()
+                .pointerInput(lastIndex, trackRange) {
+                    androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                        onDragStart = { dragging = true },
+                        onDragEnd = { dragging = false },
+                        onDragCancel = { dragging = false }
+                    ) { change, dy ->
+                        change.consume()
+                        fraction = (fraction + dy / trackRange).coerceIn(0f, 1f)
+                        scope.launch {
+                            listState.scrollToItem((fraction * lastIndex).roundToInt())
+                        }
+                    }
+                }
+                .pointerInput(lastIndex, trackHeight) {
+                    androidx.compose.foundation.gestures.detectTapGestures { offset ->
+                        fraction = (offset.y / trackHeight).coerceIn(0f, 1f)
+                        dragging = true
+                        scope.launch {
+                            listState.scrollToItem((fraction * lastIndex).roundToInt())
+                        }
+                        kotlinx.coroutines.delay(350)
+                        dragging = false
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
+            val thumbScale by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (dragging) 1.3f else 1f,
+                animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 550f),
+                label = "thumbScale"
+            )
+            val thumbAlpha by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (dragging) 0.85f else 0.42f,
+                animationSpec = androidx.compose.animation.core.spring(stiffness = 550f),
+                label = "thumbAlpha"
+            )
             Box(
                 Modifier
                     .offset(y = with(density) { (thumbOffsetY - trackRange / 2f).toDp() })
-                    .size(width = 4.5.dp, height = with(density) { thumbHeight.toDp() })
+                    .size(width = 6.dp, height = with(density) { thumbHeightPx.toDp() })
+                    .scale(thumbScale)
                     .clip(Capsule())
-                    .background(ui.ink.copy(alpha = 0.32f))
-                    .pointerInput(itemCount, trackRange) {
-                        detectVerticalDragGestures { change, dy ->
-                            change.consume()
-                            val base = listState.firstVisibleItemIndex.toFloat() / lastIndex
-                            val next = (base + dy / trackRange).coerceIn(0f, 1f)
-                            scope.launch {
-                                listState.scrollToItem((next * lastIndex).roundToInt())
-                            }
-                        }
-                    }
+                    .background(ui.ink.copy(alpha = thumbAlpha))
             )
         }
     }

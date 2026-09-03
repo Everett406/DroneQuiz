@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -40,6 +41,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,6 +76,13 @@ fun SettingsScreen(backdrop: Backdrop) {
     val settings by ServiceLocator.settings.settings.collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
 
     var bankInfo by remember { mutableStateOf("加载中…") }
+    var nameDraft by remember(settings.nickname) { mutableStateOf(settings.nickname) }
+    LaunchedEffect(nameDraft) {
+        if (nameDraft.trim() != settings.nickname) {
+            kotlinx.coroutines.delay(600)   // 防抖：停止输入 600ms 后保存
+            ServiceLocator.settings.setNickname(nameDraft)
+        }
+    }
     var importMsg by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
@@ -200,6 +210,48 @@ fun SettingsScreen(backdrop: Backdrop) {
         SectionLabel("外观")
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
+                // ---- 昵称（首页问候语用，空 = 默认"机长"） ----
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("昵称", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "首页会按时间向你问候（最多 12 字）",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .width(140.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(ui.ink.copy(alpha = if (ui.isDark) 0.10f else 0.05f))
+                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                    ) {
+                        BasicTextField(
+                            value = nameDraft,
+                            onValueChange = { nameDraft = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = ui.text, fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End
+                            ),
+                            cursorBrush = SolidColor(ui.accent),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (nameDraft.isBlank()) {
+                            Text(
+                                "机长",
+                                color = ui.textSub.copy(alpha = 0.6f), fontSize = 14.sp,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -287,6 +339,94 @@ fun SettingsScreen(backdrop: Backdrop) {
                         selectedIndex = settings.glassBlur,
                         onSelect = { scope.launch { ServiceLocator.settings.setGlassBlur(it) } },
                         modifier = Modifier.width(150.dp)
+                    )
+                }
+            }
+        }
+
+        // ---- 刷题 ----
+        SectionLabel("刷题", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Column(Modifier.padding(18.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("题目顺序", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.practiceOrder == 1) "随机" else "顺序",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("顺序", "随机"),
+                        selectedIndex = settings.practiceOrder,
+                        onSelect = { scope.launch { ServiceLocator.settings.setPracticeOrder(it) } },
+                        modifier = Modifier.width(150.dp)
+                    )
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("答对自动下一题", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.autoNext) "答对后自动跳转" else "手动切换",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    GlassToggle(
+                        checked = { settings.autoNext },
+                        onCheckedChange = { v ->
+                            scope.launch { ServiceLocator.settings.setAutoNext(v) }
+                        },
+                        backdrop = backdrop
+                    )
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("错题移除档位", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "连续答对 ${settings.removeThreshold} 次移除",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = listOf("1次", "2次", "3次"),
+                        selectedIndex = settings.removeThreshold - 1,
+                        onSelect = {
+                            scope.launch { ServiceLocator.settings.setRemoveThreshold(it + 1) }
+                        },
+                        modifier = Modifier.width(150.dp)
+                    )
+                }
+                Column(Modifier.padding(top = 18.dp)) {
+                    Text("及格分", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${settings.passScore} 分（50 – 95，步进 5）",
+                        color = ui.textSub, fontSize = 12.sp
+                    )
+                    GlassSlider(
+                        value = { settings.passScore.toFloat() },
+                        onValueChange = { v ->
+                            scope.launch { ServiceLocator.settings.setPassScore(v.roundToInt()) }
+                        },
+                        valueRange = 50f..95f,
+                        step = 5f,
+                        backdrop = backdrop,
+                        modifier = Modifier.padding(top = 12.dp)
                     )
                 }
             }
@@ -401,94 +541,6 @@ fun SettingsScreen(backdrop: Backdrop) {
                             )
                         }
                     }
-                }
-            }
-        }
-
-        // ---- 刷题 ----
-        SectionLabel("刷题", Modifier.padding(top = 16.dp))
-        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Column(Modifier.padding(18.dp)) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("题目顺序", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            if (settings.practiceOrder == 1) "随机" else "顺序",
-                            color = ui.textSub, fontSize = 12.sp
-                        )
-                    }
-                    SegmentedRow(
-                        options = listOf("顺序", "随机"),
-                        selectedIndex = settings.practiceOrder,
-                        onSelect = { scope.launch { ServiceLocator.settings.setPracticeOrder(it) } },
-                        modifier = Modifier.width(150.dp)
-                    )
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("答对自动下一题", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            if (settings.autoNext) "答对后自动跳转" else "手动切换",
-                            color = ui.textSub, fontSize = 12.sp
-                        )
-                    }
-                    GlassToggle(
-                        checked = { settings.autoNext },
-                        onCheckedChange = { v ->
-                            scope.launch { ServiceLocator.settings.setAutoNext(v) }
-                        },
-                        backdrop = backdrop
-                    )
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("错题移除档位", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "连续答对 ${settings.removeThreshold} 次移除",
-                            color = ui.textSub, fontSize = 12.sp
-                        )
-                    }
-                    SegmentedRow(
-                        options = listOf("1次", "2次", "3次"),
-                        selectedIndex = settings.removeThreshold - 1,
-                        onSelect = {
-                            scope.launch { ServiceLocator.settings.setRemoveThreshold(it + 1) }
-                        },
-                        modifier = Modifier.width(150.dp)
-                    )
-                }
-                Column(Modifier.padding(top = 18.dp)) {
-                    Text("及格分", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${settings.passScore} 分（50 – 95，步进 5）",
-                        color = ui.textSub, fontSize = 12.sp
-                    )
-                    GlassSlider(
-                        value = { settings.passScore.toFloat() },
-                        onValueChange = { v ->
-                            scope.launch { ServiceLocator.settings.setPassScore(v.roundToInt()) }
-                        },
-                        valueRange = 50f..95f,
-                        step = 5f,
-                        backdrop = backdrop,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
                 }
             }
         }

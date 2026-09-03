@@ -1,6 +1,9 @@
 package com.drone.quiz.ui.nav
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.CompositionLocal
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +53,8 @@ import com.drone.quiz.screens.PracticeRunScreen
 import com.drone.quiz.screens.SearchScreen
 import com.drone.quiz.screens.SettingsScreen
 import com.drone.quiz.screens.WrongBookScreen
+import com.drone.quiz.screens.common.LocalNavAnimatedVisibilityScope
+import com.drone.quiz.screens.common.LocalSharedTransitionScope
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassBottomTabs
 import com.drone.quiz.ui.glass.GlassOverlayPortal
@@ -82,6 +88,7 @@ object Routes {
     val tabTargets = listOf(HOME, PRACTICE, EXAM_CONFIG, WRONG, SETTINGS)
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
     val ui = LocalUi.current
@@ -171,6 +178,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 .layerBackdrop(contentBackdrop)
                 .blur(overlayBlur)
         ) {
+            SharedTransitionLayout {
             NavHost(
                 navController = navController,
                 startDestination = Routes.HOME,
@@ -202,6 +210,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 // 此 route 是 tab destination（有底栏），只承载配置页；
                 // 全屏刷题一律走 practiceRun（非 tab route，无底栏遮挡）
                 composable(Routes.PRACTICE_PATTERN) {
+                    CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
                     PracticeConfigScreen(
                         backdrop = bgBackdrop,
                         onSearch = {
@@ -214,13 +223,16 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                             ) { launchSingleTop = true }
                         }
                     )
+                    }
                 }
                 // 题目搜索（题干/选项/解析全文检索）
                 composable(Routes.SEARCH) {
+                    CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
                     SearchScreen(
                         backdrop = bgBackdrop,
                         onBack = { navController.popBackStack() }
                     )
+                    }
                 }
                 // 全屏刷题页（非 Tab destination → 无底栏遮挡；返回即回到配置页）
                 composable(Routes.PRACTICE_RUN_PATTERN) { entry ->
@@ -297,6 +309,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 composable(Routes.SETTINGS) {
                     SettingsScreen(backdrop = bgBackdrop)
                 }
+            }
             }
         }
 

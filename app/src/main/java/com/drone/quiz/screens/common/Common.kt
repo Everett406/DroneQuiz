@@ -26,6 +26,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +36,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.runtime.compositionLocalOf
 import com.drone.quiz.ui.theme.LocalUi
 
 /**
@@ -192,6 +199,96 @@ fun Modifier.softVerticalEdges(
     }
 
 /**
+ * 顶部柔化 v3 —— saveLayer 手动离屏（v2.7.0，用户视频确认 graphicsLayer 方案不可用后重做）。
+ *
+ * 历史病灶回顾：
+ * - graphicsLayer + compositingStrategy=Offscreen（无条件）：玻璃卡上溢高光被层边界裁掉；
+ * - compositingStrategy 动态切换（v2.6.4）：阈值穿越时 graphicsLayer 重建，重建帧整层
+ *   未就绪 → 用户录屏中多帧"整页内容变淡"（灾难性闪烁）。
+ *
+ * 根本差异：不再持有跨帧的 graphicsLayer——改为**在单次 draw pass 内**用
+ * canvas.saveLayer / restore 临时离屏：
+ * - layer 每帧独立创建销毁，无跨帧状态 → 无参数切换、无重建闪烁；
+ * - 仅需要蒙版（已滚离顶部）时才 saveLayer，顶部静止时直接 drawContent（零开销、
+ *   玻璃卡上溢高光/阴影完整直绘）；
+ * - saveLayer 边界四周扩大 24dp：滚入蒙版区的玻璃卡上溢绘制（高光/阴影）被保留，
+ *   不再出现"首卡上阴影被截断"；
+ * - DstIn 蒙版按列表真实顶部坐标绘制（不随扩边偏移）；
+ * - 强度依旧由 scrolledPx() 在 draw 阶段直读（跟手连续、零重组）。
+ */
+fun Modifier.softTopFade(
+    fadeHeight: Dp = 26.dp,
+    scrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f }
+): Modifier = this.drawWithContent {
+    val h = fadeHeight.toPx()
+    val s = (scrolledPx() / h).coerceIn(0f, 1f)
+    if (s <= 0.02f) {
+        drawContent()
+        return@drawWithContent
+    }
+    val expand = 24.dp.toPx()
+    val layerPaint = android.graphics.Paint()
+    drawIntoCanvas { canvas ->
+        canvas.nativeCanvas.saveLayer(
+            android.graphics.RectF(-expand, -expand, size.width + expand, size.height + expand),
+            layerPaint
+        )
+        drawContent()
+        drawRect(
+            brush = Brush.verticalGradient(
+                0f to Color.Black.copy(alpha = 0f),
+                1f to Color.Black.copy(alpha = s),
+                startY = 0f, endY = h
+            ),
+            topLeft = Offset.Zero,
+            size = Size(size.width, h),
+            blendMode = BlendMode.DstIn
+        )
+        canvas.nativeCanvas.restore()
+    }
+}
+
+/**
+ * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
+ * 同样 draw 阶段读强度：topScrolledPx = 顶部已滚出像素，
+ * bottomRemainingPx = 距底部剩余像素；贴边的一侧自动无柔化，题号不再被裁切。
+ */
+fun Modifier.softVerticalEdges(
+    top: Dp = 20.dp,
+    bottom: Dp = 24.dp,
+    topScrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f },
+    bottomRemainingPx: () -> Float = { Float.MAX_VALUE * 0.5f }
+): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val th = top.toPx()
+        val bh = bottom.toPx()
+        val ts = (topScrolledPx() / th).coerceIn(0f, 1f)
+        val bs = (bottomRemainingPx() / bh).coerceIn(0f, 1f)
+        if (size.height > th + bh) {
+            if (th > 0f && ts > 0.01f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0f), 1f to Color.Black.copy(alpha = ts),
+                        startY = 0f, endY = th
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (bh > 0f && bs > 0.01f) {
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = bs), 1f to Color.Black.copy(alpha = 0f),
+                        startY = size.height - bh, endY = size.height
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+        }
+    }
+
+/**
  * 顶部柔化（v2.6.4 回归蒙版方案 + 两处修正；用户裁定雾条方案废弃）：
  * v2.6.3 雾条在壁纸模式下与背景色差大（色带+顶部硬边）、且滚离顶部后盖住
  * 玻璃卡上缘——被用户否决；蒙版方案视觉正确（内容渐隐露出真背景，颜色无缝）。
@@ -250,5 +347,30 @@ fun ScreenTitle(title: String, subtitle: String? = null, modifier: Modifier = Mo
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
+    }
+}
+
+
+/** Hero 动画基础设施（搜索框 → 搜索页共享元素转场）。 */
+@OptIn(ExperimentalSharedTransitionApi::class)
+val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+val LocalNavAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/**
+ * 搜索框共享元素（Hero）：刷题页入口与搜索页输入框同 key，
+ * 导航转场时两框之间平滑飞行衔接。
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun Modifier.heroSearchField(): Modifier {
+    val shared = LocalSharedTransitionScope.current ?: return this
+    val anim = LocalNavAnimatedVisibilityScope.current ?: return this
+    return with(shared) {
+        this@heroSearchField.sharedElement(
+            rememberSharedContentState(key = "search-field"),
+            animatedVisibilityScope = anim
+        )
     }
 }

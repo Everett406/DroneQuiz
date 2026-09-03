@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.heroSearchField
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
@@ -52,18 +54,23 @@ import kotlinx.coroutines.delay
  * 题目搜索页：题干 / 选项 / 解析 全文检索（防抖 300ms，最多返回 80 条）。
  * 结果点开可看全部选项、正确答案与解析。
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     backdrop: Backdrop,
     onBack: () -> Unit
 ) {
     val ui = LocalUi.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val settings by ServiceLocator.settings.settings.collectAsState(
+        initial = com.drone.quiz.data.settings.AppSettings()
+    )
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Question>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var expandedId by remember { mutableStateOf<Long?>(null) }
 
-    // 输入防抖搜索
+    // 输入防抖搜索（有结果时记入搜索历史）
     LaunchedEffect(query) {
         val q = query.trim()
         if (q.isEmpty()) {
@@ -75,6 +82,9 @@ fun SearchScreen(
         delay(300)
         results = runCatching { ServiceLocator.repo.searchQuestions(q) }.getOrDefault(emptyList())
         searching = false
+        if (results.isNotEmpty()) {
+            runCatching { ServiceLocator.settings.addSearchHistory(q) }
+        }
     }
 
     Column(
@@ -98,7 +108,8 @@ fun SearchScreen(
                 backdrop = backdrop,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 8.dp),
+                    .padding(start = 8.dp)
+                    .heroSearchField(),
                 cornerRadius = 22.dp
             ) {
                 Row(
@@ -157,16 +168,75 @@ fun SearchScreen(
             state = resultListState
         ) {
             item {
-                Text(
-                    when {
-                        query.isBlank() -> "输入关键词，如「升阻比」「锂电池」「迫降」"
-                        searching -> "搜索中…"
-                        results.isEmpty() -> "没有匹配的题目"
-                        else -> "找到 ${results.size} 条（最多展示 80 条）"
-                    },
-                    color = ui.textSub, fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-                )
+                if (query.isBlank()) {
+                    // ---- 搜索历史 ----
+                    val history = settings.searchHistory
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (history.isEmpty()) "输入关键词，如「升阻比」「锂电池」「迫降」"
+                                else "搜索历史",
+                                color = ui.textSub, fontSize = 12.sp
+                            )
+                            if (history.isNotEmpty()) {
+                                Text(
+                                    "清空",
+                                    color = ui.textSub.copy(alpha = 0.7f),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = null, indication = null
+                                        ) {
+                                            scope.launch {
+                                                runCatching { ServiceLocator.settings.clearSearchHistory() }
+                                            }
+                                        }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        if (history.isNotEmpty()) {
+                            // 搜索历史流式排布（chips ≤ 8）
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(top = 10.dp)
+                            ) {
+                                history.forEach { term ->
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(ui.ink.copy(alpha = 0.06f))
+                                            .border(
+                                                1.dp, ui.ink.copy(alpha = 0.12f),
+                                                RoundedCornerShape(50)
+                                            )
+                                            .clickable(
+                                                interactionSource = null, indication = null
+                                            ) { query = term }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(term, color = ui.textSub, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        when {
+                            searching -> "搜索中…"
+                            results.isEmpty() -> "没有匹配的题目"
+                            else -> "找到 ${results.size} 条（最多展示 80 条）"
+                        },
+                        color = ui.textSub, fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                    )
+                }
             }
             items(results, key = { it.id }) { q ->
                 SearchResultItem(

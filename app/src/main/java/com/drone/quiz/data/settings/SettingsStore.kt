@@ -43,7 +43,9 @@ data class AppSettings(
     val bankVersion: Int = 0,    // 已加载题库的版本（与 assets questions.json 的 version 比对）
     val glassBlur: Int = 1,      // 底栏玻璃模糊档位：0 低 / 1 中 / 2 高
     val wallpaper: String = "",  // 全局壁纸文件路径（空 = 默认渐变）
-    val wallpaperBlur: Boolean = false // 壁纸是否模糊化（作玻璃背景纹路）
+    val wallpaperBlur: Boolean = false, // 壁纸是否模糊化（作玻璃背景纹路）
+    val nickname: String = "",   // 用户昵称（空 = 首页显示默认称呼"机长"）
+    val searchHistory: List<String> = emptyList() // 搜索历史（最新在前，最多 8 条）
 )
 
 class SettingsStore(private val context: Context) {
@@ -62,6 +64,8 @@ class SettingsStore(private val context: Context) {
         val glassBlur = intPreferencesKey("glass_blur_level")
         val wallpaper = stringPreferencesKey("wallpaper_path")
         val wallpaperBlur = booleanPreferencesKey("wallpaper_blur")
+        val nickname = stringPreferencesKey("nickname")
+        val searchHistory = stringPreferencesKey("search_history")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -79,7 +83,11 @@ class SettingsStore(private val context: Context) {
             bankVersion = p[K.bankVersion] ?: 0,
             glassBlur = p[K.glassBlur] ?: 1,
             wallpaper = p[K.wallpaper] ?: "",
-            wallpaperBlur = p[K.wallpaperBlur] ?: false
+            wallpaperBlur = p[K.wallpaperBlur] ?: false,
+            nickname = p[K.nickname] ?: "",
+            searchHistory = p[K.searchHistory]?.let { raw ->
+                runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
+            } ?: emptyList()
         )
     }
 
@@ -112,4 +120,19 @@ class SettingsStore(private val context: Context) {
     suspend fun setGlassBlur(v: Int) = context.dataStore.edit { it[K.glassBlur] = v.coerceIn(0, 2) }
     suspend fun setWallpaper(path: String) = context.dataStore.edit { it[K.wallpaper] = path }
     suspend fun setWallpaperBlur(v: Boolean) = context.dataStore.edit { it[K.wallpaperBlur] = v }
+    suspend fun setNickname(v: String) = context.dataStore.edit { it[K.nickname] = v.trim().take(12) }
+
+    /** 记录搜索词：去重置顶，最多保留 8 条。 */
+    suspend fun addSearchHistory(term: String) {
+        val t = term.trim()
+        if (t.isEmpty()) return
+        context.dataStore.edit { p ->
+            val cur = p[K.searchHistory]?.let { raw ->
+                runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
+            } ?: emptyList()
+            p[K.searchHistory] = json.encodeToString((listOf(t) + cur.filter { it != t }).take(8))
+        }
+    }
+
+    suspend fun clearSearchHistory() = context.dataStore.edit { it.remove(K.searchHistory) }
 }
