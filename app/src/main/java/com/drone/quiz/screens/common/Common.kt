@@ -124,16 +124,21 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 /**
  * 顶部柔化：内容滚入固定标题下方时按 alpha 渐隐（DstIn 蒙版，
  * 不依赖背景色，任意渐变/壁纸/玻璃面板上都干净）。
+ *
+ * strength：柔化强度 0..1，可绑定列表滚动位置（在顶部时 0 = 不遮挡内容，
+ * 离开顶部后淡入到 1）——修复柔化永远存在导致顶部内容（如进度环）被渐变裁切的观感。
  */
-fun Modifier.softTopFade(fadeHeight: Dp = 26.dp): Modifier = this
+fun Modifier.softTopFade(fadeHeight: Dp = 26.dp, strength: Float = 1f): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
+        val s = strength.coerceIn(0f, 1f)
+        if (s <= 0.01f) return@drawWithContent
         val h = fadeHeight.toPx()
         if (h > 0f && size.height > h) {
             drawRect(
                 brush = Brush.verticalGradient(
-                    0f to Color.Transparent, 1f to Color.Black,
+                    0f to Color.Black.copy(alpha = 0f), 1f to Color.Black.copy(alpha = s),
                     startY = 0f, endY = h
                 ),
                 blendMode = BlendMode.DstIn
@@ -143,27 +148,36 @@ fun Modifier.softTopFade(fadeHeight: Dp = 26.dp): Modifier = this
 
 /**
  * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
+ * topStrength / bottomStrength：0..1，绑定网格能否向上/下滚动
+ * （顶/底到底时对应侧不柔化，题号不被遮挡）。
  */
-fun Modifier.softVerticalEdges(top: Dp = 20.dp, bottom: Dp = 24.dp): Modifier = this
+fun Modifier.softVerticalEdges(
+    top: Dp = 20.dp,
+    bottom: Dp = 24.dp,
+    topStrength: Float = 1f,
+    bottomStrength: Float = 1f
+): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
+        val ts = topStrength.coerceIn(0f, 1f)
+        val bs = bottomStrength.coerceIn(0f, 1f)
         val th = top.toPx()
         val bh = bottom.toPx()
         if (size.height > th + bh) {
-            if (th > 0f) {
+            if (th > 0f && ts > 0.01f) {
                 drawRect(
                     brush = Brush.verticalGradient(
-                        0f to Color.Transparent, 1f to Color.Black,
+                        0f to Color.Black.copy(alpha = 0f), 1f to Color.Black.copy(alpha = ts),
                         startY = 0f, endY = th
                     ),
                     blendMode = BlendMode.DstIn
                 )
             }
-            if (bh > 0f) {
+            if (bh > 0f && bs > 0.01f) {
                 drawRect(
                     brush = Brush.verticalGradient(
-                        0f to Color.Black, 1f to Color.Transparent,
+                        0f to Color.Black.copy(alpha = bs), 1f to Color.Black.copy(alpha = 0f),
                         startY = size.height - bh, endY = size.height
                     ),
                     blendMode = BlendMode.DstIn

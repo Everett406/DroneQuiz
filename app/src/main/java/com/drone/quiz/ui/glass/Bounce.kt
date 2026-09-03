@@ -29,25 +29,26 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 /**
- * iOS 式上下过冲回弹（rubber-band）v4。
+ * iOS 式上下过冲回弹（rubber-band）v5。
  *
- * v3 用户反馈"停止滑动它就停了、没有惯性"的两处根因：
- * 1. 过冲量存在 Animatable 里，拖动/惯性每帧经 scope.launch{ snapTo } 异步写入——
- *    fling 结束的 onPostFling 与排队中的 snapTo 存在时序竞态：读到旧值 0 就跳过回弹，
- *    随后 snapTo 又把过冲量写回非零 → amount 残留。此后每次松手 onPreFling 都误入
- *    "过冲处理"分支并同步挂起几百毫秒（软弹簧动画），fling 被延迟到回弹结束才开始，
- *    体感就是"甩完先顿一下、惯性没了"。
- * 2. onPreFling 内同步挂起动画本身就会阻塞嵌套滚动链。
+ * 惯性丢失真根因（v2.6.0 后 GitHub 调研定位，sinasamaki 原文铁证）：
+ * NestedScrollConnection.onPreFling 的返回值 = 本层**消费**的速度，
+ * 未消费的部分才会交还子列表继续 fling。sinasamaki 未过冲时
+ * `return super.onPreFling(available)` = Velocity.Zero = 消费 0 = 速度全部交还。
+ * 而 v3/v4 把"要交还的速度"当返回值写成了 `return available` —— 语义完全颠倒，
+ * 等于把普通 fling 的全部速度一口吞掉：子列表收到 0 速度，
+ * 松手即停、毫无惯性（用户连续三轮反馈的"一松手它就停了"）。
  *
- * v4 结构：
- * - 原始过冲量 rawAmount 为 mutableFloatStateOf，拖动/惯性路径**同步直写**（零协程、
- *   零竞态、零延迟）；只有"松手回弹"用 Animatable 驱动（期间拖动会立刻取消它）。
- * - onPreFling **绝不同步挂起动画**：
- *   · 未过冲 → 原样交还速度（普通 fling 完全不受影响，这是用户反馈的场景）；
- *   · 过冲 + 向内容侧强甩（会过零）→ 立刻交还全部速度（列表立即带着惯性滚），
- *     过冲量异步摩擦衰减归零，与滚动并行（iOS 式衔接，无跳变、无阻塞）；
- *   · 过冲 + 甩不回/往外甩 → 异步软弹簧带速度回弹，速度消费（子列表在边缘无路可滚）；
- *   · 零速度松手 → 异步软弹回。
+ * v5 修正（返回值语义全部翻转）：
+ * - 未过冲 → 返回 Velocity.Zero（消费 0，普通 fling 零干扰，惯性完整保留）；
+ * - 过冲 + 向内容侧强甩（会过零）→ 返回 Velocity.Zero（速度全部交还，
+ *   列表立即带惯性滚动），过冲量异步摩擦衰减归零、与滚动并行；
+ * - 过冲 + 甩不回/往外甩 → 返回 Velocity(0f, v)（消费全部垂直速度，
+ *   子列表在边缘无路可滚），异步软弹簧带速度回弹；
+ * - onPostFling 兑底：fling 途中撞边产生的过冲量在 fling 自然结束后
+ *   带残余速度弹簧回弹（onPreFling 已启动的动画不打断）。
+ *
+ * 过冲量 rawAmount 保持 mutableFloatStateOf 同步直写（v4 的零竞态设计保留）。
  */
 class BounceState internal constructor(
     private val scope: CoroutineScope
@@ -125,46 +126,50 @@ class BounceState internal constructor(
         }
 
         override suspend fun onPreFling(available: Velocity): Velocity {
-            // 注意：本函数内部零挂起点、立即返回——绝不阻塞嵌套滚动链
-            if (rawAmount == 0f) return available   // 普通滚动：fling 原样放行，零干扰
+            // 返回值 = 消费的速度（v5 语义修正）。
+            // 未过冲：消费 0，全部速度交还列表——普通 fling 惯性完整保留（本轮修复核心）。
+            // 本函数零挂起点、立即返回，绝不阻塞嵌套滚动链。
+            if (rawAmount == 0f) return Velocity.Zero
 
             val previousSign = sign(rawAmount)
             val amountAbs = abs(rawAmount)
             val v = available.y
 
             if (v != 0f && sign(v) != previousSign && abs(v) * 0.5f > amountAbs) {
-                // 强甩向内容侧（会过零）：全部速度立刻交还列表（惯性立即生效），
-                // 过冲量异步摩擦衰减归零，与滚动并行
+                // 强甩向内容侧（会过零）：消费 0，全部速度交还列表（惯性立即生效），
+                // 过冲量异步摩擦衰减归零，与滚动并行（iOS 式衔接）
                 cancelRelease()
+                val start = rawAmount
                 releaseJob = scope.launch {
                     runCatching {
-                        releaseAnim.snapTo(rawAmount)
+                        releaseAnim.snapTo(start)
                         releaseAnim.animateDecay(
                             initialVelocity = v,
                             animationSpec = exponentialDecay()
                         ) {
-                            rawAmount = value
-                            applyDisplay()
                             if (sign(value) != previousSign) {
                                 rawAmount = 0f
                                 applyDisplay()
                                 throw kotlinx.coroutines.CancellationException("bounce crossed zero")
                             }
+                            rawAmount = value
+                            applyDisplay()
                         }
                     }
                     if (!scope.isActive) return@launch
                     rawAmount = 0f
                     applyDisplay()
                 }
-                return available
+                return Velocity.Zero
             }
 
-            // 甩不回 / 往外甩 / 零速度：异步软弹簧带速度回弹，速度消费
-            // （子列表在边缘无路可滚，消费不影响体验）
+            // 甩不回 / 往外甩 / 零速度：消费全部垂直速度（列表在边缘无路可滚），
+            // 异步软弹簧带速度回弹
             cancelRelease()
+            val start = rawAmount
             releaseJob = scope.launch {
                 runCatching {
-                    releaseAnim.snapTo(rawAmount)
+                    releaseAnim.snapTo(start)
                     releaseAnim.animateTo(
                         0f,
                         spring(stiffness = 200f),
@@ -178,7 +183,34 @@ class BounceState internal constructor(
                 rawAmount = 0f
                 applyDisplay()
             }
-            return Velocity.Zero
+            return Velocity(0f, v)
+        }
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+            // fling 自然结束兜底：fling 途中撞边产生的过冲量在此带残余速度回弹。
+            // onPreFling 已启动的回弹/衰减动画（releaseJob 在跑）不打断，避免双重动画。
+            if (rawAmount != 0f && releaseJob?.isActive != true) {
+                cancelRelease()
+                val start = rawAmount
+                val residual = available.y
+                releaseJob = scope.launch {
+                    runCatching {
+                        releaseAnim.snapTo(start)
+                        releaseAnim.animateTo(
+                            0f,
+                            spring(stiffness = 200f),
+                            initialVelocity = residual
+                        ) {
+                            rawAmount = value
+                            applyDisplay()
+                        }
+                    }
+                    if (!scope.isActive) return@launch
+                    rawAmount = 0f
+                    applyDisplay()
+                }
+            }
+            return super.onPostFling(consumed, available)
         }
     }
 }

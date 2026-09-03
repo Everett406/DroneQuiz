@@ -82,37 +82,27 @@ object AppIcons {
         }
     }
 
-    /** 刷题：双层卡片（后卡顶边 + 前卡填充 + 对勾挖空）。 */
+    /** 刷题：填充卡片 + 对勾挖空（与错题本"方块+X"成对，答对语义；去掉了旧版怪异的后卡帽）。 */
     val Cards: ImageVector by lazy {
         filledIcon("AppCards", evenOdd = true) {
-            // 后卡片（仅露出顶部一截）
-            moveTo(7f, 3.2f)
-            lineTo(18.6f, 3.2f)
-            curveTo(19.7f, 3.2f, 20.6f, 4.1f, 20.6f, 5.2f)
-            lineTo(20.6f, 13.8f)
-            lineTo(18.4f, 13.8f)
-            lineTo(18.4f, 5.4f)
-            curveTo(18.4f, 5.2f, 18.2f, 5f, 18f, 5f)
-            lineTo(7f, 5f)
+            // 卡片主体（与 BookWrong 同一几何，保证 Tab 栏视觉一致）
+            moveTo(5.6f, 3.4f)
+            lineTo(18.4f, 3.4f)
+            curveTo(19.5f, 3.4f, 20.4f, 4.3f, 20.4f, 5.4f)
+            lineTo(20.4f, 19f)
+            curveTo(20.4f, 20.1f, 19.5f, 21f, 18.4f, 21f)
+            lineTo(5.6f, 21f)
+            curveTo(4.5f, 21f, 3.6f, 20.1f, 3.6f, 19f)
+            lineTo(3.6f, 5.4f)
+            curveTo(3.6f, 4.3f, 4.5f, 3.4f, 5.6f, 3.4f)
             close()
-            // 前卡片 + 对勾挖空
-            moveTo(6f, 6.6f)
-            lineTo(17.4f, 6.6f)
-            curveTo(18.5f, 6.6f, 19.4f, 7.5f, 19.4f, 8.6f)
-            lineTo(19.4f, 19f)
-            curveTo(19.4f, 20.1f, 18.5f, 21f, 17.4f, 21f)
-            lineTo(6f, 21f)
-            curveTo(4.9f, 21f, 4f, 20.1f, 4f, 19f)
-            lineTo(4f, 8.6f)
-            curveTo(4f, 7.5f, 4.9f, 6.6f, 6f, 6.6f)
-            close()
-            // 对勾（挖空）
-            moveTo(7.4f, 13.6f)
-            lineTo(9.1f, 11.9f)
-            lineTo(11.2f, 14f)
-            lineTo(14.9f, 10.3f)
-            lineTo(16.6f, 12f)
-            lineTo(11.2f, 17.4f)
+            // 对勾（挖空，居中）
+            moveTo(7.2f, 12.2f)
+            lineTo(9.2f, 10.2f)
+            lineTo(11.5f, 12.5f)
+            lineTo(14.9f, 9.1f)
+            lineTo(16.9f, 11.1f)
+            lineTo(11.5f, 16.5f)
             close()
         }
     }

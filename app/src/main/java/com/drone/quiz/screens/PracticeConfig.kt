@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -128,15 +130,22 @@ fun PracticeConfigScreen(
             }
         }
 
+        // 标题柔化动态化：滚离顶部才渐显，停在顶部时不遮挡首屏内容
+        val cfgScroll = rememberScrollState()
+        val titleFade by animateFloatAsState(
+            targetValue = if (cfgScroll.canScrollBackward) 1f else 0f,
+            animationSpec = tween(180),
+            label = "titleFade"
+        )
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp)
+                .softTopFade(30.dp, titleFade)
         ) {
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(cfgScroll)
                 .padding(horizontal = 20.dp)
         ) {
 

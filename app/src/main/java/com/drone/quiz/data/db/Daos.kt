@@ -55,6 +55,9 @@ interface RecordDao {
     @Insert
     suspend fun insertRecord(r: PracticeRecordEntity)
 
+    @Query("SELECT ts FROM practice_records WHERE ts >= :since ORDER BY ts ASC")
+    suspend fun practiceTsSince(since: Long): List<Long>
+
     @Query("SELECT * FROM question_stats WHERE qid = :qid")
     suspend fun statsFor(qid: Long): QuestionStatsEntity?
 

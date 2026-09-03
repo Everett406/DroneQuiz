@@ -472,4 +472,26 @@ class Repo(private val db: AppDatabase) {
             eDao.clearExamAnswers(); eDao.clearExams()
         }
     }
+
+    /**
+     * 最近 days 天里，每天首次刷题的时刻（小时浮点，19.5 = 19:30）。
+     * 用于智能提醒：学习用户习惯的开始刷题时间，替代固定 20:00。
+     */
+    suspend fun habitStartHours(days: Int = 10): List<Float> = withContext(Dispatchers.IO) {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+        val since = System.currentTimeMillis() - days * 86_400_000L
+        rDao.practiceTsSince(since)
+            .groupBy { fmt.format(java.util.Date(it)) }
+            .map { (_, list) -> list.min() }   // 每天最早一次作答
+            .map { ts ->
+                val c = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+                c.get(java.util.Calendar.HOUR_OF_DAY) + c.get(java.util.Calendar.MINUTE) / 60f
+            }
+    }
+
+    /** 今天是否已刷过题（已刷则智能提醒当天不再打扰）。 */
+    suspend fun todayAnsweredCount(): Int = withContext(Dispatchers.IO) {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+        rDao.streakFor(fmt.format(java.util.Date()))?.answered ?: 0
+    }
 }

@@ -1,6 +1,7 @@
 package com.drone.quiz.ui.nav
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -29,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -148,6 +150,17 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                         .matchParentSize()
                         .then(if (settings.wallpaperBlur) Modifier.blur(24.dp) else Modifier)
                 )
+                // 主题纱：字体颜色自适应的等价实现——任意壁纸上保证文字对比
+                // （亮色叠米白纱、深色叠墨色纱；开启模糊后壁纸干扰更低，纱可更透）
+                val scrim by animateColorAsState(
+                    targetValue = if (ui.isDark)
+                        Color(0xFF161310).copy(alpha = if (settings.wallpaperBlur) 0.40f else 0.54f)
+                    else
+                        Color(0xFFF6F1E6).copy(alpha = if (settings.wallpaperBlur) 0.36f else 0.50f),
+                    animationSpec = tween(300),
+                    label = "wallScrim"
+                )
+                Box(Modifier.matchParentSize().background(scrim))
             }
         }
 

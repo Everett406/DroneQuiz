@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -146,10 +149,18 @@ fun SearchScreen(
         }
 
         // ---- 结果列表 ----
+        // 顶部柔化动态化：滚离顶部才渐显（搜索提示行/首条结果不被渐变裁切）
+        val resultListState = rememberLazyListState()
+        val titleFade by animateFloatAsState(
+            targetValue = if (resultListState.canScrollBackward) 1f else 0f,
+            animationSpec = tween(180),
+            label = "titleFade"
+        )
         LazyColumn(
             Modifier
                 .fillMaxSize()
-                .softTopFade(20.dp)
+                .softTopFade(20.dp, titleFade),
+            state = resultListState
         ) {
             item {
                 Text(

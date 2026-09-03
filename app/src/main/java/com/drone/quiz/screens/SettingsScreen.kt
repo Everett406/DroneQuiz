@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -64,10 +66,9 @@ fun SettingsScreen(backdrop: Backdrop) {
 
     var bankInfo by remember { mutableStateOf("加载中…") }
     var importMsg by remember { mutableStateOf<String?>(null) }
-    var notifyHint by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
-    // 通知权限：Android 13+ 需运行时请求 POST_NOTIFICATIONS，否则提醒无法弹出
+    // 通知权限：Android 13+ 系统弹窗请求；拒绝则静默不置位，不再展示说教文案
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -77,9 +78,6 @@ fun SettingsScreen(backdrop: Backdrop) {
                 ReminderScheduler.ensureChannel(context)
                 ReminderScheduler.schedule(context)
             }
-            notifyHint = null
-        } else {
-            notifyHint = "未授予通知权限，提醒无法推送；可在系统设置中授予权限后再开启"
         }
     }
 
@@ -89,7 +87,6 @@ fun SettingsScreen(backdrop: Backdrop) {
             ReminderScheduler.ensureChannel(context)
             ReminderScheduler.schedule(context)
         }
-        notifyHint = null
     }
 
     LaunchedEffect(Unit) {
@@ -151,15 +148,22 @@ fun SettingsScreen(backdrop: Backdrop) {
             ScreenTitle("设置", "外观 / 刷题 / 数据", Modifier.padding(vertical = 16.dp))
         }
 
+        // 标题柔化动态化：滚离顶部才渐显，停在顶部时不遮挡首屏内容
+        val scrollState = rememberScrollState()
+        val titleFade by animateFloatAsState(
+            targetValue = if (scrollState.canScrollBackward) 1f else 0f,
+            animationSpec = tween(180),
+            label = "titleFade"
+        )
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp)
+                .softTopFade(30.dp, titleFade)
         ) {
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
         ) {
 
@@ -420,10 +424,10 @@ fun SettingsScreen(backdrop: Backdrop) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("每日打卡通知", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("每日提醒", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (settings.dailyNotify) "每天 20:00 提醒刷题 · 已开启"
-                            else "每天 20:00 提醒刷题 · 首次开启需通知权限",
+                            if (settings.dailyNotify) "已开启 · 在你常刷题的时间提醒，当天刷过不打扰"
+                            else "在你常刷题的时间提醒一次，当天刷过就不打扰",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }
@@ -446,15 +450,6 @@ fun SettingsScreen(backdrop: Backdrop) {
                             }
                         },
                         backdrop = backdrop
-                    )
-                }
-                notifyHint?.let {
-                    Text(
-                        it,
-                        color = ui.wrong,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        modifier = Modifier.padding(top = 8.dp)
                     )
                 }
             }

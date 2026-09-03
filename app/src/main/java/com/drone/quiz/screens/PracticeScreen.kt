@@ -2,7 +2,9 @@ package com.drone.quiz.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,6 +27,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -399,14 +402,25 @@ fun PracticeRunScreen(
                     PanelLegend(ui.wrong, "答错")
                     PanelLegend(null, "未答")
                 }
+                // 网格柔化动态化：仅在网格有可滚空间的一侧渐隐，题号停在顶/底时不再被渐变裁切
+                val panelGridState = rememberLazyGridState()
+                val gridTopFade by animateFloatAsState(
+                    targetValue = if (panelGridState.canScrollBackward) 1f else 0f,
+                    animationSpec = tween(180), label = "gridTopFade"
+                )
+                val gridBottomFade by animateFloatAsState(
+                    targetValue = if (panelGridState.canScrollForward) 1f else 0f,
+                    animationSpec = tween(180), label = "gridBottomFade"
+                )
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(6),
+                    state = panelGridState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(340.dp)
                         .padding(vertical = 14.dp)
                         // 上下边缘柔化：首末行渐隐而非硬切
-                        .softVerticalEdges(top = 16.dp, bottom = 22.dp),
+                        .softVerticalEdges(top = 16.dp, bottom = 22.dp, topStrength = gridTopFade, bottomStrength = gridBottomFade),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

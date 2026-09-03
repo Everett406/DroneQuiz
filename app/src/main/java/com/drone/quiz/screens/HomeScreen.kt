@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -159,10 +162,18 @@ fun HomeScreen(
             )
         }
 
+        // 标题柔化动态化：仅在列表已滚离顶部时渐显（停在顶部时不遮挡进度环等首屏内容）
+        val homeListState = rememberLazyListState()
+        val titleFade by animateFloatAsState(
+            targetValue = if (homeListState.canScrollBackward) 1f else 0f,
+            animationSpec = tween(180),
+            label = "titleFade"
+        )
         BounceLazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .softTopFade(30.dp)
+                .softTopFade(30.dp, titleFade),
+            listState = homeListState
         ) {
             // ---- 总览：进度环 + 预估通过率 ----
         item {
@@ -248,17 +259,20 @@ fun HomeScreen(
             }
         }
 
-        // ---- 打卡双卡（连击里程碑 + 今日） ----
+        // ---- 打卡双卡（连击里程碑 + 今日；IntrinsicSize 等高，消除高度不齐） ----
         item {
             Row(
                 Modifier
                     .padding(horizontal = 20.dp, vertical = 12.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 GlassCard(
                     backdrop = backdrop,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
                     cornerRadius = 22.dp
                 ) {
                     Column(Modifier.padding(16.dp)) {
@@ -313,7 +327,9 @@ fun HomeScreen(
                 }
                 GlassCard(
                     backdrop = backdrop,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
                     cornerRadius = 22.dp
                 ) {
                     Column(Modifier.padding(16.dp)) {
