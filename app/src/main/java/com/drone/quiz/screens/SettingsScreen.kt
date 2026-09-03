@@ -261,7 +261,10 @@ fun SettingsScreen(backdrop: Backdrop) {
                                         interactionSource = null,
                                         indication = null
                                     ) {
-                                        ServiceLocator.settings.setNickname(nameDraft.trim())
+                                        // setNickname 是 suspend：clickable 普通上下文需挂协程（CI #4 教训）
+                                        scope.launch {
+                                            ServiceLocator.settings.setNickname(nameDraft.trim())
+                                        }
                                         focusManager.clearFocus(force = true)
                                     }
                                     .padding(horizontal = 16.dp, vertical = 5.dp)
