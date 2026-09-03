@@ -45,6 +45,7 @@ data class AppSettings(
     val wallpaper: String = "",  // 全局壁纸文件路径（空 = 默认渐变）
     val wallpaperBlur: Boolean = false, // 壁纸是否模糊化（作玻璃背景纹路）
     val nickname: String = "",   // 用户昵称（空 = 首页只按时间问候，不带称呼）
+    val readingFont: String = "system", // 阅读字体：system | sans | serif | kai
     val searchHistory: List<String> = emptyList() // 搜索历史（最新在前，最多 8 条）
 )
 
@@ -65,6 +66,7 @@ class SettingsStore(private val context: Context) {
         val wallpaper = stringPreferencesKey("wallpaper_path")
         val wallpaperBlur = booleanPreferencesKey("wallpaper_blur")
         val nickname = stringPreferencesKey("nickname")
+        val readingFont = stringPreferencesKey("reading_font")
         val searchHistory = stringPreferencesKey("search_history")
     }
 
@@ -85,6 +87,7 @@ class SettingsStore(private val context: Context) {
             wallpaper = p[K.wallpaper] ?: "",
             wallpaperBlur = p[K.wallpaperBlur] ?: false,
             nickname = p[K.nickname] ?: "",
+            readingFont = p[K.readingFont] ?: "system",
             searchHistory = p[K.searchHistory]?.let { raw ->
                 runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
             } ?: emptyList()
@@ -120,7 +123,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setGlassBlur(v: Int) = context.dataStore.edit { it[K.glassBlur] = v.coerceIn(0, 2) }
     suspend fun setWallpaper(path: String) = context.dataStore.edit { it[K.wallpaper] = path }
     suspend fun setWallpaperBlur(v: Boolean) = context.dataStore.edit { it[K.wallpaperBlur] = v }
-    suspend fun setNickname(v: String) = context.dataStore.edit { it[K.nickname] = v.trim().take(12) }
+    suspend fun setNickname(v: String) = context.dataStore.edit { it[K.nickname] = v.trim().take(5) }
+    suspend fun setReadingFont(v: String) = context.dataStore.edit { it[K.readingFont] = v }
 
     /** 记录搜索词：去重置顶，最多保留 8 条。 */
     suspend fun addSearchHistory(term: String) {

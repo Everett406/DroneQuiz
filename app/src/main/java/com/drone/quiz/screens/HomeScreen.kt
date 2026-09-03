@@ -185,11 +185,12 @@ fun HomeScreen(
             listState = homeListState
         ) {
             // ---- 总览：进度环 + 预估通过率 ----
+        // 顶部留 6dp：玻璃卡上溢阴影不再被容器上缘/问候语区域裁切（用户反馈）
         item {
             GlassCard(
                 backdrop = backdrop,
                 modifier = Modifier
-                    .padding(horizontal = 20.dp)
+                    .padding(start = 20.dp, end = 20.dp, top = 6.dp)
                     .fillMaxWidth()
             ) {
                 Row(

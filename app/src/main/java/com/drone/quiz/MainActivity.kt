@@ -59,7 +59,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by ServiceLocator.settings.settings
                 .collectAsStateWithLifecycle(initialValue = AppSettings())
-            DroneTheme(themeMode = settings.themeMode, fontLevel = settings.fontLevel) {
+            DroneTheme(
+                themeMode = settings.themeMode,
+                fontLevel = settings.fontLevel,
+                readingFont = settings.readingFont
+            ) {
                 val context = LocalContext.current
                 val snapshot = ServiceLocator.bootSnapshot
                 var crashReport by remember { mutableStateOf(CrashGuard.readLast(context)) }

@@ -280,12 +280,15 @@ private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * 右侧快速滚动把手 v2（用户反馈"不顺滑、不好抓"）：
- * - 好抓：可视拇指加宽至 6dp/加高至 56dp、透明触控轨道加宽至 44dp 全高；
- * - 顺滑：拖动改为"按下时锁定基准 + 绝对映射"，不再以列表当前位置为增量基准
- *   （旧实现每帧以 firstVisibleItemIndex 回算，自反馈漂移导致抖动）；
- * - 支持：拖动跟手缩放高亮、点按轨道直接跳转；
- * - 拖动中暂停列表回填（松手后恢复跟随）。
+ * 右侧快速滚动把手 v3（用户反馈"一跳一跳像齿轮、拖动不像列表在滚"）：
+ * - 齿轮感根因：v2 跟随只读 `firstVisibleItemIndex`——每跨一题才更新一格（卡片高百余 dp）；
+ *   拖动用 `scrollToItem(index)` 也只能整题整题地跳。
+ * - v3 全链路改**像素级连续映射**：
+ *   跟随 fraction = 已滚出像素 / 可滚总像素（首 item 的 index+offset 换算，逐像素平滑）；
+ *   拖动 = 同一模型反向映射（目标像素 → scrollToItem(index, offset) 亚题精度），
+ *   上下滑与把手全程同步、无级差；
+ * - 绝对映射原则保留：拖动期间 fraction 只由手势驱动，列表回填不回写（无自反馈漂移）；
+ * - 样式收敛：拇指 4dp×44dp 胶囊，静态 32% 墨色低存在感，拖动放大 1.25 倍+提亮。
  */
 @Composable
 private fun FastScrollHandle(
@@ -297,17 +300,44 @@ private fun FastScrollHandle(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     var trackHeight by remember { mutableFloatStateOf(1f) }
-    val thumbHeightPx = with(density) { 56.dp.toPx() }
-    val lastIndex = (itemCount - 1).coerceAtLeast(1)
+    val thumbHeightPx = with(density) { 44.dp.toPx() }
 
     var dragging by remember { mutableStateOf(false) }
     var fraction by remember { mutableFloatStateOf(0f) }
+    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
-    // 非拖动态：拇指跟随列表位置
-    LaunchedEffect(dragging, lastIndex) {
+    // 列表像素几何：可见 item 平均高 → 全列表一维像素模型（头尾小 item 摊入平均，足够准）
+    fun thumbFractionFromList(): Float {
+        val info = listState.layoutInfo
+        val vis = info.visibleItemsInfo
+        if (vis.isEmpty() || info.totalItemsCount == 0) return 0f
+        val avg = vis.map { it.size }.average().coerceAtLeast(1.0)
+        val viewport = (info.viewportEndOffset - info.viewportStartOffset).toDouble()
+        val maxScroll = (info.totalItemsCount * avg - viewport).coerceAtLeast(1.0)
+        val first = vis.first()
+        val scrolled = (first.index * avg - first.offset).coerceAtLeast(0.0)
+        return (scrolled / maxScroll).toFloat().coerceIn(0f, 1f)
+    }
+
+    fun scrollToFraction(f: Float) {
+        val info = listState.layoutInfo
+        val vis = info.visibleItemsInfo
+        if (vis.isEmpty() || info.totalItemsCount == 0) return
+        val avg = vis.map { it.size }.average().coerceAtLeast(1.0)
+        val viewport = (info.viewportEndOffset - info.viewportStartOffset).toDouble()
+        val maxScroll = (info.totalItemsCount * avg - viewport).coerceAtLeast(1.0)
+        val targetPx = f.toDouble() * maxScroll
+        val idx = (targetPx / avg).toInt().coerceIn(0, info.totalItemsCount - 1)
+        val off = (targetPx - idx * avg).roundToInt().coerceAtLeast(0)
+        scrollJob?.cancel()
+        scrollJob = scope.launch { listState.scrollToItem(idx, off) }
+    }
+
+    // 非拖动态：拇指逐像素跟随列表（index+offset 连续读，替代 v2 的纯序号跳格）
+    LaunchedEffect(dragging) {
         if (!dragging) {
-            androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }
-                .collect { fraction = (it.toFloat() / lastIndex).coerceIn(0f, 1f) }
+            androidx.compose.runtime.snapshotFlow { thumbFractionFromList() }
+                .collect { fraction = it }
         }
     }
 
@@ -324,7 +354,7 @@ private fun FastScrollHandle(
             Modifier
                 .width(44.dp)
                 .fillMaxHeight()
-                .pointerInput(lastIndex, trackRange) {
+                .pointerInput(trackHeight) {
                     detectVerticalDragGestures(
                         onDragStart = { dragging = true },
                         onDragEnd = { dragging = false },
@@ -332,17 +362,16 @@ private fun FastScrollHandle(
                     ) { change, dy ->
                         change.consume()
                         fraction = (fraction + dy / trackRange).coerceIn(0f, 1f)
-                        scope.launch {
-                            listState.scrollToItem((fraction * lastIndex).roundToInt())
-                        }
+                        scrollToFraction(fraction)
                     }
                 }
-                .pointerInput(lastIndex, trackHeight) {
+                .pointerInput(trackHeight, thumbHeightPx) {
                     detectTapGestures { offset ->
-                        fraction = (offset.y / trackHeight).coerceIn(0f, 1f)
+                        fraction = ((offset.y - thumbHeightPx / 2f) / trackRange)
+                            .coerceIn(0f, 1f)
                         dragging = true
                         scope.launch {
-                            listState.scrollToItem((fraction * lastIndex).roundToInt())
+                            scrollToFraction(fraction)
                             kotlinx.coroutines.delay(350)
                             dragging = false
                         }
@@ -351,19 +380,19 @@ private fun FastScrollHandle(
             contentAlignment = Alignment.Center
         ) {
             val thumbScale by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = if (dragging) 1.3f else 1f,
+                targetValue = if (dragging) 1.25f else 1f,
                 animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 550f),
                 label = "thumbScale"
             )
             val thumbAlpha by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = if (dragging) 0.85f else 0.42f,
+                targetValue = if (dragging) 0.62f else 0.32f,
                 animationSpec = androidx.compose.animation.core.spring(stiffness = 550f),
                 label = "thumbAlpha"
             )
             Box(
                 Modifier
                     .offset(y = with(density) { (thumbOffsetY - trackRange / 2f).toDp() })
-                    .size(width = 6.dp, height = with(density) { thumbHeightPx.toDp() })
+                    .size(width = 4.dp, height = with(density) { thumbHeightPx.toDp() })
                     .scale(thumbScale)
                     .clip(Capsule())
                     .background(ui.ink.copy(alpha = thumbAlpha))

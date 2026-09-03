@@ -64,7 +64,10 @@ import com.drone.quiz.ui.glass.GlassToggle
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.BounceContainer
+import com.drone.quiz.ui.theme.LocalReadingFont
 import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.ui.theme.ReadingFontOptions
+import com.drone.quiz.ui.theme.readingFontOption
 import com.drone.quiz.work.ReminderScheduler
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.launch
@@ -222,9 +225,11 @@ fun SettingsScreen(backdrop: Backdrop) {
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {
+                        // v2.7.2：光标位置随文字起点（此前 TextAlign.End 导致光标顶到最右）；
+                        // 宽度 140→112dp（用户反馈"太宽"）
                         Box(
                             Modifier
-                                .width(140.dp)
+                                .width(112.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(ui.ink.copy(alpha = if (ui.isDark) 0.10f else 0.05f))
                                 .padding(horizontal = 14.dp, vertical = 9.dp)
@@ -236,7 +241,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                                 textStyle = TextStyle(
                                     color = ui.text, fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                    fontFamily = LocalReadingFont.current
                                 ),
                                 // 光标用正文墨色：accent 橙过扎眼（用户反馈）
                                 cursorBrush = SolidColor(ui.text),
@@ -246,7 +251,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                                 Text(
                                     "未设置",
                                     color = ui.textSub.copy(alpha = 0.55f), fontSize = 14.sp,
-                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                    modifier = Modifier.align(Alignment.CenterStart)
                                 )
                             }
                         }
@@ -323,6 +328,42 @@ fun SettingsScreen(backdrop: Backdrop) {
                         modifier = Modifier.width(200.dp)
                     )
                 }
+                // ---- 阅读字体（v2.7.2 新增）：系统默认 + 三款内嵌阅读字体，切换全局生效 ----
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("阅读字体", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            readingFontOption(settings.readingFont).desc,
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    SegmentedRow(
+                        options = ReadingFontOptions.map { it.label },
+                        selectedIndex = ReadingFontOptions
+                            .indexOfFirst { it.id == settings.readingFont }
+                            .coerceAtLeast(0),
+                        onSelect = { i ->
+                            scope.launch {
+                                ServiceLocator.settings.setReadingFont(ReadingFontOptions[i].id)
+                            }
+                        },
+                        modifier = Modifier.width(196.dp)
+                    )
+                }
+                // 所见即所得：示例行用当前选中字体渲染（全局切换后整页即预览）
+                Text(
+                    "无人机装调考证 · 升阻比 Aa 0123",
+                    color = ui.text,
+                    fontSize = 14.sp,
+                    fontFamily = LocalReadingFont.current,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
                 Row(
                     Modifier
                         .fillMaxWidth()

@@ -23,6 +23,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +54,7 @@ import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
+import com.drone.quiz.ui.theme.LocalReadingFont
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
@@ -138,7 +146,8 @@ fun SearchScreen(
                             textStyle = TextStyle(
                                 color = ui.text,
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = LocalReadingFont.current
                             ),
                             // 光标用正文墨色：accent 橙在浅底上过扎眼，用户反馈"光标有问题"
                             cursorBrush = SolidColor(ui.text),
@@ -290,7 +299,16 @@ private fun SearchResultItem(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(top = 10.dp)
             )
-            if (expanded) {
+            // v2.7.2：选项与解析展开加弹性动画（此前直出直隐，用户反馈"没有动画"）
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                ) + fadeIn(),
+                exit = shrinkVertically(
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                ) + fadeOut()
+            ) {
                 Column(Modifier.padding(top = 10.dp)) {
                     q.optionsOrJudge.forEachIndexed { i, opt ->
                         val isAnswer = i == q.answer
@@ -309,9 +327,11 @@ private fun SearchResultItem(
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
+                                // v2.7.2 修复：正确项绿底上字母原先是绿色（同色隐形），
+                                // 用户反馈"绿色选项里 ABC 不显示"——改白字
                                 Text(
                                     optionLabel(i, q.isJudge),
-                                    color = if (isAnswer) ui.correct else ui.textSub,
+                                    color = if (isAnswer) Color.White else ui.textSub,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -342,7 +362,8 @@ private fun SearchResultItem(
                         )
                     }
                 }
-            } else {
+            }
+            if (!expanded) {
                 Text(
                     "点开查看全部选项与解析",
                     color = ui.textSub, fontSize = 11.sp,

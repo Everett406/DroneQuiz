@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.data.settings.PracticeSession
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
@@ -71,6 +72,8 @@ fun PracticeConfigScreen(
 
     var typeFilter by remember { mutableStateOf("all") }   // all | single | judge
     var catFilter by remember { mutableStateOf("all") }
+    // 上次刷题会话快照：用于“将接续进度”提示与一键重新开始（v2.7.2）
+    var lastSession by remember { mutableStateOf<PracticeSession?>(null) }
     var categories by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
     var total by remember { mutableIntStateOf(0) }
     var accuracy by remember { mutableIntStateOf(0) }
@@ -78,6 +81,7 @@ fun PracticeConfigScreen(
     var todayAnswered by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
+        lastSession = runCatching { ServiceLocator.settings.currentPracticeSession() }.getOrNull()
         runCatching {
             categories = ServiceLocator.repo.categories().map { it.category to it.cnt }
             total = categories.sumOf { it.second }
@@ -239,6 +243,42 @@ fun PracticeConfigScreen(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            // ---- 续刷提示：同筛选下有未完成进度时展示，可一键重新开始（v2.7.2） ----
+            val snap = lastSession
+            val snapReusable = snap != null && snap.src == "all" &&
+                snap.type == typeFilter && snap.cat == catFilter &&
+                !sessionComplete(snap) && (snap.index > 0 || snap.answers.isNotEmpty())
+            if (snapReusable && snap != null) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "将接续上次进度 · 第 ${(snap.index + 1).coerceAtMost(snap.ids.size)} / ${snap.ids.size} 题",
+                        color = ui.textSub, fontSize = 12.sp
+                    )
+                    Text(
+                        "重新开始",
+                        color = ui.wrong, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(
+                                interactionSource = null,
+                                indication = null
+                            ) {
+                                scope.launch {
+                                    runCatching { ServiceLocator.settings.setPracticeSession(null) }
+                                    lastSession = null
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
             }
 
             // ---- 学习概览（填充页面 + 有用信息） ----

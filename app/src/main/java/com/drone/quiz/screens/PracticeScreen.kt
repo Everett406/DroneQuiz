@@ -98,6 +98,10 @@ fun PracticeRunScreen(
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
     var sessionMode by remember { mutableStateOf(resume) }
+    // 恢复中：抑制翻页持久化，防止 snapshotFlow 初始发射把快照 index 覆写回 0
+    // （旧版"每次点开都是第一题"的真病灶：恢复→发射 currentPage=0→异步落盘覆盖原进度→
+    //   恢复跳页读到的是被覆写后的 0）
+    var restoring by remember { mutableStateOf(false) }
     val answers = remember { mutableStateMapOf<Long, Int>() }
     var showPanel by remember { mutableStateOf(false) }
     var restoredTick by remember { mutableIntStateOf(0) }
@@ -124,15 +128,16 @@ fun PracticeRunScreen(
             runCatching {
             if (resume) {
                 val s = ServiceLocator.settings.currentPracticeSession()
-                if (s != null && s.ids.isNotEmpty()) {
+                if (s != null && s.ids.isNotEmpty() && !sessionComplete(s)) {
                     sessionMode = true
+                    restoring = true
                     val qs = ServiceLocator.repo.loadPracticeByIds(s.ids)
                     answers.clear()
                     s.answers.forEach { (k, v) -> k.toLongOrNull()?.let { answers[it] = v } }
                     restoredTick++          // 恢复完成后跳转进度
                     qs
                 } else {
-                    // 无会话可恢复：退化为按参数新开
+                    // 无会话可恢复 / 上轮已全部刷完：退化为按参数新开
                     sessionMode = false
                     loadByFilter(src, type, cat, settings.practiceOrder == 1)
                 }
@@ -140,14 +145,17 @@ fun PracticeRunScreen(
                 sessionMode = false
                 answers.clear()
                 // 自动接续：存在同筛选参数的会话快照 → 无缝恢复
-                // （刷过的题保留对错标记、直接定位到上次进度；换筛选=开新会话）
+                // （刷过的题保留对错标记、直接定位到上次进度；换筛选=开新会话；
+                //   上一轮已全部刷完 → 不再接续，随机模式自然重新洗牌）
                 val snap = runCatching { ServiceLocator.settings.currentPracticeSession() }.getOrNull()
                 if (src == "all" && snap != null && snap.src == "all" &&
+                    !sessionComplete(snap) &&
                     snap.type == type && snap.cat == cat
                 ) {
                     val qs = ServiceLocator.repo.loadPracticeByIds(snap.ids)
                     if (qs.isNotEmpty()) {
                         sessionMode = true
+                        restoring = true
                         snap.answers.forEach { (k, v) -> k.toLongOrNull()?.let { answers[it] = v } }
                         restoredTick++
                         qs
@@ -163,14 +171,16 @@ fun PracticeRunScreen(
         questions = result?.getOrElse { emptyList() }.orEmpty()
         loadError = result == null || result.isFailure
         loading = false
-        if (sessionMode && questions.isNotEmpty()) persistSession(src, type, cat, questions, answers, pagerState.currentPage)
+        // 注意：恢复路径不在此处落盘——落盘只发生在真实翻页/作答时，
+        // 避免用尚未跳转的 currentPage(0) 覆盖快照进度
     }
 
-    // 恢复会话：等 Pager 上屏后跳到上次进度
+    // 恢复会话：等 Pager 上屏后跳到上次进度；跳转完成后才恢复持久化（restoring 解除）
     LaunchedEffect(restoredTick) {
         if (restoredTick > 0 && questions.isNotEmpty()) {
             val target = ServiceLocator.settings.currentPracticeSession()?.index ?: 0
             pagerState.scrollToPage(target.coerceIn(0, questions.size - 1))
+            restoring = false
         }
     }
 
@@ -184,12 +194,12 @@ fun PracticeRunScreen(
         }
     }
 
-    // 翻页进度实时保存
+    // 翻页进度实时保存（恢复跳页期间静默，防止把进度覆写回 0）
     LaunchedEffect(questions) {
         if (questions.isEmpty()) return@LaunchedEffect
         snapshotFlow { pagerState.currentPage }
             .collectLatest { page ->
-                if (!loading) {
+                if (!loading && !restoring) {
                     persistSession(src, type, cat, questions, answers, page)
                 }
             }
@@ -460,6 +470,13 @@ private suspend fun loadByFilter(
         )
     }
 
+/** 会话是否已全部刷完（刷完的会话不再接续，下次进入自动开新一轮） */
+internal fun sessionComplete(s: PracticeSession): Boolean {
+    if (s.ids.isEmpty()) return false
+    val answered = s.answers.keys.mapNotNull { it.toLongOrNull() }.toSet()
+    return s.ids.all { it in answered }
+}
+
 /** 会话快照落盘（挂 appScope，静默失败不影响 UI） */
 internal fun persistSession(
     src: String,
@@ -683,16 +700,14 @@ private fun OptionRow(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (state > 0) {
-                Icon(
-                    if (state == 1) AppIcons.Check else AppIcons.Close,
-                    null,
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
-                )
-            } else {
-                Text(label, color = ui.textSub, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
+            // v2.7.2：正确/误选项徽章恢复显示原字母（白字），不再替换成 ✓/✕ 图标——
+            // 用户反馈"绿色选项里 ABC 不显示"；正确/你选的语义由行尾文字标签表达
+            Text(
+                label,
+                color = if (state > 0) Color.White else ui.textSub,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
         Text(
             text,

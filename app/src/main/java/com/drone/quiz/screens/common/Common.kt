@@ -28,9 +28,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -210,49 +208,20 @@ private fun fadeMaskBrush(): Brush = Brush.verticalGradient(
 )
 
 /**
- * 顶部柔化 v4 —— 生长式蒙版（v2.7.1，"过渡打磨"轮）。
+ * 顶部柔化 —— 已砍除（v2.7.2，用户裁定）。
  *
- * v3 的过渡病灶（用户视频定位）：strength 作为**整条渐变曲线的 alpha 缩放系数**，
- * 滚出 10px 时首卡整个 26dp 顶部区域被统一淡化 15% —— 内容"还没到边缘就开始变淡"，
- * 这就是"从非羽化到羽化的过渡突兀"的根源。
+ * 五版迭代（布尔蒙版 → draw 直读 → 雾条 → 动态离屏 → 生长式蒙版）后用户实测：
+ * "还是失败了……要不然就砍掉这个吧"。功能下线，函数保留签名作历史占位——
+ * 六个调用点（首页/设置/刷题配置/模考/错题本/搜索）的滚动容器
+ * （BounceLazyColumn / BounceContainer / LazyColumn）均自带固定边界裁剪，
+ * 内容滚出即在容器上缘干净直切，无蒙版、无离屏、无渐变。
  *
- * v4 模型（空间正确，iOS maskedCorners 同款行为）：
- * - 蒙版带高度 = min(已滚出像素, fadeHeight)：滚到哪里、淡到哪里；
- *   视口内未达边缘的内容 alpha 恒为 1，永不提前变淡；
- * - 蒙版底端 alpha 恒为 1，与下方未蒙版内容天然无缝（无强度切换边界）；
- * - 曲线 smoothstep：顶部迅速趋 0（内容"融化"进边缘）、靠下平缓衔接；
- * - 稳态带高提升至 36dp（调用处可覆写），淡出更绵长；
- * - saveLayer 手动离屏框架保留（v2.7.0 用户录屏确认：无闪、无截断）。
+ * 答题卡/题号网格的 softVerticalEdges 不受影响（纯色格子无玻璃互作，无此问题）。
  */
 fun Modifier.softTopFade(
     fadeHeight: Dp = 36.dp,
     scrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f }
-): Modifier = this.drawWithContent {
-    val h = fadeHeight.toPx()
-    val scrolled = scrolledPx()
-    if (scrolled <= 0.5f) {
-        drawContent()
-        return@drawWithContent
-    }
-    val expand = 24.dp.toPx()
-    val layerPaint = android.graphics.Paint()
-    drawIntoCanvas { canvas ->
-        canvas.nativeCanvas.saveLayer(
-            android.graphics.RectF(-expand, -expand, size.width + expand, size.height + expand),
-            layerPaint
-        )
-        drawContent()
-        // 生长式蒙版：带高 = 已滚出量（封顶 fadeHeight），底端 alpha=1 无缝衔接
-        val effective = scrolled.coerceAtMost(h)
-        drawRect(
-            brush = fadeMaskBrush(),
-            topLeft = Offset.Zero,
-            size = Size(size.width, effective),
-            blendMode = BlendMode.DstIn
-        )
-        canvas.nativeCanvas.restore()
-    }
-}
+): Modifier = this
 
 /**
  * 屏幕大标题（每页最顶部）。
