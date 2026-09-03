@@ -161,8 +161,8 @@ fun androidx.compose.foundation.lazy.grid.LazyGridState.remainingBottomPx(): Flo
 
 /**
  * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
- * 同样 draw 阶段读强度：topScrolledPx = 顶部已滚出像素，
- * bottomRemainingPx = 距底部剩余像素；贴边的一侧自动无柔化，题号不再被裁切。
+ * v2.7.1 同步生长式模型：带高 = min(滚出/剩余像素, 带高上限)，
+ * 内容"滚到哪里淡到哪里"，未达边缘的区域永不变淡；曲线 smoothstep。
  */
 fun Modifier.softVerticalEdges(
     top: Dp = 20.dp,
@@ -175,24 +175,22 @@ fun Modifier.softVerticalEdges(
         drawContent()
         val th = top.toPx()
         val bh = bottom.toPx()
-        val ts = (topScrolledPx() / th).coerceIn(0f, 1f)
-        val bs = (bottomRemainingPx() / bh).coerceIn(0f, 1f)
+        val te = topScrolledPx().coerceAtLeast(0f).coerceAtMost(th)
+        val be = bottomRemainingPx().coerceAtLeast(0f).coerceAtMost(bh)
         if (size.height > th + bh) {
-            if (th > 0f && ts > 0.01f) {
+            if (th > 0f && te > 0.5f) {
                 drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0f), 1f to Color.Black.copy(alpha = ts),
-                        startY = 0f, endY = th
-                    ),
+                    brush = fadeMaskBrush(),
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, te),
                     blendMode = BlendMode.DstIn
                 )
             }
-            if (bh > 0f && bs > 0.01f) {
+            if (bh > 0f && be > 0.5f) {
                 drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = bs), 1f to Color.Black.copy(alpha = 0f),
-                        startY = size.height - bh, endY = size.height
-                    ),
+                    brush = fadeMaskBrush(),
+                    topLeft = Offset(0f, size.height - be),
+                    size = Size(size.width, be),
                     blendMode = BlendMode.DstIn
                 )
             }
@@ -200,30 +198,39 @@ fun Modifier.softVerticalEdges(
     }
 
 /**
- * 顶部柔化 v3 —— saveLayer 手动离屏（v2.7.0，用户视频确认 graphicsLayer 方案不可用后重做）。
+ * 边缘淡出曲线：smoothstep 五采样（两端平缓、中段顺滑）。
+ * 线性渐变的"被幕布切"观感主要来自曲线两端斜率突变，smoothstep 消除之。
+ */
+private fun fadeMaskBrush(): Brush = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = 0f),
+    0.25f to Color.Black.copy(alpha = 0.16f),
+    0.5f to Color.Black.copy(alpha = 0.5f),
+    0.75f to Color.Black.copy(alpha = 0.84f),
+    1f to Color.Black.copy(alpha = 1f)
+)
+
+/**
+ * 顶部柔化 v4 —— 生长式蒙版（v2.7.1，"过渡打磨"轮）。
  *
- * 历史病灶回顾：
- * - graphicsLayer + compositingStrategy=Offscreen（无条件）：玻璃卡上溢高光被层边界裁掉；
- * - compositingStrategy 动态切换（v2.6.4）：阈值穿越时 graphicsLayer 重建，重建帧整层
- *   未就绪 → 用户录屏中多帧"整页内容变淡"（灾难性闪烁）。
+ * v3 的过渡病灶（用户视频定位）：strength 作为**整条渐变曲线的 alpha 缩放系数**，
+ * 滚出 10px 时首卡整个 26dp 顶部区域被统一淡化 15% —— 内容"还没到边缘就开始变淡"，
+ * 这就是"从非羽化到羽化的过渡突兀"的根源。
  *
- * 根本差异：不再持有跨帧的 graphicsLayer——改为**在单次 draw pass 内**用
- * canvas.saveLayer / restore 临时离屏：
- * - layer 每帧独立创建销毁，无跨帧状态 → 无参数切换、无重建闪烁；
- * - 仅需要蒙版（已滚离顶部）时才 saveLayer，顶部静止时直接 drawContent（零开销、
- *   玻璃卡上溢高光/阴影完整直绘）；
- * - saveLayer 边界四周扩大 24dp：滚入蒙版区的玻璃卡上溢绘制（高光/阴影）被保留，
- *   不再出现"首卡上阴影被截断"；
- * - DstIn 蒙版按列表真实顶部坐标绘制（不随扩边偏移）；
- * - 强度依旧由 scrolledPx() 在 draw 阶段直读（跟手连续、零重组）。
+ * v4 模型（空间正确，iOS maskedCorners 同款行为）：
+ * - 蒙版带高度 = min(已滚出像素, fadeHeight)：滚到哪里、淡到哪里；
+ *   视口内未达边缘的内容 alpha 恒为 1，永不提前变淡；
+ * - 蒙版底端 alpha 恒为 1，与下方未蒙版内容天然无缝（无强度切换边界）；
+ * - 曲线 smoothstep：顶部迅速趋 0（内容"融化"进边缘）、靠下平缓衔接；
+ * - 稳态带高提升至 36dp（调用处可覆写），淡出更绵长；
+ * - saveLayer 手动离屏框架保留（v2.7.0 用户录屏确认：无闪、无截断）。
  */
 fun Modifier.softTopFade(
-    fadeHeight: Dp = 26.dp,
+    fadeHeight: Dp = 36.dp,
     scrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f }
 ): Modifier = this.drawWithContent {
     val h = fadeHeight.toPx()
-    val s = (scrolledPx() / h).coerceIn(0f, 1f)
-    if (s <= 0.02f) {
+    val scrolled = scrolledPx()
+    if (scrolled <= 0.5f) {
         drawContent()
         return@drawWithContent
     }
@@ -235,14 +242,12 @@ fun Modifier.softTopFade(
             layerPaint
         )
         drawContent()
+        // 生长式蒙版：带高 = 已滚出量（封顶 fadeHeight），底端 alpha=1 无缝衔接
+        val effective = scrolled.coerceAtMost(h)
         drawRect(
-            brush = Brush.verticalGradient(
-                0f to Color.Black.copy(alpha = 0f),
-                1f to Color.Black.copy(alpha = s),
-                startY = 0f, endY = h
-            ),
+            brush = fadeMaskBrush(),
             topLeft = Offset.Zero,
-            size = Size(size.width, h),
+            size = Size(size.width, effective),
             blendMode = BlendMode.DstIn
         )
         canvas.nativeCanvas.restore()

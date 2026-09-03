@@ -44,7 +44,7 @@ data class AppSettings(
     val glassBlur: Int = 1,      // 底栏玻璃模糊档位：0 低 / 1 中 / 2 高
     val wallpaper: String = "",  // 全局壁纸文件路径（空 = 默认渐变）
     val wallpaperBlur: Boolean = false, // 壁纸是否模糊化（作玻璃背景纹路）
-    val nickname: String = "",   // 用户昵称（空 = 首页显示默认称呼"机长"）
+    val nickname: String = "",   // 用户昵称（空 = 首页只按时间问候，不带称呼）
     val searchHistory: List<String> = emptyList() // 搜索历史（最新在前，最多 8 条）
 )
 

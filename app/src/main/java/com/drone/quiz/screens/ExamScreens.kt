@@ -123,7 +123,7 @@ fun ExamConfigScreen(
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp) { scrollState.scrolledFromTopPx() }
+                .softTopFade(36.dp) { scrollState.scrolledFromTopPx() }
         ) {
         Column(
             Modifier

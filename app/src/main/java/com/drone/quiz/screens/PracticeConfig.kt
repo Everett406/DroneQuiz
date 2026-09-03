@@ -104,7 +104,7 @@ fun PracticeConfigScreen(
                     .fillMaxWidth()
                     .padding(bottom = 4.dp)
                     .heroSearchField(),
-                cornerRadius = 20.dp,
+                cornerRadius = 22.dp,
                 onClick = onSearch
             ) {
                 Row(
@@ -136,7 +136,7 @@ fun PracticeConfigScreen(
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp) { cfgScroll.scrolledFromTopPx() }
+                .softTopFade(36.dp) { cfgScroll.scrolledFromTopPx() }
         ) {
         Column(
             Modifier

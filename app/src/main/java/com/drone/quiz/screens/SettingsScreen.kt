@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,14 +79,10 @@ fun SettingsScreen(backdrop: Backdrop) {
 
     var bankInfo by remember { mutableStateOf("加载中…") }
     var nameDraft by remember(settings.nickname) { mutableStateOf(settings.nickname) }
-    LaunchedEffect(nameDraft) {
-        if (nameDraft.trim() != settings.nickname) {
-            kotlinx.coroutines.delay(600)   // 防抖：停止输入 600ms 后保存
-            ServiceLocator.settings.setNickname(nameDraft)
-        }
-    }
+    val nameDirty = nameDraft.trim() != settings.nickname
     var importMsg by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // 通知权限：Android 13+ 系统弹窗请求；拒绝则静默不置位，不再展示说教文案
     val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -198,7 +195,7 @@ fun SettingsScreen(backdrop: Backdrop) {
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp) { scrollState.scrolledFromTopPx() }
+                .softTopFade(36.dp) { scrollState.scrolledFromTopPx() }
         ) {
         Column(
             Modifier
@@ -211,7 +208,7 @@ fun SettingsScreen(backdrop: Backdrop) {
         SectionLabel("外观")
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
-                // ---- 昵称（首页问候语用，空 = 默认"机长"） ----
+                // ---- 昵称（首页问候语用；默认不取名，只按时间问候；可自定义≤5字，确认生效） ----
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -220,35 +217,61 @@ fun SettingsScreen(backdrop: Backdrop) {
                     Column(Modifier.weight(1f)) {
                         Text("昵称", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "首页会按时间向你问候（最多 12 字）",
+                            "首页会按时间向你问候",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }
-                    Box(
-                        Modifier
-                            .width(140.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(ui.ink.copy(alpha = if (ui.isDark) 0.10f else 0.05f))
-                            .padding(horizontal = 14.dp, vertical = 9.dp)
-                    ) {
-                        BasicTextField(
-                            value = nameDraft,
-                            onValueChange = { nameDraft = it },
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = ui.text, fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End
-                            ),
-                            cursorBrush = SolidColor(ui.accent),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (nameDraft.isBlank()) {
-                            Text(
-                                "机长",
-                                color = ui.textSub.copy(alpha = 0.6f), fontSize = 14.sp,
-                                modifier = Modifier.align(Alignment.CenterEnd)
+                    Column(horizontalAlignment = Alignment.End) {
+                        Box(
+                            Modifier
+                                .width(140.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(ui.ink.copy(alpha = if (ui.isDark) 0.10f else 0.05f))
+                                .padding(horizontal = 14.dp, vertical = 9.dp)
+                        ) {
+                            BasicTextField(
+                                value = nameDraft,
+                                onValueChange = { nameDraft = it.take(5) },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = ui.text, fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                ),
+                                // 光标用正文墨色：accent 橙过扎眼（用户反馈）
+                                cursorBrush = SolidColor(ui.text),
+                                modifier = Modifier.fillMaxWidth()
                             )
+                            if (nameDraft.isBlank()) {
+                                Text(
+                                    "未设置",
+                                    color = ui.textSub.copy(alpha = 0.55f), fontSize = 14.sp,
+                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                )
+                            }
+                        }
+                        // 有未保存修改时出现"确认"（显式生效，替代此前的防抖自动保存）
+                        androidx.compose.animation.AnimatedVisibility(nameDirty) {
+                            Box(
+                                Modifier
+                                    .padding(top = 6.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(ui.accent)
+                                    .clickable(
+                                        interactionSource = null,
+                                        indication = null
+                                    ) {
+                                        ServiceLocator.settings.setNickname(nameDraft.trim())
+                                        focusManager.clearFocus(force = true)
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    "确认",
+                                    color = Color.White, fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }

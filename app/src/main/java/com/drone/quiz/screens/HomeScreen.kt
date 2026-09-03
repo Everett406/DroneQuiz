@@ -156,7 +156,9 @@ fun HomeScreen(
                     else -> "晚上好"
                 }
                 Text(
-                    "$greeting，${settings.nickname.ifBlank { "机长" }}",
+                    // 默认不取名（用户反馈"机长"出戏）：未设置昵称时只按时间问候
+                    settings.nickname.trim().takeIf { it.isNotEmpty() }
+                        ?.let { "$greeting，$it" } ?: greeting,
                     color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold
                 )
                 Text(
@@ -179,7 +181,7 @@ fun HomeScreen(
         BounceLazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .softTopFade(30.dp) { homeListState.scrolledFromTopPx() },
+                .softTopFade(36.dp) { homeListState.scrolledFromTopPx() },
             listState = homeListState
         ) {
             // ---- 总览：进度环 + 预估通过率 ----
@@ -266,7 +268,9 @@ fun HomeScreen(
             }
         }
 
-        // ---- 打卡双卡（连击里程碑 + 今日；IntrinsicSize 等高，消除高度不齐） ----
+        // ---- 打卡双卡（连击里程碑 + 今日；IntrinsicSize 等高 + 完全同构排版） ----
+        // v2.7.1 统一：两卡同为"图标+标签 / 大数字 / 副行 / 进度条 / 底注"五行结构，
+        // 字号、间距、条高逐行对齐，仅图标与条色按语义区分（用户反馈排版凌乱）
         item {
             Row(
                 Modifier
@@ -288,26 +292,33 @@ fun HomeScreen(
                                 AppIcons.Flame,
                                 null,
                                 tint = ui.accent,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                             Text(
-                                "${stats.streak} 天",
-                                color = ui.text,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(start = 6.dp)
+                                "连击",
+                                color = ui.textSub,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 5.dp)
                             )
                         }
                         Text(
+                            "${stats.streak} 天",
+                            color = ui.text,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Text(
                             streakHint,
                             color = ui.textSub, fontSize = 11.sp,
-                            modifier = Modifier.padding(top = 6.dp)
+                            modifier = Modifier.padding(top = 4.dp)
                         )
-                        // 距下一里程碑进度条
+                        Spacer(Modifier.weight(1f))
+                        // 距下一里程碑进度条（与今日卡同高同位）
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp)
                                 .height(5.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(ui.ink.copy(alpha = 0.1f))
@@ -340,24 +351,42 @@ fun HomeScreen(
                     cornerRadius = 22.dp
                 ) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("今日", color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                AppIcons.Check,
+                                null,
+                                tint = ui.correct,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                "今日",
+                                color = ui.textSub,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 5.dp)
+                            )
+                        }
                         Text(
                             "${stats.todayAnswered} 题",
                             color = ui.text,
-                            fontSize = 22.sp,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 8.dp)
                         )
                         val accToday = if (stats.todayAnswered > 0) {
                             (stats.todayCorrect * 100) / stats.todayAnswered
                         } else 0
-                        Text("正确 $accToday%", color = ui.textSub, fontSize = 12.sp)
-                        // 对错占比条：让卡片下半部分不再空洞（有数据支撑的可视化）
+                        Text(
+                            "正确 $accToday%",
+                            color = ui.textSub, fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                         Spacer(Modifier.weight(1f))
+                        // 对错占比条（与连击卡同高同位）
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .height(6.dp)
+                                .height(5.dp)
                                 .clip(RoundedCornerShape(50))
                                 .background(ui.ink.copy(alpha = 0.08f))
                         ) {
@@ -378,7 +407,7 @@ fun HomeScreen(
                                 "答对 ${stats.todayCorrect} · 答错 ${stats.todayAnswered - stats.todayCorrect}"
                             else "今天还没开始，来几题热热手",
                             color = ui.textSub, fontSize = 10.sp,
-                            modifier = Modifier.padding(top = 6.dp)
+                            modifier = Modifier.padding(top = 5.dp)
                         )
                     }
                 }

@@ -179,6 +179,9 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 .blur(overlayBlur)
         ) {
             SharedTransitionLayout {
+            // Hero 根因修复：scope 从未 provide → heroSearchField() 永远走
+            // "current==null 则原样返回"的兜底，sharedElement 从未挂上（v2.7.0 病灶）
+            CompositionLocalProvider(LocalSharedTransitionScope provides this) {
             NavHost(
                 navController = navController,
                 startDestination = Routes.HOME,
@@ -309,6 +312,7 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 composable(Routes.SETTINGS) {
                     SettingsScreen(backdrop = bgBackdrop)
                 }
+            }
             }
             }
         }

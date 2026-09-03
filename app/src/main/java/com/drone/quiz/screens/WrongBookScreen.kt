@@ -194,7 +194,7 @@ fun WrongBookScreen(
                 BounceLazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .softTopFade(30.dp) { listState.scrolledFromTopPx() },
+                        .softTopFade(36.dp) { listState.scrolledFromTopPx() },
                     state = bounce,
                     listState = listState
                 ) {

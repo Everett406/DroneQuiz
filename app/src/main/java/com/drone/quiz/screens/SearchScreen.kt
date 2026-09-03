@@ -140,7 +140,8 @@ fun SearchScreen(
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             ),
-                            cursorBrush = SolidColor(ui.accent),
+                            // 光标用正文墨色：accent 橙在浅底上过扎眼，用户反馈"光标有问题"
+                            cursorBrush = SolidColor(ui.text),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -166,7 +167,7 @@ fun SearchScreen(
         LazyColumn(
             Modifier
                 .fillMaxSize()
-                .softTopFade(20.dp) { resultListState.scrolledFromTopPx() },
+                .softTopFade(28.dp) { resultListState.scrolledFromTopPx() },
             state = resultListState
         ) {
             item {
