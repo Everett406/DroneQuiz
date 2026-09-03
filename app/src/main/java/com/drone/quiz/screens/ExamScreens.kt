@@ -3,7 +3,6 @@ package com.drone.quiz.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +56,8 @@ import com.drone.quiz.data.repo.Repo
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.screens.common.remainingBottomPx
+import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softVerticalEdges
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
@@ -117,17 +118,12 @@ fun ExamConfigScreen(
             ScreenTitle("模考", "模拟真实考试 · 倒计时自动交卷", Modifier.padding(vertical = 16.dp))
         }
 
-        // 标题柔化动态化：滚离顶部才渐显，停在顶部时不遮挡首屏内容
+        // 标题柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影，滑出渐显跟手）
         val scrollState = rememberScrollState()
-        val titleFade by animateFloatAsState(
-            targetValue = if (scrollState.canScrollBackward) 1f else 0f,
-            animationSpec = tween(180),
-            label = "titleFade"
-        )
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp, titleFade)
+                .softTopFade(30.dp) { scrollState.scrolledFromTopPx() }
         ) {
         Column(
             Modifier
@@ -614,16 +610,9 @@ fun ExamScreen(
                     ExamSheetLegend(ui.ink.copy(alpha = 0.25f), "已答")
                     ExamSheetLegend(ui.ink.copy(alpha = 0.08f), "未答")
                 }
-                // 网格柔化动态化：仅在网格有可滚空间的一侧渐隐，题号停在顶/底时不再被渐变裁切
+                // 网格柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影）；
+                // 贴顶/贴底的一侧自动无柔化，题号不再被渐变裁切
                 val sheetGridState = rememberLazyGridState()
-                val gridTopFade by animateFloatAsState(
-                    targetValue = if (sheetGridState.canScrollBackward) 1f else 0f,
-                    animationSpec = tween(180), label = "gridTopFade"
-                )
-                val gridBottomFade by animateFloatAsState(
-                    targetValue = if (sheetGridState.canScrollForward) 1f else 0f,
-                    animationSpec = tween(180), label = "gridBottomFade"
-                )
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(6),
                     state = sheetGridState,
@@ -631,8 +620,11 @@ fun ExamScreen(
                         .fillMaxWidth()
                         .height(340.dp)
                         .padding(vertical = 14.dp)
-                        // 上下边缘柔化：首末行渐隐而非硬切（用户圈选反馈）
-                        .softVerticalEdges(top = 16.dp, bottom = 22.dp, topStrength = gridTopFade, bottomStrength = gridBottomFade),
+                        .softVerticalEdges(
+                            top = 16.dp, bottom = 22.dp,
+                            topScrolledPx = { sheetGridState.scrolledFromTopPx() },
+                            bottomRemainingPx = { sheetGridState.remainingBottomPx() }
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

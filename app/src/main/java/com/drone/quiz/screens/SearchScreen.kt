@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassCard
@@ -149,17 +148,12 @@ fun SearchScreen(
         }
 
         // ---- 结果列表 ----
-        // 顶部柔化动态化：滚离顶部才渐显（搜索提示行/首条结果不被渐变裁切）
+        // 顶部柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影，滑出渐显跟手）
         val resultListState = rememberLazyListState()
-        val titleFade by animateFloatAsState(
-            targetValue = if (resultListState.canScrollBackward) 1f else 0f,
-            animationSpec = tween(180),
-            label = "titleFade"
-        )
         LazyColumn(
             Modifier
                 .fillMaxSize()
-                .softTopFade(20.dp, titleFade),
+                .softTopFade(20.dp) { resultListState.scrolledFromTopPx() },
             state = resultListState
         ) {
             item {

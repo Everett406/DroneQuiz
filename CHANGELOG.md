@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-09-03
+
+### 修复 —— 柔化伪影与突变（用户第七轮实测反馈；惯性修复 v5 本轮确认有效）
+
+- **柔化"要么有要么没有"+出现时闪一下+重影伪影（同根三症）**：此前柔化强度经 `animateFloatAsState` 驱动、以参数形式传入 `softTopFade`/`softVerticalEdges`——强度每帧变化都生成**全新 Modifier 实例**，`graphicsLayer(Offscreen)` 与 `drawWithContent` 节点随之每帧销毁重建：重建瞬间旧离屏层残影=**重影伪影**（截图卡片两角色块）、重建黑帧=**"所有东西消失 0.05 秒"**、渐变被闪烁淹没=**突变感**。重写为官方 *defer state reads* 模式：强度改为 **draw 阶段经 lambda 读取**（`scrolledPx: () -> Float`），Modifier 实例全程稳定零重建，状态变化只触发重绘——伪影与闪烁根除
+- **渐显不再有固定 180ms 动画延迟**：强度直接跟随"顶部已滚出像素 / fadeHeight"**连续**变化——滑出多少渐显多少、跟手无延迟，真正的"渐渐出来"；贴顶/贴底时依旧完全无柔化。配套新增 `LazyListState/LazyGridState/ScrollState.scrolledFromTopPx()` 与 `LazyGridState.remainingBottomPx()`（底部剩余像素近似，供答题卡网格底部柔化连续渐显）
+- 清理 6 个文件中的未用动画 import
+
 ## [2.6.1] - 2026-09-03
 
 ### 修复 —— 滚动惯性真根因（用户第六轮实测反馈）

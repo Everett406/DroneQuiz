@@ -26,8 +26,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +53,7 @@ import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.db.WrongWithQuestion
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
@@ -81,12 +80,6 @@ fun WrongBookScreen(
     val wrongList by ServiceLocator.repo.activeWrong().collectAsState(initial = emptyList())
     val bounce = rememberBounceState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    // 标题柔化动态化：滚离顶部才渐显（筛选 chips/首卡不被渐变裁切）
-    val titleFade by animateFloatAsState(
-        targetValue = if (listState.canScrollBackward) 1f else 0f,
-        animationSpec = tween(180),
-        label = "titleFade"
-    )
 
     // ---- 筛选：题型 + 分类 ----
     var typeFilter by remember { mutableStateOf("all") }   // all | single | judge
@@ -196,8 +189,8 @@ fun WrongBookScreen(
                 BounceLazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        // 顶部柔化：内容滚入固定标题/筛选区下方时渐隐（滚离顶部才渐显）
-                        .softTopFade(30.dp, titleFade),
+                        // 顶部柔化：draw 阶段直读滚动像素（稳定无伪影，滑出渐显跟手）
+                        .softTopFade(30.dp) { listState.scrolledFromTopPx() },
                     state = bounce,
                     listState = listState
                 ) {

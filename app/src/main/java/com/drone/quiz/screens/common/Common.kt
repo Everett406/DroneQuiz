@@ -122,19 +122,53 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
+ * 列表/网格/滚动容器"顶部已滚出的像素"（供柔化连续渐显；
+ * 在 draw 阶段读取，状态变化只触发重绘，零重组、零 Modifier 重建）。
+ */
+fun androidx.compose.foundation.lazy.LazyListState.scrolledFromTopPx(): Float =
+    if (firstVisibleItemIndex > 0) Float.MAX_VALUE * 0.5f else firstVisibleItemScrollOffset.toFloat()
+
+fun androidx.compose.foundation.lazy.grid.LazyGridState.scrolledFromTopPx(): Float =
+    if (firstVisibleItemIndex > 0) Float.MAX_VALUE * 0.5f else firstVisibleItemScrollOffset.toFloat()
+
+fun androidx.compose.foundation.ScrollState.scrolledFromTopPx(): Float = value.toFloat()
+
+/**
+ * 网格"距底部剩余像素"近似（未显示 item 数 × 平均可视行高 + 尾部残量），
+ * 用于底部柔化连续渐显。
+ */
+fun androidx.compose.foundation.lazy.grid.LazyGridState.remainingBottomPx(): Float {
+    val info = layoutInfo
+    val infos = info.visibleItemsInfo
+    if (infos.isEmpty()) return 0f
+    val last = infos.last()
+    if (last.index >= info.totalItemsCount - 1) return 0f
+    val lastBottom = last.offset.y + last.size.height
+    val tail = (info.viewportEndOffset - lastBottom).coerceAtLeast(0)
+    val avg = infos.map { it.size.height }.average().toFloat().coerceAtLeast(1f)
+    return tail + (info.totalItemsCount - 1 - last.index) * avg
+}
+
+/**
  * 顶部柔化：内容滚入固定标题下方时按 alpha 渐隐（DstIn 蒙版，
  * 不依赖背景色，任意渐变/壁纸/玻璃面板上都干净）。
  *
- * strength：柔化强度 0..1，可绑定列表滚动位置（在顶部时 0 = 不遮挡内容，
- * 离开顶部后淡入到 1）——修复柔化永远存在导致顶部内容（如进度环）被渐变裁切的观感。
+ * v2.6.2 重写（用户实测两问题：柔化"要么有要么没有"+出现时闪一下/重影伪影）：
+ * 1. 强度改为 draw 阶段经 scrolledPx() lambda 读取——Modifier 实例全程稳定，
+ *    不再随动画每帧重建离屏层（重建瞬间旧 layer 残影=伪影、黑帧=闪一下）；
+ * 2. 强度直接跟随"顶部已滚出像素 / fadeHeight"连续变化——滑出多少渐显多少，
+ *    跟手无延迟，真正的"渐渐出来"（此前 0/1 布尔+tween 的体感是突变）。
  */
-fun Modifier.softTopFade(fadeHeight: Dp = 26.dp, strength: Float = 1f): Modifier = this
+fun Modifier.softTopFade(
+    fadeHeight: Dp = 26.dp,
+    scrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f }
+): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
-        val s = strength.coerceIn(0f, 1f)
-        if (s <= 0.01f) return@drawWithContent
         val h = fadeHeight.toPx()
+        val s = (scrolledPx() / h).coerceIn(0f, 1f)
+        if (s <= 0.01f) return@drawWithContent
         if (h > 0f && size.height > h) {
             drawRect(
                 brush = Brush.verticalGradient(
@@ -148,22 +182,22 @@ fun Modifier.softTopFade(fadeHeight: Dp = 26.dp, strength: Float = 1f): Modifier
 
 /**
  * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
- * topStrength / bottomStrength：0..1，绑定网格能否向上/下滚动
- * （顶/底到底时对应侧不柔化，题号不被遮挡）。
+ * 同样 draw 阶段读强度：topScrolledPx = 顶部已滚出像素，
+ * bottomRemainingPx = 距底部剩余像素；贴边的一侧自动无柔化，题号不再被裁切。
  */
 fun Modifier.softVerticalEdges(
     top: Dp = 20.dp,
     bottom: Dp = 24.dp,
-    topStrength: Float = 1f,
-    bottomStrength: Float = 1f
+    topScrolledPx: () -> Float = { Float.MAX_VALUE * 0.5f },
+    bottomRemainingPx: () -> Float = { Float.MAX_VALUE * 0.5f }
 ): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
-        val ts = topStrength.coerceIn(0f, 1f)
-        val bs = bottomStrength.coerceIn(0f, 1f)
         val th = top.toPx()
         val bh = bottom.toPx()
+        val ts = (topScrolledPx() / th).coerceIn(0f, 1f)
+        val bs = (bottomRemainingPx() / bh).coerceIn(0f, 1f)
         if (size.height > th + bh) {
             if (th > 0f && ts > 0.01f) {
                 drawRect(

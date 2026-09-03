@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -41,6 +39,7 @@ import androidx.core.content.ContextCompat
 import com.drone.quiz.BuildConfig
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.screens.common.ScreenTitle
+import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
@@ -148,17 +147,12 @@ fun SettingsScreen(backdrop: Backdrop) {
             ScreenTitle("设置", "外观 / 刷题 / 数据", Modifier.padding(vertical = 16.dp))
         }
 
-        // 标题柔化动态化：滚离顶部才渐显，停在顶部时不遮挡首屏内容
+        // 标题柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影，滑出渐显跟手）
         val scrollState = rememberScrollState()
-        val titleFade by animateFloatAsState(
-            targetValue = if (scrollState.canScrollBackward) 1f else 0f,
-            animationSpec = tween(180),
-            label = "titleFade"
-        )
         BounceContainer(
             Modifier
                 .weight(1f)
-                .softTopFade(30.dp, titleFade)
+                .softTopFade(30.dp) { scrollState.scrolledFromTopPx() }
         ) {
         Column(
             Modifier

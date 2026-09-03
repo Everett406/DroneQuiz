@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Repo
 import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
@@ -162,17 +163,13 @@ fun HomeScreen(
             )
         }
 
-        // 标题柔化动态化：仅在列表已滚离顶部时渐显（停在顶部时不遮挡进度环等首屏内容）
+        // 标题柔化：强度在 draw 阶段直读滚动像素——Modifier 稳定不重建（无伪影/闪烁），
+        // 且滑出多少渐显多少，真正"渐渐出来"；停在顶部时无柔化
         val homeListState = rememberLazyListState()
-        val titleFade by animateFloatAsState(
-            targetValue = if (homeListState.canScrollBackward) 1f else 0f,
-            animationSpec = tween(180),
-            label = "titleFade"
-        )
         BounceLazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .softTopFade(30.dp, titleFade),
+                .softTopFade(30.dp) { homeListState.scrolledFromTopPx() },
             listState = homeListState
         ) {
             // ---- 总览：进度环 + 预估通过率 ----

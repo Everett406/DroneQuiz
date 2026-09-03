@@ -2,9 +2,7 @@ package com.drone.quiz.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -60,6 +58,8 @@ import com.drone.quiz.data.settings.PracticeSession
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.remainingBottomPx
+import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softVerticalEdges
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
@@ -402,16 +402,9 @@ fun PracticeRunScreen(
                     PanelLegend(ui.wrong, "答错")
                     PanelLegend(null, "未答")
                 }
-                // 网格柔化动态化：仅在网格有可滚空间的一侧渐隐，题号停在顶/底时不再被渐变裁切
+                // 网格柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影）；
+                // 贴顶/贴底的一侧自动无柔化，题号不再被渐变裁切
                 val panelGridState = rememberLazyGridState()
-                val gridTopFade by animateFloatAsState(
-                    targetValue = if (panelGridState.canScrollBackward) 1f else 0f,
-                    animationSpec = tween(180), label = "gridTopFade"
-                )
-                val gridBottomFade by animateFloatAsState(
-                    targetValue = if (panelGridState.canScrollForward) 1f else 0f,
-                    animationSpec = tween(180), label = "gridBottomFade"
-                )
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(6),
                     state = panelGridState,
@@ -419,8 +412,11 @@ fun PracticeRunScreen(
                         .fillMaxWidth()
                         .height(340.dp)
                         .padding(vertical = 14.dp)
-                        // 上下边缘柔化：首末行渐隐而非硬切
-                        .softVerticalEdges(top = 16.dp, bottom = 22.dp, topStrength = gridTopFade, bottomStrength = gridBottomFade),
+                        .softVerticalEdges(
+                            top = 16.dp, bottom = 22.dp,
+                            topScrolledPx = { panelGridState.scrolledFromTopPx() },
+                            bottomRemainingPx = { panelGridState.remainingBottomPx() }
+                        ),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
