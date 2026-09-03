@@ -358,7 +358,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                 }
                 // 所见即所得：示例行用当前选中字体渲染（全局切换后整页即预览）
                 Text(
-                    "无人机装调考证 · 升阻比 Aa 0123",
+                    "这是一段示例文本 Aa 0123",
                     color = ui.text,
                     fontSize = 14.sp,
                     fontFamily = LocalReadingFont.current,
@@ -625,8 +625,8 @@ fun SettingsScreen(backdrop: Backdrop) {
                     Column(Modifier.weight(1f)) {
                         Text("每日提醒", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (settings.dailyNotify) "已开启 · 在你常刷题的时间提醒，当天刷过不打扰"
-                            else "在你常刷题的时间提醒一次，当天刷过就不打扰",
+                            if (settings.dailyNotify) "已开启 · 刷过当天不打扰"
+                            else "每天定时提醒 · 刷过不打扰",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }
@@ -724,7 +724,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                         .weight(1f)
                         .padding(horizontal = 10.dp)
                 ) {
-                    Text("无人机装调题库 v${BuildConfig.VERSION_NAME}", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("题屿 v${BuildConfig.VERSION_NAME}", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Text(
                         "液态玻璃 by Kyant0 backdrop · 离线本地题库",
                         color = ui.textSub, fontSize = 11.sp

@@ -70,6 +70,7 @@ import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -124,6 +125,12 @@ fun PracticeRunScreen(
     LaunchedEffect(src, type, cat, resume, reloadTick) {
         loading = true
         loadError = false
+        // 关键：必须挂起读 DataStore 真值——collectAsState 首帧是 AppSettings() 默认值，
+        // 协程首帧启动时 DataStore 往往尚未发射，用快照里的 practiceOrder 永远是默认 0(顺序)，
+        // 用户选了随机也会被当成顺序加载（v2.7.2 及之前"随机=顺序"的第二根因）
+        val order = runCatching {
+            ServiceLocator.settings.settings.first().practiceOrder
+        }.getOrDefault(0)
         val result = withTimeoutOrNull(10_000) {
             runCatching {
             if (resume) {
@@ -139,7 +146,7 @@ fun PracticeRunScreen(
                 } else {
                     // 无会话可恢复 / 上轮已全部刷完：退化为按参数新开
                     sessionMode = false
-                    loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                    loadByFilter(src, type, cat, order == 1)
                 }
             } else {
                 sessionMode = false
@@ -160,10 +167,10 @@ fun PracticeRunScreen(
                         restoredTick++
                         qs
                     } else {
-                        loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                        loadByFilter(src, type, cat, order == 1)
                     }
                 } else {
-                    loadByFilter(src, type, cat, settings.practiceOrder == 1)
+                    loadByFilter(src, type, cat, order == 1)
                 }
             }
             }
@@ -477,7 +484,12 @@ internal fun sessionComplete(s: PracticeSession): Boolean {
     return s.ids.all { it in answered }
 }
 
-/** 会话快照落盘（挂 appScope，静默失败不影响 UI） */
+/**
+ * 会话快照落盘（挂 appScope，静默失败不影响 UI）。
+ * 错题特训（src="wrong"）不落盘：快照只有一份全局槽位，特训一写就把主刷题会话覆掉，
+ * 用户回配置页再开刷时接续判定 snap.src=="all" 失败 → 从头开始（"不会跳到上次进度"真因之一）。
+ * 特训进度本就由 recordAnswer 记账，无需会话恢复。
+ */
 internal fun persistSession(
     src: String,
     type: String,
@@ -486,7 +498,7 @@ internal fun persistSession(
     answers: Map<Long, Int>,
     index: Int
 ) {
-    if (questions.isEmpty()) return
+    if (questions.isEmpty() || src == "wrong") return
     ServiceLocator.appScope.launch {
         runCatching {
             ServiceLocator.settings.setPracticeSession(

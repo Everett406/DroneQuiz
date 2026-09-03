@@ -166,11 +166,12 @@ fun WrongBookScreen(
             }
         } else {
             // ---- 固定筛选行：题型 + 分类 chips ----
+            // bottom 12dp：列表卡片滚动到顶时与胶囊之间保留固定空隙（此前贴边擦蹭）
             Row(
                 Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 2.dp),
+                    .padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip("全部", typeFilter == "all" && catFilter == "all") {
@@ -288,7 +289,7 @@ private fun FilterChip(text: String, selected: Boolean, onClick: () -> Unit) {
  *   拖动 = 同一模型反向映射（目标像素 → scrollToItem(index, offset) 亚题精度），
  *   上下滑与把手全程同步、无级差；
  * - 绝对映射原则保留：拖动期间 fraction 只由手势驱动，列表回填不回写（无自反馈漂移）；
- * - 样式收敛：拇指 4dp×44dp 胶囊，静态 32% 墨色低存在感，拖动放大 1.25 倍+提亮。
+ * - 样式收敛：拇指 5dp×44dp 胶囊，静态 40% 墨色（比 v3 稍清晰好认），拖动加粗提亮 72%。
  */
 @Composable
 private fun FastScrollHandle(
@@ -385,14 +386,14 @@ private fun FastScrollHandle(
                 label = "thumbScale"
             )
             val thumbAlpha by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = if (dragging) 0.62f else 0.32f,
+                targetValue = if (dragging) 0.72f else 0.40f,
                 animationSpec = androidx.compose.animation.core.spring(stiffness = 550f),
                 label = "thumbAlpha"
             )
             Box(
                 Modifier
                     .offset(y = with(density) { (thumbOffsetY - trackRange / 2f).toDp() })
-                    .size(width = 4.dp, height = with(density) { thumbHeightPx.toDp() })
+                    .size(width = 5.dp, height = with(density) { thumbHeightPx.toDp() })
                     .scale(thumbScale)
                     .clip(Capsule())
                     .background(ui.ink.copy(alpha = thumbAlpha))

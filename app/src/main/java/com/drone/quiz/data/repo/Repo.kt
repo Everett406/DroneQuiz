@@ -161,9 +161,10 @@ class Repo(private val db: AppDatabase) {
             .let { if (random) it.shuffled() else it }
             .take(limit)
         if (ids.isEmpty()) return@withContext emptyList()
-        qDao.byIds(ids).map { it.toQuestion() }.let { list ->
-            if (random) list else list.sortedBy { it.id }
-        }
+        // 关键：Room 的 IN (:ids) 返回顺序固定按主键升序，会把 shuffled 顺序完全吃掉
+        // （v2.7.2 及之前"随机刷题=顺序刷题"的根因）→ 必须按洗牌后的 ids 保序重排
+        val map = qDao.byIds(ids).associateBy { it.id }
+        ids.mapNotNull { map[it]?.toQuestion() }
     }
 
     suspend fun loadWrongPractice(): List<Question> = withContext(Dispatchers.IO) {

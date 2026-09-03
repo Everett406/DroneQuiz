@@ -55,7 +55,7 @@ class ReminderWorker(context: Context, params: WorkerParameters) :
         val (title, text) = if (streak > 0) {
             "连击 $streak 天进行中" to "今天还没刷题，别把连击断了"
         } else {
-            "今天还没刷题" to "花几分钟，刷几道装调题吧"
+            "今天还没刷题" to "花几分钟，刷几道题吧"
         }
 
         val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

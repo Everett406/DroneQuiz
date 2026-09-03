@@ -68,23 +68,23 @@ data class ReadingFontOption(
 )
 
 val ReadingFontOptions: List<ReadingFontOption> = listOf(
-    ReadingFontOption("system", "系统", "跟随手机自带字体", null),
+    ReadingFontOption("system", "系统", "手机自带", null),
     ReadingFontOption(
-        "sans", "黑体", "思源黑体 · 清晰均匀",
+        "sans", "黑体", "清晰耐读",
         FontFamily(
             Font(R.font.notosans_sc_regular, FontWeight.Normal),
             Font(R.font.notosans_sc_bold, FontWeight.Bold)
         )
     ),
     ReadingFontOption(
-        "serif", "宋体", "思源宋体 · 书卷阅读",
+        "serif", "宋体", "书卷气息",
         FontFamily(
             Font(R.font.notoserif_sc_regular, FontWeight.Normal),
             Font(R.font.notoserif_sc_bold, FontWeight.Bold)
         )
     ),
     ReadingFontOption(
-        "kai", "文楷", "霞鹜文楷 · 温润手写",
+        "kai", "文楷", "温润手写",
         FontFamily(
             Font(R.font.lxgwwenkai_regular, FontWeight.Normal),
             Font(R.font.lxgwwenkai_medium, FontWeight.Bold)
