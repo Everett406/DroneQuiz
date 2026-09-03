@@ -96,7 +96,8 @@ fun readingFontOption(id: String): ReadingFontOption =
     ReadingFontOptions.firstOrNull { it.id == id } ?: ReadingFontOptions.first()
 
 /** 当前全局阅读字体（默认 FontFamily.Default；DroneTheme 注入）。 */
-val LocalReadingFont = staticCompositionLocalOf { FontFamily.Default }
+val LocalReadingFont: androidx.compose.runtime.ProvidableCompositionLocal<FontFamily> =
+    staticCompositionLocalOf<FontFamily> { FontFamily.Default }
 
 private val LightScheme: ColorScheme = lightColorScheme(
     primary = Color(0xFF1B1811),
