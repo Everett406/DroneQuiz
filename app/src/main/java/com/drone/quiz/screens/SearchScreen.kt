@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Question
 import com.drone.quiz.data.repo.optionLabel
+import kotlinx.coroutines.flow.first
 import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.screens.common.heroSearchField
 import com.drone.quiz.screens.common.scrolledFromTopPx

@@ -81,6 +81,8 @@ class Repo(private val db: AppDatabase) {
 
     fun banksFlow(): Flow<List<BankEntity>> = bDao.allFlow()
 
+    fun countFlow(): Flow<Int> = qDao.countFlow()
+
     suspend fun bankListWithCounts(): List<Pair<BankEntity, Int>> = withContext(Dispatchers.IO) {
         bDao.all().map { it to qDao.countByBank(it.id) }
     }
@@ -167,7 +169,7 @@ class Repo(private val db: AppDatabase) {
         val bank = json.decodeFromString<ImportBank>(bytes.decodeToString())
         require(bank.questions.isNotEmpty()) { "题库为空" }
         return bank.questions.map { q ->
-            val type = QuestionTypes.normalizeType(q.type) ?: QuestionTypes.SINGLE
+            val type = BankImport.normalizeType(q.type) ?: QuestionTypes.SINGLE
             val opts = if (type == QuestionTypes.JUDGE) listOf("正确", "错误") else q.options
             val parsed = ParsedQuestion(
                 id = q.id,
@@ -212,6 +214,10 @@ class Repo(private val db: AppDatabase) {
     }
 
     private fun ParsedQuestion.multiAnswerCount(): Int = (0..31).count { answer and (1 shl it) != 0 }
+
+    private fun stableHash(s: String): Long = 1125899906842597L.let { h ->
+        s.fold(h) { acc, c -> 31 * acc + c.code }.let { if (it < 0) -it else it }
+    }
 
     /** 导入为独立题库（不替换现有题库）；题 id 从全库最大值之后顺序分配，保证全局唯一。 */
     suspend fun importParsedBank(name: String, preview: ImportPreview): String = withContext(Dispatchers.IO) {

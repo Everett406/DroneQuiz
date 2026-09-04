@@ -544,6 +544,31 @@ private fun examTypeSummary(rec: com.drone.quiz.data.db.ExamRecordEntity): Strin
     return parts.joinToString(" ").ifBlank { "${rec.total} 题" }
 }
 
+/**
+ * 模考设置小卡（2×2 网格单元）：标签 + 当前值 + 迷你滑杆。
+ */
+@Composable
+private fun ExamSettingCell(
+    backdrop: Backdrop,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    slider: @Composable () -> Unit
+) {
+    val ui = LocalUi.current
+    GlassCard(backdrop = backdrop, modifier = modifier, cornerRadius = 20.dp) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(label, color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(
+                value,
+                color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Box(Modifier.padding(top = 6.dp)) { slider() }
+        }
+    }
+}
+
 /** 每型题数步进行。 */
 @Composable
 private fun TypeStepperRow(label: String, count: Int, available: Int, onMinus: () -> Unit, onPlus: () -> Unit) {
@@ -618,20 +643,21 @@ private fun ReorderableTypeList(order: List<String>, onReorder: (List<String>) -
                                 change.consume()
                                 dragOffset += dy
                                 val cur = latestOrder
-                                if (cur.isEmpty()) return@detectDragGesturesAfterLongPress
-                                val rowPx = rowH.toPx()
-                                var guard = 0
-                                while (abs(dragOffset) > rowPx && guard++ < 10) {
-                                    val from = dragging ?: break
-                                    val dir = if (dragOffset > 0) 1 else -1
-                                    val to = from + dir
-                                    if (to !in cur.indices) break
-                                    val newList = cur.toMutableList().apply {
-                                        val item = removeAt(from); add(to, item)
+                                if (cur.isNotEmpty()) {
+                                    val rowPx = rowH.toPx()
+                                    var guard = 0
+                                    while (abs(dragOffset) > rowPx && guard++ < 10) {
+                                        val from = dragging ?: break
+                                        val dir = if (dragOffset > 0) 1 else -1
+                                        val to = from + dir
+                                        if (to !in cur.indices) break
+                                        val newList = cur.toMutableList().apply {
+                                            val item = removeAt(from); add(to, item)
+                                        }
+                                        onReorder(newList)
+                                        dragging = to
+                                        dragOffset -= dir * rowPx
                                     }
-                                    onReorder(newList)
-                                    dragging = to
-                                    dragOffset -= dir * rowPx
                                 }
                             }
                         )

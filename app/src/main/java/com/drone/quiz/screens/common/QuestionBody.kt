@@ -194,6 +194,7 @@ private fun ResultTag(state: Int?) {
     }
 }
 
+@Composable
 private fun optionColors(state: Int): Pair<Color, Color> {
     val ui = LocalUi.current
     return when (state) {
@@ -375,7 +376,7 @@ fun ShortDraftField(
             fontFamily = LocalReadingFont.current
         ),
         shape = RoundedCornerShape(14.dp),
-        colors = androidx.compose.material3.TextFieldDefaults.outlinedTextFieldColors(
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
             focusedBorderColor = ui.ink.copy(alpha = 0.35f),
             unfocusedBorderColor = ui.ink.copy(alpha = 0.12f),
             disabledBorderColor = ui.ink.copy(alpha = 0.08f),

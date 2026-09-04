@@ -113,14 +113,14 @@ data class ImportPreview(
 }
 
 data class ParsedQuestion(
-    val id: Long? = null,
     val category: String,
     val type: String,
     val question: String,
     val options: List<String>,
     val answer: Int,          // single/judge 下标；multi 位掩码
     val answerText: String,   // blank / short
-    val explanation: String
+    val explanation: String,
+    val id: Long? = null      // JSON 内置题库可指定稳定 id
 )
 
 object BankImport {
@@ -197,7 +197,7 @@ object BankImport {
         val optionCols = IntArray(8) { -1 }
         header.forEachIndexed { idx, h ->
             val m = Regex("^(?:选项|option)?([A-Ha-h])$").find(h)
-            if (m != null) optionCols[m.groupValues[1].uppercaseChar() - 'A'] = idx
+            if (m != null) optionCols[m.groupValues[1].uppercase().first() - 'A'] = idx
         }
 
         val errors = mutableListOf<String>()
@@ -352,7 +352,7 @@ object BankImport {
 
     /** 多选答案：从字符串提取全部 A–H（容忍 ABD / A、B、D / A,B,D 写法） */
     private fun parseMultiIndices(raw: String): List<Int>? {
-        val chars = raw.uppercase().filter { it in 'A'..'H' }.distinct()
+        val chars = raw.uppercase().filter { it in 'A'..'H' }.toCharArray().distinct()
         if (chars.isEmpty()) return null
         return chars.map { it - 'A' }
     }

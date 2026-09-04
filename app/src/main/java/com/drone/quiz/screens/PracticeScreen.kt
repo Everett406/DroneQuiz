@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -551,7 +552,7 @@ internal fun persistSession(
                     cat = cat,
                     ids = questions.map { it.id },
                     answers = answers.mapKeys { it.key.toString() },
-                    details = details.mapValues { (_, ua) -> answerJson.encodeToString(ua) },
+                    details = details.entries.associate { it.key.toString() to answerJson.encodeToString(it.value) },
                     index = index,
                     bankId = bankId
                 ),

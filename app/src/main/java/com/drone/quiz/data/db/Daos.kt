@@ -135,9 +135,6 @@ interface RecordDao {
     )
     suspend fun totalAttemptsByBank(bankId: String): Int
 
-    @Query("SELECT COUNT(DISTINCT qid) FROM wrongbook WHERE removed = 0")
-    fun wrongCountFlow(): Flow<Int>
-
     @Query("SELECT COALESCE(SUM(correct),0) FROM question_stats WHERE attempts > 0")
     suspend fun totalCorrect(): Int
 

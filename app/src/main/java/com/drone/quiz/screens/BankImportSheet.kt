@@ -280,7 +280,7 @@ fun BankImportSheet(
                     onValueChange = { nameDraft = it },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    colors = androidx.compose.material3.TextFieldDefaults.outlinedTextFieldColors(
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ui.ink.copy(alpha = 0.35f),
                         unfocusedBorderColor = ui.ink.copy(alpha = 0.12f),
                         cursorColor = ui.ink,
