@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-09-04
+
+### 修复 —— 升级启动崩溃（v2.8.0(23) 老用户升级必崩）
+
+- **根因**：`MIGRATION_1_2` 用 `ALTER TABLE ADD COLUMN` 给非空列附了 DEFAULT 值，而实体未声明 `@ColumnInfo(defaultValue=...)`，Room 打开库时逐列校验 schema 不匹配 → `IllegalStateException: Migration didn't properly handle`；且 v2 给 `ExamRecordEntity` 新增的 `Index("startedAt")` 迁移中未补建。SQLite 对非空列的 ADD COLUMN 必须带 DEFAULT，无法产出实体要求的 schema
+- **修复**：迁移改为 Room 标准重建表模式——建 `_new_questions` / `_new_exam_records`（与实体完全一致、无 DEFAULT）→ `INSERT SELECT` 拷数据 → 删旧表 → 改名 → 重建全部索引（questions 的 category/type/bankId + exam_records 的 startedAt）；`exam_answers.detail`（可空 TEXT）保留 ADD COLUMN
+- **数据安全**：Room 校验失败时 onUpgrade 事务整体回滚，崩溃过的设备库仍停在 v1 且未受损，覆盖安装本版后迁移自动重新执行；新增自动化验证脚本（真实 SQLite 上按 v1 建库播种 → 执行迁移 → 逐列逐索引比对 Room v2 期望 + 17 项数据保留断言）全部通过
+- **防回归**：static_check 新增两条 must 断言（迁移重建表模式 / startedAt 索引）与一条 FAIL 级禁令（db 层 SQL 禁止非空列附 DEFAULT）
+
 ## [2.8.0] - 2026-09-04
 
 ### 新增 —— 多题库管理（用户第十六轮需求）

@@ -134,10 +134,21 @@ must = [
     ("practiceSessionRandom", "刷题会话随机槽"),
     ("examDeleteQuota", "模考删除周限额"),
     ("addUsageMs", "打赏使用时长累计"),
+    ("_new_exam_records", "MIGRATION_1_2 重建表模式(v2.8.1 修启动崩)"),
+    ("index_exam_records_startedAt", "迁移补建 startedAt 索引(Room 校验必需)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):
         print(f"[FAIL] 未找到 {desc}（{pat}）"); fail = True
+
+# 3.5) 迁移 SQL 禁止模式：NOT NULL 列带 DEFAULT 会与实体(未声明 defaultValue)校验不匹配，
+#      启动即崩（v2.8.0(23) 已踩坑）。非空新列必须走重建表模式。
+for f in FILES:
+    if os.sep + "db" + os.sep in f or f.endswith(os.sep + "AppDatabase.kt"):
+        for lineno, line in enumerate(load(f).splitlines(), 1):
+            if "NOT NULL DEFAULT" in line:
+                print(f"[FAIL] 迁移 SQL 禁止 NOT NULL DEFAULT（实体无 defaultValue 必崩）: {f}:{lineno}")
+                fail = True
 
 print("PASS" if not fail else "STATIC CHECK FAILED")
 sys.exit(1 if fail else 0)

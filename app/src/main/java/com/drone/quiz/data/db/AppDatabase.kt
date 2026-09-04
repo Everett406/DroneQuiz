@@ -33,21 +33,57 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * v1 → v2（v2.8.0 多题库 + 新题型）：正式 Migration，老用户学习数据完整保留。
-         * - 新增 banks 表；questions 加 bankId（存量题默认归入内置无人机题库）与 answerText（填空/简答）
-         * - exam_records 加 bankId 与 extraCounts（新题型计数）；exam_answers 加 detail（填空/简答作答明细）
+         *
+         * 修复历史（v2.8.1）：原实现用 `ALTER TABLE ADD COLUMN` 给非空列附 DEFAULT 值，
+         * 而实体未声明 @ColumnInfo(defaultValue=...)，Room 校验期待「无默认值」→ 启动即崩
+         * （Migration didn't properly handle）；且 v2 给 ExamRecordEntity 新增的
+         * Index("startedAt") 也未建。SQLite 的 ADD COLUMN 对非空列必须带 DEFAULT，
+         * 无法产出实体要求的 schema，故改用 Room 标准重建表模式：
+         * 建 _new 表（与实体完全一致，无 DEFAULT）→ 拷数据 → 删旧表 → 改名 → 补齐全部索引。
+         * 校验失败时 onUpgrade 整体回滚，升级崩过的设备库仍停在 v1，本迁移会重新执行。
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                // ---- questions：+bankId/+answerText，索引 category/type/bankId 全部重建 ----
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `_new_questions` (`id` INTEGER NOT NULL, " +
+                        "`category` TEXT NOT NULL, `type` TEXT NOT NULL, `question` TEXT NOT NULL, " +
+                        "`options` TEXT NOT NULL, `answer` INTEGER NOT NULL, `explanation` TEXT NOT NULL, " +
+                        "`bankId` TEXT NOT NULL, `answerText` TEXT NOT NULL, PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "INSERT INTO `_new_questions` (`id`,`category`,`type`,`question`,`options`,`answer`,`explanation`,`bankId`,`answerText`) " +
+                        "SELECT `id`,`category`,`type`,`question`,`options`,`answer`,`explanation`,'drone','' FROM `questions`"
+                )
+                db.execSQL("DROP TABLE `questions`")
+                db.execSQL("ALTER TABLE `_new_questions` RENAME TO `questions`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_category` ON `questions` (`category`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_type` ON `questions` (`type`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_bankId` ON `questions` (`bankId`)")
+
+                // ---- exam_records：+bankId/+extraCounts，并补建 v2 新增的 startedAt 索引 ----
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `_new_exam_records` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `total` INTEGER NOT NULL, " +
+                        "`singleCount` INTEGER NOT NULL, `judgeCount` INTEGER NOT NULL, `durationSec` INTEGER NOT NULL, " +
+                        "`score` REAL, `passed` INTEGER, `bankId` TEXT NOT NULL, `extraCounts` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO `_new_exam_records` (`id`,`startedAt`,`finishedAt`,`total`,`singleCount`,`judgeCount`,`durationSec`,`score`,`passed`,`bankId`,`extraCounts`) " +
+                        "SELECT `id`,`startedAt`,`finishedAt`,`total`,`singleCount`,`judgeCount`,`durationSec`,`score`,`passed`,'drone','' FROM `exam_records`"
+                )
+                db.execSQL("DROP TABLE `exam_records`")
+                db.execSQL("ALTER TABLE `_new_exam_records` RENAME TO `exam_records`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_exam_records_startedAt` ON `exam_records` (`startedAt`)")
+
+                // ---- exam_answers：可空 TEXT 列可直接 ADD（无 NOT NULL/DEFAULT，与实体一致） ----
+                db.execSQL("ALTER TABLE `exam_answers` ADD COLUMN `detail` TEXT")
+
+                // ---- banks：新表 + 内置题库登记 ----
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `banks` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
                         "`source` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
                 )
-                db.execSQL("ALTER TABLE `questions` ADD COLUMN `bankId` TEXT NOT NULL DEFAULT 'drone'")
-                db.execSQL("ALTER TABLE `questions` ADD COLUMN `answerText` TEXT NOT NULL DEFAULT ''")
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_bankId` ON `questions` (`bankId`)")
-                db.execSQL("ALTER TABLE `exam_records` ADD COLUMN `bankId` TEXT NOT NULL DEFAULT 'drone'")
-                db.execSQL("ALTER TABLE `exam_records` ADD COLUMN `extraCounts` TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE `exam_answers` ADD COLUMN `detail` TEXT")
                 db.execSQL(
                     "INSERT OR IGNORE INTO `banks` (`id`, `name`, `source`, `createdAt`) " +
                         "VALUES ('drone', '无人机装调题库', 'builtin', ${System.currentTimeMillis()})"
