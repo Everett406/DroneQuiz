@@ -299,7 +299,9 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
         category: String?,
         type: String?,
         random: Boolean,
-        limit: Int = 800,
+        // v2.8.6：800→2000——导入大型题库（如驾考 1000+ 题）后，超出部分永远进不了题单；
+        // 内存开销可控（2000 题 ≈ 数 MB），答题卡/翻页均为惰性组合
+        limit: Int = 2000,
         // v2.8.4 题型多选：types 非空且 size>1 时优先走 IN 查询（type 参数被忽略）
         types: List<String>? = null
     ): List<Question> = withContext(Dispatchers.IO) {
@@ -428,7 +430,8 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
         bankId: String,
         counts: Map<String, Int>,
         durationSec: Int,
-        typeOrder: List<String>
+        typeOrder: List<String>,
+        passLine: Int = 60 // v2.8.6：开考时设定的合格线，随记录存档供成绩单回显
     ): Pair<Long, List<Question>> = withContext(Dispatchers.IO) {
         val order = typeOrder.filter { it in QuestionTypes.canonicalOrder }
             .ifEmpty { QuestionTypes.canonicalOrder }
@@ -455,6 +458,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
                     judgeCount = qs.count { it.type == QuestionTypes.JUDGE },
                     durationSec = durationSec,
                     bankId = bankId,
+                    passLine = passLine.coerceIn(1, 100),
                     extraCounts = json.encodeToString(
                         mapOf(
                             QuestionTypes.MULTI to qs.count { it.type == QuestionTypes.MULTI },
@@ -555,6 +559,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
             passed = passed,
             correct = correctIds.size,
             total = questions.size,
+            passLine = passScore,
             wrongQuestions = questions.filter { judged[it.id] != true },
             userAnswers = questions.associate { it.id to displayUserAnswer(it, answers[it.id]) }
         )
@@ -565,6 +570,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
         val passed: Boolean,
         val correct: Int,
         val total: Int,
+        val passLine: Int = 60, // v2.8.6：本场设定的合格线（成绩单回显）
         val wrongQuestions: List<Question>,
         val userAnswers: Map<Long, String> = emptyMap()
     )
@@ -593,6 +599,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
             passed = rec.passed ?: false,
             correct = answers.count { it.isCorrect == true },
             total = rec.total,
+            passLine = rec.passLine,
             wrongQuestions = answers
                 .filter { it.isCorrect == false }
                 .mapNotNull { map[it.qid]?.toQuestion() },

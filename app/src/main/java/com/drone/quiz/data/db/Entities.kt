@@ -1,5 +1,6 @@
 package com.drone.quiz.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -60,7 +61,10 @@ data class ExamRecordEntity(
     val score: Float? = null,
     val passed: Boolean? = null,
     val bankId: String = "drone",        // v2.8.0：所属题库（按题库隔离展示）
-    val extraCounts: String = ""         // v2.8.0：新题型计数 JSON，如 {"multi":5,"blank":3,"short":2}
+    val extraCounts: String = "",        // v2.8.0：新题型计数 JSON，如 {"multi":5,"blank":3,"short":2}
+    // v2.8.6：开考时设定的合格线（成绩单回显用）。非空新列必须带 DEFAULT 且实体声明一致的
+    // @ColumnInfo(defaultValue)——v2.8.1 已踩坑（Room 逐列校验 schema）
+    @ColumnInfo(defaultValue = "60") val passLine: Int = 60
 )
 
 @Entity(tableName = "exam_answers", indices = [Index("examId"), Index("qid")])

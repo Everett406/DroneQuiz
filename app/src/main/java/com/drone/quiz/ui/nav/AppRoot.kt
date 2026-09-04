@@ -65,7 +65,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
-import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.data.settings.RootSettings
 import com.drone.quiz.screens.ExamConfigScreen
 import com.drone.quiz.screens.ExamResultScreen
 import com.drone.quiz.screens.ExamScreen
@@ -116,7 +116,7 @@ object Routes {
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
+fun AppRoot(settings: RootSettings) {
     val ui = LocalUi.current
     val navController: NavHostController = rememberNavController()
     val appScope = rememberCoroutineScope()
@@ -475,7 +475,7 @@ object SupportBus {
 private fun SupportPromptHost(
     backdrop: Backdrop,
     currentRoute: String?,
-    settings: AppSettings
+    settings: RootSettings
 ) {
     val scope = rememberCoroutineScope()
     var show by remember { mutableStateOf(false) }
@@ -645,7 +645,12 @@ private fun SupportSheetContent(
                                 bitmap = bmp,
                                 contentDescription = "收款码",
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier.heightIn(max = 300.dp)
+                                // v2.8.6：截图素材本身是直角的，不裁切的话圆角白卡里会露出
+                                // 一张四角见方的收款码截图（用户反馈"没有被外面那层圆角裁切"），
+                                // 给图片自身加内层圆角，与外层白卡同心
+                                modifier = Modifier
+                                    .heightIn(max = 300.dp)
+                                    .clip(RoundedCornerShape(10.dp))
                             )
                         } else {
                             Text(

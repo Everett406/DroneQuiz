@@ -57,6 +57,8 @@ import kotlinx.coroutines.withContext
  * 题库导入底部弹窗。
  * v2.8.0：JSON / CSV 双通道；v2.8.5：改为 CSV / ZIP 双通道（JSON 下线），
  * ZIP 支持题目 CSV + 图片文件夹；「查看示例」改为「复制 Agent 提示词」。
+ * v2.8.6：删去卡片描述与底部说明小字（用户口径：界面要干净），
+ * 「复制 Agent 提示词」→「提示词」、「分享 CSV 模板」→「CSV 模板」。
  */
 @Composable
 fun BankImportSheet(
@@ -167,29 +169,24 @@ fun BankImportSheet(
                         .padding(top = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // v2.8.6：删去卡内灰色描述小字（“Excel / AI 生成的表格”“CSV + 图片，支持带图题目”）
                     ImportOptionCard(
-                        title = "CSV 表格",
-                        desc = "Excel / AI 生成的表格",
+                        title = "导入 CSV",
                         modifier = Modifier.weight(1f),
                         backdrop = backdrop
                     ) { csvLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "text/plain;charset=utf-8", "application/csv")) }
                     ImportOptionCard(
-                        title = "ZIP 压缩包",
-                        desc = "CSV + 图片，支持带图题目",
+                        title = "导入 ZIP",
                         modifier = Modifier.weight(1f),
                         backdrop = backdrop
                     ) { zipLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }
                 }
 
-                Text(
-                    "把 Excel / Word / PDF 题库材料交给 Agent，按提示词整理成 CSV 或 ZIP 后导入。",
-                    color = ui.textSub, fontSize = 12.sp, lineHeight = 17.sp,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
+                // v2.8.6：删去“把 Excel / Word / PDF 题库材料交给 Agent…”说明小字（用户口径）
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     GlassButton(
@@ -199,7 +196,7 @@ fun BankImportSheet(
                         heightDp = 42.dp,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("复制 Agent 提示词", color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("提示词", color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                     GlassButton(
                         onClick = {
@@ -216,7 +213,7 @@ fun BankImportSheet(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            templateSaved ?: "分享 CSV 模板",
+                            templateSaved ?: "CSV 模板",
                             color = if (templateSaved?.startsWith("分享失败") == true) ui.wrong else ui.text,
                             fontSize = 13.sp, fontWeight = FontWeight.SemiBold
                         )
@@ -368,7 +365,7 @@ fun BankImportSheet(
         GlassPromptDialog(
             backdrop = backdrop,
             title = "Agent 整理提示词",
-            hint = "复制后连同你的 Excel / Word / PDF 题库材料一起发给 AI Agent，让它整理成题屿可导入的 CSV / ZIP。",
+            hint = "复制后连同你的 Excel / Word / PDF 题库材料一起发给 Agent，让它整理成题屿可导入的 CSV / ZIP。",
             body = AGENT_PROMPT,
             confirmText = "复制提示词",
             dismissText = "关闭",
@@ -384,7 +381,6 @@ fun BankImportSheet(
 @Composable
 private fun ImportOptionCard(
     title: String,
-    desc: String,
     modifier: Modifier = Modifier,
     backdrop: Backdrop,
     onClick: () -> Unit
@@ -404,7 +400,6 @@ private fun ImportOptionCard(
                 color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 6.dp)
             )
-            Text(desc, color = ui.textSub, fontSize = 10.sp)
         }
     }
 }

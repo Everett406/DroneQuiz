@@ -631,6 +631,31 @@ fun SettingsScreen(backdrop: Backdrop) {
                         backdrop = backdrop
                     )
                 }
+
+                // ---- 护眼提醒（v2.8.6，防沉迷口径）：连续刷题 20 分钟弹窗提醒看看远处 ----
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("护眼提醒", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (settings.eyeCareReminder) "已开启 · 连续刷题每 20 分钟提醒休息"
+                            else "连续刷题 20 分钟提醒休息 · 考试不受影响",
+                            color = ui.textSub, fontSize = 12.sp
+                        )
+                    }
+                    GlassToggle(
+                        checked = { settings.eyeCareReminder },
+                        onCheckedChange = { v ->
+                            scope.launch { ServiceLocator.settings.setEyeCareReminder(v) }
+                        },
+                        backdrop = backdrop
+                    )
+                }
             }
         }
 

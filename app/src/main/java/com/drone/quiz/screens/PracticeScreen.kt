@@ -57,6 +57,8 @@ import com.drone.quiz.data.repo.UserAnswer
 import com.drone.quiz.data.repo.judgeAnswer
 import com.drone.quiz.data.repo.isAnswered
 import com.drone.quiz.data.repo.optionLabel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.settings.PracticeSession
 import com.drone.quiz.screens.common.BlankInlineFields
@@ -77,6 +79,7 @@ import com.drone.quiz.screens.common.softVerticalEdges
 import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
+import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassBottomSheet
@@ -84,7 +87,9 @@ import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -109,8 +114,22 @@ fun PracticeRunScreen(
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
-    val settings by ServiceLocator.settings.settings
-        .collectAsState(initial = AppSettings())
+
+    // v2.8.6 性能：不再整体收集 settings——DataStore 任意 key 写入（含本页每次翻页/作答的
+    // 会话快照落盘）都会重发完整 settings，导致本页与可见题卡连锁重组。
+    // 只订阅本页真正用到的字段（去重后），无关写入不再穿透。
+    val autoNext by ServiceLocator.settings.settings
+        .map { it.autoNext }
+        .distinctUntilChanged()
+        .collectAsState(initial = true)
+    val removeThreshold by ServiceLocator.settings.settings
+        .map { it.removeThreshold }
+        .distinctUntilChanged()
+        .collectAsState(initial = 2)
+    val eyeCareOn by ServiceLocator.settings.settings
+        .map { it.eyeCareReminder }
+        .distinctUntilChanged()
+        .collectAsState(initial = false)
 
     var questions by remember { mutableStateOf<List<Question>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -127,6 +146,8 @@ fun PracticeRunScreen(
     // 本会话所属模式槽（0 顺序 / 1 随机）与题库
     var sessionOrder by remember { mutableIntStateOf(0) }
     var sessionBank by remember { mutableStateOf("drone") }
+    // v2.8.6 循环补漏：本轮周期内已覆盖题目累计（不含本轮 answers），随快照落盘
+    var roundCovered by remember { mutableStateOf<List<Long>>(emptyList()) }
 
     val pagerState = rememberPagerState { questions.size }
 
@@ -138,6 +159,27 @@ fun PracticeRunScreen(
                 reloadTick++
             }
             prev = c
+        }
+    }
+
+    // ---- 护眼提醒（v2.8.6，防沉迷口径）：连续刷题满 20 分钟弹窗提醒看看远处 ----
+    // 仅刷题页生效（考试/模考不受影响）；只在应用前台（RESUMED）时累计，
+    // 切后台自动暂停、退出本页计时即止；弹窗后重新计时，每满 20 分钟可再次触发。
+    var showEyeCare by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(eyeCareOn) {
+        if (!eyeCareOn) return@LaunchedEffect
+        val interval = 20 * 60_000L
+        var acc = 0L
+        while (true) {
+            delay(15_000)
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                acc += 15_000
+                if (acc >= interval) {
+                    acc = 0
+                    showEyeCare = true
+                }
+            }
         }
     }
 
@@ -155,9 +197,10 @@ fun PracticeRunScreen(
             runCatching {
                 if (resume) {
                     val s = ServiceLocator.settings.currentPracticeSession(order)
-                    if (s != null && s.ids.isNotEmpty() && s.bankId == bank && !sessionComplete(s)) {
+                    if (s != null && s.ids.isNotEmpty() && s.bankId == bank && !sessionAtEnd(s)) {
                         sessionMode = true
                         restoring = true
+                        roundCovered = s.covered
                         val qs = ServiceLocator.repo.loadPracticeByIds(s.ids)
                         answers.clear(); details.clear()
                         s.answers.forEach { (k, v) -> k.toLongOrNull()?.let { answers[it] = v } }
@@ -170,9 +213,18 @@ fun PracticeRunScreen(
                         restoredTick++          // 恢复完成后跳转进度
                         qs
                     } else {
-                        // 无会话可恢复 / 已切库 / 上轮已全部刷完：退化为按参数新开
+                        // 无会话可恢复 / 已切库 / 上轮已刷到末题：退化为按参数新开
                         sessionMode = false
-                        loadByFilter(bank, src, type, cat, order == 1)
+                        answers.clear(); details.clear()
+                        // v2.8.6 循环补漏：上轮已刷到末题 → 新一轮只挑没刷过的题
+                        val catchUp = loadCatchUpRound(bank, src, type, cat, order, s)
+                        if (catchUp != null) {
+                            roundCovered = catchUp.covered
+                            catchUp.questions
+                        } else {
+                            roundCovered = emptyList()
+                            loadByFilter(bank, src, type, cat, order == 1)
+                        }
                     }
                 } else {
                     sessionMode = false
@@ -180,13 +232,14 @@ fun PracticeRunScreen(
                     // 自动接续：存在同筛选参数、同题库的会话快照 → 无缝恢复
                     val snap = runCatching { ServiceLocator.settings.currentPracticeSession(order) }.getOrNull()
                     if (src == "all" && snap != null && snap.src == "all" && snap.bankId == bank &&
-                        !sessionComplete(snap) &&
+                        !sessionAtEnd(snap) &&
                         snap.type == type && snap.cat == cat
                     ) {
                         val qs = ServiceLocator.repo.loadPracticeByIds(snap.ids)
                         if (qs.isNotEmpty()) {
                             sessionMode = true
                             restoring = true
+                            roundCovered = snap.covered
                             snap.answers.forEach { (k, v) -> k.toLongOrNull()?.let { answers[it] = v } }
                             snap.details.forEach { (k, v) ->
                                 k.toLongOrNull()?.let { id ->
@@ -197,10 +250,19 @@ fun PracticeRunScreen(
                             restoredTick++
                             qs
                         } else {
+                            roundCovered = emptyList()
                             loadByFilter(bank, src, type, cat, order == 1)
                         }
                     } else {
-                        loadByFilter(bank, src, type, cat, order == 1)
+                        // v2.8.6 循环补漏：无快照/参数变化 → 整单新开；上轮已刷到末题 → 只挑没刷过的题
+                        val catchUp = loadCatchUpRound(bank, src, type, cat, order, snap)
+                        if (catchUp != null) {
+                            roundCovered = catchUp.covered
+                            catchUp.questions
+                        } else {
+                            roundCovered = emptyList()
+                            loadByFilter(bank, src, type, cat, order == 1)
+                        }
                     }
                 }
             }
@@ -226,7 +288,7 @@ fun PracticeRunScreen(
         if (questions.isNotEmpty() && !sessionSeeded && !sessionMode) {
             sessionSeeded = true
             pagerState.scrollToPage(0)
-            persistSession(src, type, cat, sessionOrder, sessionBank, questions, answers, details, 0)
+            persistSession(src, type, cat, sessionOrder, sessionBank, questions, answers, details, 0, roundCovered)
         }
     }
 
@@ -236,7 +298,7 @@ fun PracticeRunScreen(
         snapshotFlow { pagerState.currentPage }
             .collectLatest { page ->
                 if (!loading && !restoring) {
-                    persistSession(src, type, cat, sessionOrder, sessionBank, questions, answers, details, page)
+                    persistSession(src, type, cat, sessionOrder, sessionBank, questions, answers, details, page, roundCovered)
                 }
             }
     }
@@ -260,14 +322,14 @@ fun PracticeRunScreen(
                         qid = q.id,
                         isCorrect = correct,
                         mode = if (src == "wrong") "wrong" else "practice",
-                        removeThreshold = settings.removeThreshold
+                        removeThreshold = removeThreshold
                     )
                 }
             }
         }
-        persistSession(src, type, cat, sessionOrder, sessionBank, questions, answers, details, pagerState.currentPage)
+        persistSession(src, type, cat, sessionOrder, sessionBank, questions, answers, details, pagerState.currentPage, roundCovered)
         if (correct == true && q.type != QuestionTypes.SHORT &&
-            settings.autoNext && pagerState.currentPage < questions.size - 1
+            autoNext && pagerState.currentPage < questions.size - 1
         ) {
             scope.launch {
                 delay(700)
@@ -499,6 +561,19 @@ fun PracticeRunScreen(
             Spacer(Modifier.height(8.dp))
         }
     }
+
+    // ---- 护眼提醒弹窗（v2.8.6）：关掉即重新计时，每满 20 分钟可再次触发 ----
+    if (showEyeCare) {
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "该让眼睛休息一下啦",
+            body = "你已连续刷题 20 分钟。抬头看看 6 米外的远处 20 秒，让眼睛放松一下吧（20-20-20 护眼法则）。",
+            confirmText = "好的，继续刷题",
+            dismissText = "知道了",
+            onConfirm = { showEyeCare = false },
+            onDismiss = { showEyeCare = false }
+        )
+    }
 }
 
 /**
@@ -543,18 +618,44 @@ private suspend fun loadByFilter(
     }
 }
 
-/** 会话是否已全部刷完（刷完的会话不再接续，下次进入自动开新一轮） */
-internal fun sessionComplete(s: PracticeSession): Boolean {
-    if (s.ids.isEmpty()) return false
-    val answered = s.answers.keys.mapNotNull { it.toLongOrNull() }.toSet()
-    return s.ids.all { it in answered }
+/** 会话是否已刷到最后一题（v2.8.6 口径：到尾即视为本轮结束，下次进入自动补漏/开新一轮）。 */
+internal fun sessionAtEnd(s: PracticeSession): Boolean =
+    s.ids.isNotEmpty() && s.index >= s.ids.size - 1
+
+/** 顺序刷题补漏轮（v2.8.6）：题目列表 + 累计已覆盖集合（写回会话 covered 字段）。 */
+private class CatchUpRound(val questions: List<Question>, val covered: List<Long>)
+
+/**
+ * 顺序刷题循环补漏（v2.8.6，用户口径）：上一轮刷到末题即视为本轮结束；
+ * 下次进入时新开一轮，只挑「总题单 − covered − 上轮 answers」里没刷过的题
+ * （例如先跳到第 200 题往后刷，下轮自动从第 1 题补刷没碰过的；补漏轮也刷完后全覆盖 →
+ * 返回 null，调用方回退整单加载 = 开完整新一轮）。
+ * 仅顺序模式（order==0）且纯刷题（src=="all"）且筛选参数与上轮一致时适用。
+ */
+private suspend fun loadCatchUpRound(
+    bank: String,
+    src: String,
+    type: String,
+    cat: String,
+    order: Int,
+    prev: PracticeSession?
+): CatchUpRound? {
+    if (prev == null || order != 0 || src != "all" || prev.src != "all") return null
+    if (prev.bankId != bank || prev.type != type || prev.cat != cat) return null
+    if (!sessionAtEnd(prev)) return null
+    val covered = prev.covered.toSet() + prev.answers.keys.mapNotNull { it.toLongOrNull() }
+    val all = loadByFilter(bank, src, type, cat, random = false)
+    val rest = all.filterNot { it.id in covered }
+    if (rest.isEmpty()) return null
+    return CatchUpRound(rest, covered.toList())
 }
 
 /**
  * 会话快照落盘（挂 appScope，静默失败不影响 UI）。
  * - 错题特训（src="wrong"）不落盘：特训进度由 recordAnswer 记账，本就不接续；
  * - 会话绑定题库（bankId），切库后旧会话自然作废；
- * - details 保存完整 UserAnswer（填空文本 / 简答草稿与自评），恢复后原样还原。
+ * - details 保存完整 UserAnswer（填空文本 / 简答草稿与自评），恢复后原样还原；
+ * - covered 保存本轮周期内已覆盖题目累计（v2.8.6 循环补漏）。
  */
 internal fun persistSession(
     src: String,
@@ -565,7 +666,8 @@ internal fun persistSession(
     questions: List<Question>,
     answers: Map<Long, Int>,
     details: Map<Long, UserAnswer>,
-    index: Int
+    index: Int,
+    covered: List<Long> = emptyList()
 ) {
     if (questions.isEmpty() || src == "wrong") return
     ServiceLocator.appScope.launch {
@@ -579,7 +681,8 @@ internal fun persistSession(
                     answers = answers.mapKeys { it.key.toString() },
                     details = details.entries.associate { it.key.toString() to answerJson.encodeToString(it.value) },
                     index = index,
-                    bankId = bankId
+                    bankId = bankId,
+                    covered = covered
                 ),
                 order
             )

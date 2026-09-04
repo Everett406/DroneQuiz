@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.data.settings.RootSettings
+import com.drone.quiz.data.settings.conflateForRoot
 import com.drone.quiz.ui.glass.GlassRuntime
 import com.drone.quiz.ui.nav.AppRoot
 import com.drone.quiz.ui.theme.DroneTheme
@@ -72,8 +74,13 @@ class MainActivity : ComponentActivity() {
         BootGuard.log(this, "activity", "MainActivity.onCreate")
         enableEdgeToEdge()
         setContent {
+            // v2.8.6 性能收敛：根组合只订阅它真正响应的字段（去重后）。
+            // 完整 settings flow 对 DataStore 任意 key 写入都会重发——刷题会话快照
+            // 每次翻页/作答都落盘，此前每次都会触发「根→AppRoot→整个 NavHost」连锁重组，
+            // 叠加液态玻璃渲染造成可感知卡顿（大题库导入后尤为明显）。
             val settings by ServiceLocator.settings.settings
-                .collectAsStateWithLifecycle(initialValue = AppSettings())
+                .conflateForRoot()
+                .collectAsStateWithLifecycle(initialValue = RootSettings())
             DroneTheme(
                 themeMode = settings.themeMode,
                 fontLevel = settings.fontLevel,

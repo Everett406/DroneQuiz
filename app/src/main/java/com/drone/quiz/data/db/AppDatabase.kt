@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WrongBookEntity::class,
         StreakLogEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -116,6 +116,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v3 → v4（v2.8.6 成绩单回显合格线）：exam_records +passLine 列。
+         * 走 v2.8.1 验证过的正路：非空新列 ADD COLUMN 带 DEFAULT，且实体声明一致的
+         * @ColumnInfo(defaultValue = "60")——两侧对齐 Room 逐列校验才不会崩。
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `exam_records` ADD COLUMN `passLine` INTEGER NOT NULL DEFAULT 60")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -124,7 +135,7 @@ abstract class AppDatabase : RoomDatabase() {
                     // v2 起使用新库文件名，规避旧版本残留数据库的 schema 校验冲突
                     "drone_quiz_v2.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

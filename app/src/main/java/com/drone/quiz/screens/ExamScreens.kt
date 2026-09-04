@@ -588,7 +588,8 @@ fun ExamConfigScreen(
                                 bankId = st.currentBank,
                                 counts = plannedCounts,
                                 durationSec = durationMin * 60,
-                                typeOrder = typeOrder.ifEmpty { QuestionTypes.canonicalOrder }
+                                typeOrder = typeOrder.ifEmpty { QuestionTypes.canonicalOrder },
+                                passLine = st.passScore // v2.8.6：开考时定格合格线，成绩单回显
                             )
                             ExamSessionHolder.examId = id
                             ExamSessionHolder.questions = qs
@@ -1625,7 +1626,8 @@ fun ExamResultScreen(
                             }
                         }
                         Text(
-                            "答对 ${oc.correct} / ${oc.total} 题",
+                            // v2.8.6：回显开考时设定的合格线（用户反馈：想知道当时定的是多少分及格）
+                            "答对 ${oc.correct} / ${oc.total} 题 · 合格线 ${oc.passLine} 分",
                             color = ui.textSub,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(top = 10.dp)

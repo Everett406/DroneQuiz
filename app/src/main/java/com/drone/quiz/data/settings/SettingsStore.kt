@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
@@ -31,7 +32,11 @@ data class PracticeSession(
     val details: Map<String, String> = emptyMap(), // qid -> UserAnswer JSON（填空文本/简答草稿与自评）
     val index: Int = 0,                   // 当前进度（0-based）
     val bankId: String = "",             // 所属题库（恢复时校验，切库后旧会话作废）
-    val savedAt: Long = 0
+    val savedAt: Long = 0,
+    // v2.8.6 顺序循环补漏：本轮周期内已覆盖题目的累计集合（不含当前会话的 answers）。
+    // 会话刷到末题即视为本轮结束，下轮只挑「总题单 - covered - answers」的题；全刷完则开完整新一轮。
+    // 新字段带默认值：老版本快照 JSON 无此键也能照常反序列化（ignoreUnknownKeys）。
+    val covered: List<Long> = emptyList()
 )
 
 data class AppSettings(
@@ -56,7 +61,8 @@ data class AppSettings(
     val currentBank: String = "drone",   // 当前使用题库
     val examIncludeShort: Boolean = false, // 模考高级选项：含简答题（默认关）
     val examTypeOrder: List<String> = emptyList(), // 模考题型顺序（空 = 单选→多选→填空→判断→简答）
-    val examAutoMix: Boolean = true // 模考题型构成：自动按题库各题型占比配比（关 = 手动拖比例，v2.8.3）
+    val examAutoMix: Boolean = true, // 模考题型构成：自动按题库各题型占比配比（关 = 手动拖比例，v2.8.3）
+    val eyeCareReminder: Boolean = false // v2.8.6 护眼提醒：连续刷题 20 分钟弹窗提醒休息（考试不受影响）
 )
 
 class SettingsStore(private val context: Context) {
@@ -94,6 +100,8 @@ class SettingsStore(private val context: Context) {
         val examIncludeShort = booleanPreferencesKey("exam_include_short")
         val examTypeOrder = stringPreferencesKey("exam_type_order")
         val examAutoMix = booleanPreferencesKey("exam_auto_mix")
+        // v2.8.6 护眼提醒
+        val eyeCareReminder = booleanPreferencesKey("eye_care_reminder")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -125,7 +133,8 @@ class SettingsStore(private val context: Context) {
             examTypeOrder = p[K.examTypeOrder]?.let { raw ->
                 runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
             } ?: emptyList(),
-            examAutoMix = p[K.examAutoMix] ?: true
+            examAutoMix = p[K.examAutoMix] ?: true,
+            eyeCareReminder = p[K.eyeCareReminder] ?: false
         )
     }
 
@@ -216,6 +225,9 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setExamIncludeShort(v: Boolean) = context.dataStore.edit { it[K.examIncludeShort] = v }
 
+    /** 护眼提醒开关（v2.8.6）：连续刷题 20 分钟弹窗提醒休息，考试不受影响 */
+    suspend fun setEyeCareReminder(v: Boolean) = context.dataStore.edit { it[K.eyeCareReminder] = v }
+
     /** 模考题型构成：自动配比开关（v2.8.3） */
     suspend fun setExamAutoMix(v: Boolean) = context.dataStore.edit { it[K.examAutoMix] = v }
 
@@ -255,3 +267,41 @@ class SettingsStore(private val context: Context) {
 
     suspend fun clearSearchHistory() = context.dataStore.edit { it.remove(K.searchHistory) }
 }
+
+/**
+ * 根组合真正响应的字段子集（v2.8.6 性能收敛）。
+ *
+ * 背景：DataStore 对任意 key 的写入（刷题会话快照每次翻页/作答都会写）都会让
+ * `settings` flow 重发一个新的 AppSettings 实例。此前 MainActivity 根组合直接收集
+ * 完整 settings，导致刷题时的每次快照落盘都触发「根 → AppRoot → 整个 NavHost」
+ * 的连锁重组，叠加液态玻璃渲染造成可感知的卡顿（大题库导入后尤为明显）。
+ *
+ * 把根需要的字段映射成数据类并 distinctUntilChanged：只有这些字段真正变化时
+ * （主题/字体/特效/壁纸/打赏门槛）根组合才重组，无关写入不再穿透。
+ */
+data class RootSettings(
+    val themeMode: Int = 0,
+    val fontLevel: Int = 1,
+    val readingFont: String = "system",
+    val effects: Boolean = true,
+    val wallpaper: String = "",
+    val wallpaperBlur: Boolean = false,
+    val usageMs: Long = 0L,
+    val supportPrompted: Boolean = false,
+    val supportRefused: Boolean = false
+)
+
+/** AppSettings flow → RootSettings flow（结构相等去重）。 */
+fun Flow<AppSettings>.conflateForRoot(): Flow<RootSettings> = map {
+    RootSettings(
+        themeMode = it.themeMode,
+        fontLevel = it.fontLevel,
+        readingFont = it.readingFont,
+        effects = it.effects,
+        wallpaper = it.wallpaper,
+        wallpaperBlur = it.wallpaperBlur,
+        usageMs = it.usageMs,
+        supportPrompted = it.supportPrompted,
+        supportRefused = it.supportRefused
+    )
+}.distinctUntilChanged()

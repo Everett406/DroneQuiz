@@ -259,8 +259,9 @@ fun PracticeConfigScreen(
                 .filter { it in selectedTypes }.joinToString(",").ifEmpty { "all" }
             val snapReusable = snap != null && snap.src == "all" &&
                 snap.type == typeArgNow && snap.cat == "all" &&
-                !sessionComplete(snap) && (snap.index > 0 || snap.answers.isNotEmpty())
-            if (snapReusable && snap != null) {
+                // v2.8.6：刷到末题即视为本轮结束（不再提示接续，进入后自动补漏/开新一轮）
+                !sessionAtEnd(snap) && (snap.index > 0 || snap.answers.isNotEmpty())
+            if (snap != null && snapReusable) {
                 Row(
                     Modifier
                         .fillMaxWidth()

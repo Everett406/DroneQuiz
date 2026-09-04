@@ -296,9 +296,11 @@ fun ParseBlock(explanation: String) {
 // ---------- 题目图片（v2.8.5，ZIP 导入的带图题库） ----------
 
 /**
- * 题目图片条：默认每张图显示为限高小图，点按在小图/大图间平滑过渡（Hero 式缩放）。
+ * 题目图片条：默认每张图显示为小缩略图，点按在小图/大图间平滑过渡（Hero 式缩放）。
  * 图片来自导入 ZIP 里的文件，按题库隔离存放在 bank_images/<bankId>/。
  * 插入位置：题卡题干之后、作答区之前（填空题图片显示在题干上方，同一插入点）。
+ * v2.8.6：小图进一步缩小（64–96dp），且宽度贴合图片不再整行铺满（用户反馈“小图还是不够小”），
+ * 并删去“点按放大”角标。
  */
 @Composable
 fun QuestionImageStrip(q: Question) {
@@ -319,8 +321,8 @@ fun QuestionImageStrip(q: Question) {
 }
 
 /**
- * 单张可展开题目图片：宽度占满卡内，高度在小图/大图间用 spring 插值——
- * 图片始终 ContentScale.Fit 填充，缩放过程即所见即所得（类似 Hero 转场）。
+ * 单张可展开题目图片：小图宽度/高度贴合图片比例（限高 64–96dp），
+ * 点开后宽度展开到整卡、高度到适配大图——宽高同步 spring 插值（Hero 式转场）。
  * 再点一下收起回小图；加载失败降级为占位文案。
  */
 @Composable
@@ -353,12 +355,16 @@ private fun ExpandableQuestionImage(path: String) {
             it.width.coerceAtLeast(1).toFloat() / it.height.coerceAtLeast(1).toFloat()
         } ?: 1.4f
         val fitH = maxWidth / aspect
-        val smallH = fitH.coerceIn(96.dp, 150.dp)
+        // v2.8.6：小图限高 96–150 → 64–96dp，观感即“缩略图”而非“横幅”
+        val smallH = fitH.coerceIn(64.dp, 96.dp)
         val largeH = fitH.coerceAtLeast(smallH * 1.8f).coerceAtMost(440.dp)
-        val corner = lerp(14.dp, 20.dp, expand.value)
+        // 小图宽度贴合图片（限高后的等比宽），展开后拉到整卡宽——宽高同步过渡
+        val smallW = (smallH * aspect).coerceAtMost(maxWidth)
+        val wFraction = (lerp(smallW, maxWidth, expand.value) / maxWidth).coerceIn(0f, 1f)
+        val corner = lerp(10.dp, 20.dp, expand.value)
         Box(
             Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(wFraction)
                 .height(lerp(smallH, largeH, expand.value))
                 .clip(RoundedCornerShape(corner))
                 .background(ui.ink.copy(alpha = 0.05f))
@@ -376,20 +382,6 @@ private fun ExpandableQuestionImage(path: String) {
                 failed -> Text("图片未能加载", color = ui.textSub, fontSize = 11.sp)
                 else -> Text("图片加载中…", color = ui.textSub, fontSize = 11.sp)
             }
-        }
-        if (bitmap != null) {
-            Text(
-                if (expand.value < 0.5f) "点按放大" else "点按收起",
-                color = ui.textSub,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(ui.surface.copy(alpha = 0.72f))
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
-            )
         }
     }
 }
