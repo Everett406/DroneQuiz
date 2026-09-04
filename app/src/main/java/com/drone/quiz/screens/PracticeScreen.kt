@@ -1,5 +1,9 @@
 package com.drone.quiz.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -55,7 +59,7 @@ import com.drone.quiz.data.repo.isAnswered
 import com.drone.quiz.data.repo.optionLabel
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.settings.PracticeSession
-import com.drone.quiz.screens.common.BlankAnswerFields
+import com.drone.quiz.screens.common.BlankInlineFields
 import com.drone.quiz.screens.common.CorrectAnswerLine
 import com.drone.quiz.screens.common.ParseBlock
 import com.drone.quiz.screens.common.OptionRow
@@ -649,7 +653,12 @@ private fun ChoiceSection(q: Question, ua: UserAnswer?, onCommit: (UserAnswer) -
             )
         }
     }
-    if (ua != null) {
+    // v2.8.3：答完判定后解析区丝滑展开（此前 v2.8.0 重构时丢失，用户反馈）；
+    // 注意 AnimatedVisibility 必须常驻组合，由 ua 空值变化触发入场动画
+    AnimatedVisibility(
+        visible = ua != null,
+        enter = expandVertically(tween(260)) + fadeIn(tween(220))
+    ) {
         Column(Modifier.padding(top = 16.dp)) {
             ResultHeader(
                 judgeAnswer(q, ua),
@@ -708,7 +717,12 @@ private fun MultiSection(q: Question, ua: UserAnswer?, backdrop: Backdrop, onCom
             val mask = sel.fold(0) { acc, i -> acc or (1 shl i) }
             onCommit(UserAnswer(picked = mask))
         }
-    } else {
+    }
+    // v2.8.3：提交后判定结果+解析丝滑展开
+    AnimatedVisibility(
+        visible = submitted,
+        enter = expandVertically(tween(260)) + fadeIn(tween(220))
+    ) {
         Column(Modifier.padding(top = 16.dp)) {
             ResultHeader(judgeAnswer(q, ua))
             CorrectAnswerLine(q.correctAnswerText())
@@ -726,8 +740,9 @@ private fun BlankSection(q: Question, ua: UserAnswer?, backdrop: Backdrop, onCom
         mutableStateOf(List(q.blankCount.coerceAtLeast(1)) { "" })
     }
     Column(Modifier.padding(top = 14.dp)) {
-        BlankAnswerFields(
-            count = q.blankCount.coerceAtLeast(1),
+        // v2.8.3：题干内嵌输入（在 ____ 空位处直接点入），替代第一空/第二空分行
+        BlankInlineFields(
+            text = q.text,
             values = if (submitted) ua!!.texts else texts,
             onValueChange = { i, v -> texts = texts.toMutableList().also { it[i] = v } },
             enabled = !submitted,
@@ -742,7 +757,12 @@ private fun BlankSection(q: Question, ua: UserAnswer?, backdrop: Backdrop, onCom
             ) {
                 onCommit(UserAnswer(picked = 1, texts = texts))
             }
-        } else {
+        }
+        // v2.8.3：提交后判定结果+解析丝滑展开
+        AnimatedVisibility(
+            visible = submitted,
+            enter = expandVertically(tween(260)) + fadeIn(tween(220))
+        ) {
             Column(Modifier.padding(top = 16.dp)) {
                 ResultHeader(judgeAnswer(q, ua))
                 CorrectAnswerLine(q.correctAnswerText())
@@ -788,7 +808,11 @@ private fun ShortSection(q: Question, ua: UserAnswer?, backdrop: Backdrop, onCom
                     onCommit(ua.copy(picked = if (correct) 1 else 0, graded = true))
                 }
             )
-            if (ua.graded) {
+            // v2.8.3：自评后判定+解析丝滑展开
+            AnimatedVisibility(
+                visible = ua.graded,
+                enter = expandVertically(tween(260)) + fadeIn(tween(220))
+            ) {
                 Column(Modifier.padding(top = 10.dp)) {
                     ResultHeader(judgeAnswer(q, ua), " · 自评")
                     ParseBlock(q.explanation)

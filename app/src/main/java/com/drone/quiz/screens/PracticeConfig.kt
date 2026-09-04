@@ -3,10 +3,11 @@ package com.drone.quiz.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,9 +61,10 @@ import kotlinx.coroutines.launch
 
 /**
  * 刷题配置入口页（刷题 Tab 首页）。
- * 进入刷题 Tab 不再直接开刷：先选范围（全部/单选/判断）与分类，
- * 点"开始刷题"进入全屏刷题页。
+ * 进入刷题 Tab 不再直接开刷：先选题型范围，点「开始刷题」进入全屏刷题页。
+ * v2.8.3：分类筛选移除（切题库即换内容，分类维度冗余，用户口径）；题型 chips 自动换行。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PracticeConfigScreen(
     backdrop: Backdrop,
@@ -74,9 +76,8 @@ fun PracticeConfigScreen(
     val settings by ServiceLocator.settings.settings
         .collectAsState(initial = AppSettings())
 
-    // 题型/分类筛选（v2.8.0 自适应：题型选项 = 当前题库实际拥有的题型；分类不再有「全部」）
+    // 题型筛选（v2.8.0 自适应：题型选项 = 当前题库实际拥有的题型）
     var typeFilter by remember { mutableStateOf("all") }   // all | single | multi | blank | judge | short
-    var catFilter by remember { mutableStateOf("") }
     var types by remember { mutableStateOf<List<String>>(emptyList()) }
     // 当前模式的会话快照（双槽：顺序/随机各存各的进度），响应式——切换模式提示即随之切换；
     // 也用于“重新开始”按钮与二次确认（v2.7.4）
@@ -85,7 +86,6 @@ fun PracticeConfigScreen(
         ServiceLocator.settings.practiceSession(settings.practiceOrder)
     }
     val lastSession by sessionFlow.collectAsState(initial = null)
-    var categories by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
     var total by remember { mutableIntStateOf(0) }
     var accuracy by remember { mutableIntStateOf(0) }
     var wrongCount by remember { mutableIntStateOf(0) }
@@ -98,16 +98,9 @@ fun PracticeConfigScreen(
         ServiceLocator.settings.settings
             .distinctUntilChangedBy { it.currentBank }
             .collectLatest { st ->
-                // bank 在各 runCatching 之外声明（作用域贯穿整个收集体）
                 val bank = st.currentBank
-                runCatching {
-                    types = ServiceLocator.repo.typesInBank(bank)
-                    val cats = ServiceLocator.repo.categoriesOf(bank).map { it.category to it.cnt }
-                    categories = cats
-                    total = cats.sumOf { it.second }
-                    // 分类去掉「全部」后，默认选中第一个分类（单分类题库效果与原全部一致）
-                    if (catFilter !in cats.map { it.first }) catFilter = cats.firstOrNull()?.first.orEmpty()
-                }
+                runCatching { types = ServiceLocator.repo.typesInBank(bank) }
+                runCatching { total = ServiceLocator.repo.bankCount(bank) }
                 runCatching { accuracy = (ServiceLocator.repo.accuracy(bank) * 100).toInt() }
                 runCatching { wrongCount = ServiceLocator.repo.wrongCount(bank) }
                 // 今日已刷同步按题库隔离（v2.8.2）；连击/近 7 天为全局习惯数据
@@ -173,7 +166,7 @@ fun PracticeConfigScreen(
                 .padding(horizontal = 20.dp)
         ) {
 
-            // ---- 题型范围（自适应：只列出当前题库拥有的题型） ----
+            // ---- 题型范围（自适应：只列出当前题库拥有的题型；v2.8.3 改自动换行） ----
             SectionLabel("题目范围")
             GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
@@ -184,12 +177,13 @@ fun PracticeConfigScreen(
                         },
                         color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
                     )
-                    Row(
+                    // v2.8.3：横向滚动 → FlowRow 自动换行（题型凑满时不用左右滑，用户反馈）
+                    FlowRow(
                         Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
                             .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ConfigChip("全部", typeFilter == "all") { typeFilter = "all" }
                         types.forEach { t ->
@@ -199,28 +193,6 @@ fun PracticeConfigScreen(
                             ) {
                                 typeFilter = if (typeFilter == t) "all" else t
                             }
-                        }
-                    }
-                }
-            }
-
-            // ---- 分类（v2.8.0：去掉「全部」，只保留当前题库的真实分类） ----
-            SectionLabel("分类", Modifier.padding(top = 14.dp))
-            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        catFilter.ifBlank { "加载中…" },
-                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
-                    )
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        categories.forEach { (cat, _) ->
-                            ConfigChip(cat, catFilter == cat) { catFilter = cat }
                         }
                     }
                 }
@@ -247,7 +219,7 @@ fun PracticeConfigScreen(
 
             // ---- 开始刷题 ----
             GlassButton(
-                onClick = { if (catFilter.isNotBlank()) onStart("all", typeFilter, catFilter, false) },
+                onClick = { onStart("all", typeFilter, "all", false) },
                 backdrop = backdrop,
                 surfaceColor = ui.ink,
                 heightDp = 54.dp,
@@ -267,7 +239,7 @@ fun PracticeConfigScreen(
             // ---- 续刷提示：当前模式下有未完成进度时展示；"重新开始"胶囊按钮 + 二次确认（v2.7.4） ----
             val snap = lastSession
             val snapReusable = snap != null && snap.src == "all" &&
-                snap.type == typeFilter && snap.cat == catFilter &&
+                snap.type == typeFilter && snap.cat == "all" &&
                 !sessionComplete(snap) && (snap.index > 0 || snap.answers.isNotEmpty())
             if (snapReusable && snap != null) {
                 Row(

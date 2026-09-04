@@ -36,6 +36,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,11 +59,24 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import kotlinx.coroutines.launch
 
 /**
- * 弹窗打开时置 true：AppRoot 据此对内容层施加真模糊（iOS 风格）。
+ * 弹窗打开时置 active：AppRoot 据此对内容层施加真模糊（iOS 风格）。
  * 注意：弹窗面板本身已通过 GlassOverlayPortal 渲染在模糊区之外，不会被连帶模糊。
+ *
+ * v2.8.3 改为引用计数（持有者 id 列表）：修叠层弹窗互踩——
+ * 此前任一弹窗离场都直接把 active 置 false，
+ * 例如「查看 CSV 模板」对话框关闭后，仍然开着的导入题库弹窗会丢掉背景模糊（用户反馈）。
  */
 object OverlayBlur {
-    var active by mutableStateOf(false)
+    private val holders = mutableStateListOf<Any>()
+    val active: Boolean get() = holders.isNotEmpty()
+
+    fun push(id: Any) {
+        if (!holders.contains(id)) holders.add(id)
+    }
+
+    fun pop(id: Any) {
+        holders.remove(id)
+    }
 }
 
 /**
@@ -144,8 +158,9 @@ private fun GlassOverlayPanel(
                 .align(contentAlignment)
                 .then(panelModifier)
                 .then(
+                    // v2.8.3：允许负值（把手上拉的过冲拉伸）；下滑关闭仍为正值
                     if (panelOffsetProvider != null) Modifier.graphicsLayer {
-                        translationY = panelOffsetProvider().coerceAtLeast(0f)
+                        translationY = panelOffsetProvider()
                     } else Modifier
                 )
                 .pointerInput(Unit) { detectTapGestures { } } // 消费面板内点按，防误关
@@ -156,7 +171,8 @@ private fun GlassOverlayPanel(
                     .glass(
                         backdrop = panelBackdrop,
                         shape = panelShape,
-                        blurDp = 24.dp,
+                        // v2.8.3：24→18dp——面板自身模糊是弹窗掉帧主因之一，降档减负（用户反馈）
+                        blurDp = 18.dp,
                         lensHeightDp = 16.dp,
                         lensAmountDp = 22.dp,
                         // 降透明度让折射可见：过实会像不透明色块而非玻璃
@@ -186,15 +202,15 @@ private fun GlassOverlayRegistration(
 
     val overlayId = remember { Any() }
 
-    // 弹窗可见期间内容层进入模糊态（AppRoot 响应）；随 visible 关闭
+    // 弹窗可见期间进入模糊态（引用计数，随 visible 增减；叠层弹窗互不冲掉）
     DisposableEffect(visible) {
-        OverlayBlur.active = visible
-        onDispose { }
+        if (visible) OverlayBlur.push(overlayId)
+        onDispose { OverlayBlur.pop(overlayId) }
     }
-    // 整体离开组合：兜底恢复模糊态并注销传送门槽位
+    // 整体离开组合：兜底清引用并注销传送门槽位
     DisposableEffect(Unit) {
         onDispose {
-            OverlayBlur.active = false
+            OverlayBlur.pop(overlayId)
             GlassOverlayPortal.remove(overlayId)
         }
     }
@@ -230,11 +246,22 @@ fun GlassBottomSheet(
             val density = LocalDensity.current
             val dismissThreshold = with(density) { 110.dp.toPx() }
             val dragY = remember { Animatable(0f) }
+            // 原始拖拽累计（含向上）：显示值 = 下滑 1:1，上拉 rubber-band 阻尼衰减
+            var rawDragY by remember { mutableFloatStateOf(0f) }
             val dragScope = rememberCoroutineScope()
 
             // 每次打开复位拖拽偏移
             androidx.compose.runtime.LaunchedEffect(visible) {
-                if (visible) dragY.snapTo(0f)
+                if (visible) {
+                    dragY.snapTo(0f)
+                    rawDragY = 0f
+                }
+            }
+
+            fun springBack() {
+                dragScope.launch {
+                    dragY.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 380f))
+                }
             }
 
             GlassOverlayPanel(
@@ -254,7 +281,9 @@ fun GlassBottomSheet(
                 onDismiss = onDismiss,
                 panelOffsetProvider = { dragY.value },
                 headerStrip = {
-                    // 把手 + 可拖拽热区（仅顶部条响应拖拽，不与内部网格滚动冲突）
+                    // 把手 + 可拖拽热区（仅顶部条响应拖拽，不与内部网格滚动冲突）。
+                    // v2.8.3：下滑跟手关闭之外，上拉带 rubber-band 过冲（越拉越费力，
+                    // 松手弹回；面板底缘不动，顶缘被轻轻拽起），用户口径
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -264,28 +293,22 @@ fun GlassBottomSheet(
                                     onVerticalDrag = { change, dy ->
                                         change.consume()
                                         dragScope.launch {
-                                            dragY.snapTo((dragY.value + dy).coerceAtLeast(0f))
+                                            rawDragY += dy
+                                            val disp = if (rawDragY >= 0f) rawDragY
+                                            else -80f * (1f - kotlin.math.exp(rawDragY / 220f))
+                                            dragY.snapTo(disp)
                                         }
                                     },
                                     onDragEnd = {
                                         dragScope.launch {
-                                            if (dragY.value > dismissThreshold) {
-                                                onDismiss()
-                                            } else {
-                                                dragY.animateTo(
-                                                    0f,
-                                                    spring(dampingRatio = 0.85f, stiffness = 380f)
-                                                )
-                                            }
+                                            if (rawDragY > dismissThreshold) onDismiss()
+                                            else springBack()
+                                            rawDragY = 0f
                                         }
                                     },
                                     onDragCancel = {
-                                        dragScope.launch {
-                                            dragY.animateTo(
-                                                0f,
-                                                spring(dampingRatio = 0.85f, stiffness = 380f)
-                                            )
-                                        }
+                                        springBack()
+                                        rawDragY = 0f
                                     }
                                 )
                             }

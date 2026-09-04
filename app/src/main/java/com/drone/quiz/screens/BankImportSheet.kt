@@ -2,6 +2,8 @@ package com.drone.quiz.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -127,7 +129,9 @@ fun BankImportSheet(
             Modifier
                 .fillMaxWidth()
                 // v2.8.2：键盘避让（此前命名输入框被键盘完全遮挡，弹窗不上移，用户反馈）
+                // v2.8.3：两态（选文件→预览确认）高度变化平滑过渡
                 .imePadding()
+                .animateContentSize(tween(240))
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 16.dp)
@@ -321,7 +325,7 @@ fun BankImportSheet(
                             }
                         },
                         backdrop = backdrop,
-                        surfaceColor = if (p.ok.isNotEmpty() && nameDraft.isNotBlank()) ui.ink else ui.ink.copy(alpha = 0.25f),
+                        surfaceColor = if (p.ok.isNotEmpty() && nameDraft.isNotBlank()) ui.ink else ui.ink.copy(alpha = 0.12f),
                         heightDp = 48.dp,
                         modifier = Modifier.weight(1f)
                     ) {

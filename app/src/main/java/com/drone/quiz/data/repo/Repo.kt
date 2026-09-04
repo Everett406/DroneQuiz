@@ -98,6 +98,11 @@ class Repo(private val db: AppDatabase) {
         qDao.typeCounts(bankId).associate { it.type to it.cnt }
     }
 
+    /** 题库总题数（刷题配置页学习概览用，v2.8.3 分类筛选移除后不再经分类求和） */
+    suspend fun bankCount(bankId: String): Int = withContext(Dispatchers.IO) {
+        qDao.countByBank(bankId)
+    }
+
     suspend fun categoriesOf(bankId: String): List<CatCount> = qDao.catCounts(bankId)
 
     fun countByBankFlow(bankId: String): Flow<Int> = qDao.countByBankFlow(bankId)

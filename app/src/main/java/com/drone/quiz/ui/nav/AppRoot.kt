@@ -1,10 +1,13 @@
 package com.drone.quiz.ui.nav
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -143,10 +146,17 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
 
     // 弹窗打开时内容层真模糊（iOS 风格），替代深色遮罩。
     // 弹窗面板自身渲染在 PortalHost（模糊区之外），不再被连帶模糊。
+    // v2.8.3 提帧：半径 16→12dp、时长 220→160ms（模糊逐帧重算是弹窗掉帧主因，用户反馈）；
+    // 壁纸层单独 8dp（壁纸已被自身模糊+主题纱处理，无需同步全强度）
     val overlayBlur by animateDpAsState(
-        targetValue = if (OverlayBlur.active) 16.dp else 0.dp,
-        animationSpec = tween(220),
+        targetValue = if (OverlayBlur.active) 12.dp else 0.dp,
+        animationSpec = tween(160),
         label = "overlayBlur"
+    )
+    val overlayBgBlur by animateDpAsState(
+        targetValue = if (OverlayBlur.active) 8.dp else 0.dp,
+        animationSpec = tween(160),
+        label = "overlayBgBlur"
     )
 
     CompositionLocalProvider(
@@ -170,7 +180,8 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 .layerBackdrop(bgBackdrop)
                 // v2.8.2：弹窗打开时壁纸层同步真模糊（此前只模糊内容层，
                 // 自定义壁纸用户能明显看到玻璃后的壁纸仍是清晰的，用户反馈）
-                .blur(overlayBlur)
+                // v2.8.3：壁纸层降到 8dp（配合自身 24dp 壁纸模糊足够，减轻实时开销）
+                .blur(overlayBgBlur)
                 .background(ui.bgGradient)
         ) {
             val bmp = wallBmp
@@ -481,6 +492,7 @@ private fun SupportPromptHost(
     ) {
         SupportSheetContent(
             backdrop = backdrop,
+            usageMs = settings.usageMs,
             onRefuse = {
                 show = false
                 scope.launch { runCatching { ServiceLocator.settings.setSupportRefused() } }
@@ -495,10 +507,23 @@ private fun SupportPromptHost(
     }
 }
 
+/** 累计前台使用时长的可读文本（v2.8.3：文案随真实时长变化，不再写死"2 小时"）。 */
+private fun formatUsage(ms: Long): String {
+    val totalMin = ms / 60_000
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return when {
+        h <= 0 -> "$totalMin 分钟"
+        m == 0 -> "$h 小时"
+        else -> "$h 小时 $m 分钟"
+    }
+}
+
 /** 弹窗内容两态：0 = 询问（看码/拒绝），1 = 收款码（保存到相册/完成）。 */
 @Composable
 private fun SupportSheetContent(
     backdrop: Backdrop,
+    usageMs: Long,
     onRefuse: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -511,123 +536,144 @@ private fun SupportSheetContent(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 20.dp)
+            // v2.8.3：两态内容高度变化平滑过渡（面板底缘固定，向上生长）
+            .animateContentSize(tween(240))
     ) {
-        // 顶部把手由 GlassBottomSheet 自带（v2.8.2 删去内容层重复把手：弹窗出现两个把手）
-        Text(
-            if (stage == 0) "喜欢题屿吗？" else "感谢支持",
-            color = ui.text, fontSize = 19.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-
-        if (stage == 0) {
-            Text(
-                "你已在这里累计刷题超过 2 小时。如果这个 APP 对你有帮助，可以请作者喝杯奶茶，支持一下持续更新~",
-                color = ui.textSub, fontSize = 13.sp, lineHeight = 19.sp,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 20.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                GlassButton(
-                    onClick = onRefuse,
-                    backdrop = backdrop,
-                    surfaceColor = ui.surface.copy(alpha = 0.6f),
-                    heightDp = 48.dp,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("以后别提醒我", color = ui.textSub, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
-                GlassButton(
-                    onClick = { stage = 1 },
-                    backdrop = backdrop,
-                    surfaceColor = ui.ink,
-                    heightDp = 48.dp,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("看看收款码", color = ui.onInk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        } else {
-            // 收款码：原图 RGBA 可能透明底，必须垫白底圆角保证扫码对比度
-            val qrBitmap = remember {
-                runCatching {
-                    android.graphics.BitmapFactory.decodeStream(
-                        context.resources.openRawResource(R.raw.support_qr)
-                    )?.asImageBitmap()
-                }.getOrNull()
-            }
-            Box(
-                Modifier
-                    .padding(top = 14.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.White)
-                    .padding(8.dp)
-            ) {
-                val bmp = qrBitmap
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp,
-                        contentDescription = "收款码",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.heightIn(max = 300.dp)
-                    )
+        // v2.8.3：两态切换加推移动画——旧内容向上滑出、新内容从下滑入
+        //（原先硬切换"跟放 PPT 似的"，用户口径：原内容被拉上去一点）
+        AnimatedContent(
+            targetState = stage,
+            transitionSpec = {
+                if (targetState > initialState) {
+                    (slideInVertically(tween(280)) { it / 3 } + fadeIn(tween(240))) togetherWith
+                        (slideOutVertically(tween(200)) { -it / 3 } + fadeOut(tween(160)))
                 } else {
-                    Text(
-                        "收款码加载失败",
-                        color = Color.Black.copy(alpha = 0.6f), fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 40.dp, vertical = 60.dp)
-                    )
+                    (slideInVertically(tween(280)) { -it / 3 } + fadeIn(tween(240))) togetherWith
+                        (slideOutVertically(tween(200)) { it / 3 } + fadeOut(tween(160)))
                 }
-            }
-            Text(
-                when {
-                    saved -> "已保存到相册「题屿」文件夹，扫码即可支持"
-                    saveFailed -> "保存失败，可截图本页收款码"
-                    else -> "长按图片或保存后扫码即可支持"
-                },
-                color = if (saved) ui.correct else ui.textSub,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 10.dp)
-            )
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            },
+            label = "supportStage"
+        ) { s ->
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                GlassButton(
-                    onClick = {
-                        if (!saved) {
-                            saved = GallerySave.savePngFromRaw(
-                                context, R.raw.support_qr, "tiyu_support_qr.png"
-                            )
-                            saveFailed = !saved
-                        }
-                    },
-                    backdrop = backdrop,
-                    surfaceColor = if (saved) ui.surface.copy(alpha = 0.6f) else ui.ink,
-                    heightDp = 48.dp,
-                    modifier = Modifier.weight(1f)
-                ) {
+                Text(
+                    if (s == 0) "喜欢题屿吗？" else "感谢支持",
+                    color = ui.text, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+
+                if (s == 0) {
                     Text(
-                        if (saved) "已保存" else "保存到相册",
-                        color = if (saved) ui.textSub else ui.onInk,
-                        fontSize = 14.sp, fontWeight = FontWeight.Bold
+                        "你已在题屿累计使用 ${formatUsage(usageMs)}。如果这个 APP 对你有帮助，可以请作者喝杯奶茶，支持一下持续更新~",
+                        color = ui.textSub, fontSize = 13.sp, lineHeight = 19.sp,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
-                }
-                GlassButton(
-                    onClick = onClose,
-                    backdrop = backdrop,
-                    surfaceColor = ui.surface.copy(alpha = 0.6f),
-                    heightDp = 48.dp,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("完成", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 20.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GlassButton(
+                            onClick = onRefuse,
+                            backdrop = backdrop,
+                            surfaceColor = ui.surface.copy(alpha = 0.6f),
+                            heightDp = 48.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("以后别提醒我", color = ui.textSub, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        GlassButton(
+                            onClick = { stage = 1 },
+                            backdrop = backdrop,
+                            surfaceColor = ui.ink,
+                            heightDp = 48.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("看看收款码", color = ui.onInk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    // 收款码：原图 RGBA 可能透明底，必须垫白底圆角保证扫码对比度
+                    val qrBitmap = remember {
+                        runCatching {
+                            android.graphics.BitmapFactory.decodeStream(
+                                context.resources.openRawResource(R.raw.support_qr)
+                            )?.asImageBitmap()
+                        }.getOrNull()
+                    }
+                    Box(
+                        Modifier
+                            .padding(top = 14.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White)
+                            .padding(8.dp)
+                    ) {
+                        val bmp = qrBitmap
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = "收款码",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.heightIn(max = 300.dp)
+                            )
+                        } else {
+                            Text(
+                                "收款码加载失败",
+                                color = Color.Black.copy(alpha = 0.6f), fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 40.dp, vertical = 60.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        when {
+                            saved -> "已保存到相册「题屿」文件夹，扫码即可支持"
+                            saveFailed -> "保存失败，可截图本页收款码"
+                            else -> "长按图片或保存后扫码即可支持"
+                        },
+                        color = if (saved) ui.correct else ui.textSub,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 14.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GlassButton(
+                            onClick = {
+                                if (!saved) {
+                                    saved = GallerySave.savePngFromRaw(
+                                        context, R.raw.support_qr, "tiyu_support_qr.png"
+                                    )
+                                    saveFailed = !saved
+                                }
+                            },
+                            backdrop = backdrop,
+                            surfaceColor = if (saved) ui.surface.copy(alpha = 0.6f) else ui.ink,
+                            heightDp = 48.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                if (saved) "已保存" else "保存到相册",
+                                color = if (saved) ui.textSub else ui.onInk,
+                                fontSize = 14.sp, fontWeight = FontWeight.Bold
+                            )
+                        }
+                        GlassButton(
+                            onClick = onClose,
+                            backdrop = backdrop,
+                            surfaceColor = ui.surface.copy(alpha = 0.6f),
+                            heightDp = 48.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("完成", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }

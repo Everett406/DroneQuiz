@@ -55,7 +55,8 @@ data class AppSettings(
     val supportRefused: Boolean = false, // 用户拒绝支持：永不再弹
     val currentBank: String = "drone",   // 当前使用题库
     val examIncludeShort: Boolean = false, // 模考高级选项：含简答题（默认关）
-    val examTypeOrder: List<String> = emptyList() // 模考题型顺序（空 = 单选→多选→填空→判断→简答）
+    val examTypeOrder: List<String> = emptyList(), // 模考题型顺序（空 = 单选→多选→填空→判断→简答）
+    val examAutoMix: Boolean = true // 模考题型构成：自动按题库各题型占比配比（关 = 手动拖比例，v2.8.3）
 )
 
 class SettingsStore(private val context: Context) {
@@ -92,6 +93,7 @@ class SettingsStore(private val context: Context) {
         // 模考高级选项
         val examIncludeShort = booleanPreferencesKey("exam_include_short")
         val examTypeOrder = stringPreferencesKey("exam_type_order")
+        val examAutoMix = booleanPreferencesKey("exam_auto_mix")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -122,7 +124,8 @@ class SettingsStore(private val context: Context) {
             examIncludeShort = p[K.examIncludeShort] ?: false,
             examTypeOrder = p[K.examTypeOrder]?.let { raw ->
                 runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
-            } ?: emptyList()
+            } ?: emptyList(),
+            examAutoMix = p[K.examAutoMix] ?: true
         )
     }
 
@@ -212,6 +215,9 @@ class SettingsStore(private val context: Context) {
     }
 
     suspend fun setExamIncludeShort(v: Boolean) = context.dataStore.edit { it[K.examIncludeShort] = v }
+
+    /** 模考题型构成：自动配比开关（v2.8.3） */
+    suspend fun setExamAutoMix(v: Boolean) = context.dataStore.edit { it[K.examAutoMix] = v }
 
     suspend fun setExamTypeOrder(list: List<String>) {
         context.dataStore.edit { p ->

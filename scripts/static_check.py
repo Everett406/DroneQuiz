@@ -141,6 +141,13 @@ must = [
     ("GlassAnchorMenu", "首页题库切换玻璃锚点菜单"),
     ("shareTextFile", "CSV 模板系统分享(FileProvider)"),
     ("imePadding", "键盘避让(刷题页/导入弹窗)"),
+    ("examAutoMix", "模考题型构成自动配比开关(v2.8.3)"),
+    ("autoRatios", "模考按题库占比自动配比(v2.8.3)"),
+    ("buildSheetGroups", "模考答题卡按题型分组(v2.8.3)"),
+    ("BlankInlineFields", "填空题题干内嵌输入(v2.8.3)"),
+    ("OverlayBlur.push", "弹窗模糊引用计数(修叠层丢模糊)"),
+    ("rawDragY", "把手下滑关闭+上拉 rubber-band 过冲"),
+    ("formatUsage", "打赏弹窗累计时长动态文案"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):

@@ -2,20 +2,25 @@ package com.drone.quiz.screens.common
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalLayoutApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,8 +31,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.data.repo.Question
@@ -272,15 +281,19 @@ fun ParseBlock(explanation: String) {
     }
 }
 
-// ---------- 填空 ----------
+/** 填空题题干占位符：连续 3 个以上下划线记一空（与导入校验口径一致） */
+private val BLANK_PLACEHOLDER = Regex("_{3,}")
 
 /**
- * 填空作答区：每空一行输入（圆角浅底），提交后逐空展示对错与可接受答案。
- * 键盘避让由页面根级 Modifier.imePadding() 统一处理。
+ * 填空作答区（v2.8.3 重做，用户口径）：不再「第一空/第二空」分行输入，
+ * 而是把题干按 ____ 占位符拆开，在空位处原位嵌入输入框——点哪个空就在哪里输入，
+ * 填完提交。提交后逐空着色显示对错（可接受答案见下方「正确答案」行）。
+ * 键盘避让仍由页面根级 Modifier.imePadding() 统一处理。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun BlankAnswerFields(
-    count: Int,
+fun BlankInlineFields(
+    text: String,
     values: List<String>,
     onValueChange: (index: Int, value: String) -> Unit,
     enabled: Boolean,
@@ -288,69 +301,106 @@ fun BlankAnswerFields(
     answers: List<List<String>> = emptyList()
 ) {
     val ui = LocalUi.current
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        repeat(count) { i ->
-            Column {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(
-                            when {
-                                showResult && answers.getOrNull(i)?.contains(values[i]) == true ->
-                                    ui.correct.copy(alpha = 0.12f)
-                                showResult -> ui.wrong.copy(alpha = 0.12f)
-                                else -> ui.ink.copy(alpha = 0.05f)
-                            }
-                        )
-                        .border(
-                            1.dp,
-                            when {
-                                showResult && answers.getOrNull(i)?.contains(values[i]) == true ->
-                                    ui.correct.copy(alpha = 0.5f)
-                                showResult -> ui.wrong.copy(alpha = 0.5f)
-                                else -> ui.ink.copy(alpha = 0.08f)
-                            },
-                            RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("第${i + 1}空", color = ui.textSub, fontSize = 12.sp)
-                    androidx.compose.material3.TextField(
-                        value = values.getOrNull(i).orEmpty(),
-                        onValueChange = { if (enabled) onValueChange(i, it) },
-                        enabled = enabled,
-                        singleLine = true,
-                        placeholder = { Text("请输入第${i + 1}空的答案", color = ui.textSub.copy(alpha = 0.6f), fontSize = 13.sp) },
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            color = ui.text, fontSize = 14.sp,
-                            fontFamily = LocalReadingFont.current
-                        ),
-                        colors = androidx.compose.material3.TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                            cursorColor = ui.ink
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 6.dp)
-                    )
-                }
-                if (showResult) {
-                    Text(
-                        "可接受答案：${answers.getOrNull(i)?.joinToString(" / ").orEmpty()}",
-                        color = ui.textSub, fontSize = 11.sp,
-                        modifier = Modifier.padding(start = 12.dp, top = 3.dp)
-                    )
-                }
+    // 题干按占位符拆段；段数-1 = 空位数；脏数据兑底：题干无占位但答案有 N 空 → 末尾补输入位
+    val segments = remember(text) { text.split(BLANK_PLACEHOLDER) }
+    val inlineCount = (segments.size - 1).coerceAtLeast(0)
+    val extra = (values.size - inlineCount).coerceAtLeast(0)
+
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        segments.forEachIndexed { si, seg ->
+            if (seg.isNotEmpty()) {
+                Text(
+                    seg,
+                    color = ui.text,
+                    fontSize = 16.sp,
+                    lineHeight = 25.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 6.dp)
+                )
+            }
+            if (si < inlineCount) {
+                val i = si
+                InlineBlankField(
+                    index = i,
+                    value = values.getOrNull(i).orEmpty(),
+                    enabled = enabled,
+                    showResult = showResult,
+                    ok = showResult && answers.getOrNull(i)?.contains(values.getOrNull(i).orEmpty()) == true,
+                    onValueChange = onValueChange
+                )
             }
         }
+        repeat(extra) { k ->
+            val i = inlineCount + k
+            InlineBlankField(
+                index = i,
+                value = values.getOrNull(i).orEmpty(),
+                enabled = enabled,
+                showResult = showResult,
+                ok = showResult && answers.getOrNull(i)?.contains(values.getOrNull(i).orEmpty()) == true,
+                onValueChange = onValueChange
+            )
+        }
     }
+}
+
+@Composable
+private fun InlineBlankField(
+    index: Int,
+    value: String,
+    enabled: Boolean,
+    showResult: Boolean,
+    ok: Boolean,
+    onValueChange: (index: Int, value: String) -> Unit
+) {
+    val ui = LocalUi.current
+    val bg = when {
+        showResult && ok -> ui.correct.copy(alpha = 0.14f)
+        showResult -> ui.wrong.copy(alpha = 0.14f)
+        else -> ui.ink.copy(alpha = 0.06f)
+    }
+    val borderColor = when {
+        showResult && ok -> ui.correct.copy(alpha = 0.55f)
+        showResult -> ui.wrong.copy(alpha = 0.55f)
+        else -> ui.ink.copy(alpha = 0.16f)
+    }
+    BasicTextField(
+        value = value,
+        onValueChange = { if (enabled) onValueChange(index, it) },
+        enabled = enabled,
+        singleLine = true,
+        textStyle = TextStyle(
+            color = ui.text,
+            fontSize = 15.sp,
+            fontFamily = LocalReadingFont.current,
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.SemiBold
+        ),
+        cursorBrush = SolidColor(ui.ink),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        modifier = Modifier
+            .widthIn(min = 110.dp, max = 220.dp)
+            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        decorationBox = { inner ->
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.widthIn(min = 90.dp)) {
+                if (value.isEmpty()) {
+                    Text(
+                        "第${index + 1}空",
+                        color = ui.textSub.copy(alpha = 0.55f), fontSize = 12.sp
+                    )
+                }
+                inner()
+            }
+        }
+    )
 }
 
 // ---------- 简答 ----------
@@ -475,8 +525,10 @@ fun ShortReferenceCard(
     }
 }
 
-// ---------- 通用提交按钮 ----------
-
+/**
+ * 通用提交按钮。
+ * 禁用态：更浅的底 + 次级文字（v2.8.3 调对比度——原 0.25 透明度底上叠灰字看不清，用户反馈）。
+ */
 @Composable
 fun SubmitAnswerButton(
     enabled: Boolean,
@@ -488,7 +540,7 @@ fun SubmitAnswerButton(
     GlassButton(
         onClick = onClick,
         backdrop = backdrop,
-        surfaceColor = if (enabled) ui.ink else ui.ink.copy(alpha = 0.25f),
+        surfaceColor = if (enabled) ui.ink else ui.ink.copy(alpha = 0.12f),
         heightDp = 46.dp,
         modifier = Modifier
             .fillMaxWidth()

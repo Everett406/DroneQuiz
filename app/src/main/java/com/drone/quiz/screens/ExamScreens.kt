@@ -29,9 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -72,7 +69,7 @@ import com.drone.quiz.data.repo.UserAnswer
 import com.drone.quiz.data.repo.judgeAnswer
 import com.drone.quiz.data.repo.isAnswered
 import com.drone.quiz.data.repo.optionLabel
-import com.drone.quiz.screens.common.BlankAnswerFields
+import com.drone.quiz.screens.common.BlankInlineFields
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
@@ -130,7 +127,7 @@ fun ExamConfigScreen(
     val settings by ServiceLocator.settings.settings
         .collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
 
-    var count by remember { mutableIntStateOf(50) }
+    var count by remember { mutableIntStateOf(50) }   // 总题数（两种模式共用：经典模式直接抽题；多题型作分配基数，v2.8.3）
     var judgeRatio by remember { mutableStateOf(0.3f) }
     var durationMin by remember { mutableIntStateOf(60) }
     var starting by remember { mutableStateOf(false) }
@@ -138,10 +135,12 @@ fun ExamConfigScreen(
     // v2.8.0 题库自适应
     var bankTypes by remember { mutableStateOf<List<String>>(emptyList()) }
     var bankTypeCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
-    var typeCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var showAdvanced by remember { mutableStateOf(false) }
     var includeShort by remember { mutableStateOf(settings.examIncludeShort) }
     var typeOrder by remember { mutableStateOf<List<String>>(emptyList()) }
+    // v2.8.3 题型构成：自动按库内占比 / 手动拖比例滑杆（百分比，联动让出份额）
+    var autoMix by remember { mutableStateOf(true) }
+    var ratios by remember { mutableStateOf<Map<String, Int>>(emptyMap()) } // 题型 → 0..100
 
     val recentExams by remember(settings.currentBank) {
         ServiceLocator.repo.recentExams(settings.currentBank)
@@ -158,21 +157,14 @@ fun ExamConfigScreen(
             bankTypeCounts = ServiceLocator.repo.bankTypeCounts(bank)
             typeOrder = st.examTypeOrder.ifEmpty { QuestionTypes.canonicalOrder }
             includeShort = st.examIncludeShort
-            // 多题型题库：初始化每型默认题数（clamp 到题库实际拥有量）
-            if (types.size > 2 || types.any { it != "single" && it != "judge" }) {
-                typeCounts = buildMap {
-                    put("single", minOf(30, bankTypeCounts["single"] ?: 0))
-                    if ("multi" in types) put("multi", minOf(5, bankTypeCounts["multi"] ?: 0))
-                    if ("blank" in types) put("blank", minOf(5, bankTypeCounts["blank"] ?: 0))
-                    if ("judge" in types) put("judge", minOf(15, bankTypeCounts["judge"] ?: 0))
-                }
-            }
+            autoMix = st.examAutoMix
+            ratios = autoRatios(types, bankTypeCounts)
         }
     }
 
     // 组卷题数（自适应两种模式）：
     // - 只有单选/判断的题库（内置无人机题库）：沿用「题目数量 + 判断占比」滑杆
-    // - 含新题型的题库：每型题数步进器
+    // - 含新题型的题库：总题数外置，各型按 自动占比/手动比例 分配（v2.8.3，用户口径）
     val classicMode = bankTypes.isNotEmpty() && bankTypes.all { it == "single" || it == "judge" }
     val activeTypes = typeOrder
         .ifEmpty { QuestionTypes.canonicalOrder }
@@ -182,9 +174,39 @@ fun ExamConfigScreen(
         val wantJudge = if (judgeAvail == 0) 0 else (count * judgeRatio).toInt().coerceAtMost(judgeAvail)
         mapOf("single" to (count - wantJudge).coerceAtLeast(0), "judge" to wantJudge)
     } else {
-        typeCounts.filterKeys { it in activeTypes }.filterValues { it > 0 }
+        val availSum = activeTypes.sumOf { bankTypeCounts[it] ?: 0 }
+        if (availSum <= 0) emptyMap()
+        else activeTypes.associateWith { t ->
+            val avail = bankTypeCounts[t] ?: 0
+            if (avail <= 0) 0
+            else {
+                val share = if (autoMix) (avail * 100f) / availSum else (ratios[t] ?: 0).toFloat()
+                (count * share / 100f).roundToInt().coerceIn(0, avail)
+            }
+        }.filterValues { it > 0 }
     }
     val plannedTotal = plannedCounts.values.sum()
+
+    /** 手动比例：拖动某型到 v，其余题型按原比例等比让出剩余份额（v2.8.3） */
+    fun setRatio(t: String, v: Int) {
+        val others = activeTypes.filter { it != t }
+        val oldOtherSum = others.sumOf { ratios[it] ?: 0 }
+        val remain = (100 - v).coerceAtLeast(0)
+        ratios = buildMap {
+            put(t, v)
+            if (others.isEmpty()) return@buildMap
+            if (oldOtherSum <= 0) {
+                // 其余原本全为 0：剩余份额均分给仍有题量的题型
+                val availOthers = others.filter { (bankTypeCounts[it] ?: 0) > 0 }
+                val each = if (availOthers.isEmpty()) 0 else remain / availOthers.size
+                others.forEach { o -> put(o, if (o in availOthers) each else 0) }
+            } else {
+                others.forEach { o ->
+                    put(o, (((ratios[o] ?: 0) * remain.toFloat()) / oldOtherSum).roundToInt())
+                }
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -283,12 +305,26 @@ fun ExamConfigScreen(
                     }
                 }
             } else {
-                // ---- 含新题型题库：时长 / 及格分 + 每型题数步进 ----
+                // ---- 含新题型题库：题目数量 / 时长 / 及格分；题型构成整体移入高级选项（v2.8.3，用户口径） ----
                 SectionLabel("考试设置")
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "题目数量",
+                        value = "$count 题",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { count.toFloat() },
+                            onValueChange = { count = it.roundToInt() },
+                            valueRange = 10f..100f,
+                            step = 5f,
+                            backdrop = backdrop
+                        )
+                    }
                     ExamSettingCell(
                         backdrop = backdrop,
                         label = "考试时长",
@@ -303,6 +339,13 @@ fun ExamConfigScreen(
                             backdrop = backdrop
                         )
                     }
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     ExamSettingCell(
                         backdrop = backdrop,
                         label = "及格分",
@@ -319,64 +362,11 @@ fun ExamConfigScreen(
                             backdrop = backdrop
                         )
                     }
-                }
-
-                SectionLabel("题型构成", Modifier.padding(top = 14.dp))
-                GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                        // v2.8.2：加减号步进器 → 每型一根滑杆（0..可用量，步长 1），
-                        // 与全 app 滑杆交互一致；加减号点几下才能到几十题，实在难用（用户反馈）
-                        val typesInCard = bankTypes.filter { it != "short" || includeShort }
-                        if (typesInCard.isEmpty()) {
-                            Text(
-                                "当前题库暂无可考题型",
-                                color = ui.textSub, fontSize = 13.sp
-                            )
-                        }
-                        typesInCard.forEach { t ->
-                            val avail = bankTypeCounts[t] ?: 0
-                            Column(Modifier.padding(vertical = 3.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        QuestionTypes.label(t),
-                                        color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        "  可用 $avail",
-                                        color = ui.textSub, fontSize = 11.sp
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    Text(
-                                        "${typeCounts[t] ?: 0} / $avail",
-                                        color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                if (avail > 0) {
-                                    GlassSlider(
-                                        value = { (typeCounts[t] ?: 0).toFloat() },
-                                        onValueChange = { v ->
-                                            typeCounts = typeCounts.toMutableMap().apply {
-                                                put(t, v.roundToInt().coerceIn(0, avail))
-                                            }
-                                        },
-                                        valueRange = 0f..avail.toFloat(),
-                                        step = 1f,
-                                        backdrop = backdrop,
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            "共 $plannedTotal 题 · 拖动滑杆设定各题型题数",
-                            color = ui.textSub, fontSize = 11.sp,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
+                    Spacer(Modifier.weight(1f))
                 }
             }
 
-            // ---- 高级选项（默认折叠）：含简答题 + 题型顺序拖拽 ----
+            // ---- 高级选项（默认折叠）：题型构成（自动/手动配比）+ 含简答题 + 题型顺序拖拽 ----
             if (bankTypes.size > 1) {
                 GlassCard(
                     backdrop = backdrop,
@@ -404,44 +394,147 @@ fun ExamConfigScreen(
                             enter = expandVertically(tween(260)) + fadeIn(tween(220)),
                             exit = shrinkVertically(tween(220)) + fadeOut(tween(180))
                         ) {
-                        if ("short" in bankTypes) {
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text("含简答题", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                                        Text(
-                                            "简答题提交后对照参考答案自评计分",
-                                            color = ui.textSub, fontSize = 11.sp,
-                                            modifier = Modifier.padding(top = 2.dp)
+                            // v2.8.3 修复「展开后文字重叠」：AnimatedVisibility 的内容布局会把
+                            // 多个直接子级叠放在同一点绘制，必须包一层 Column 纵向排列
+                            Column {
+                                // ---- 题型构成（v2.8.3 移入高级选项：自动按库占比 / 手动拖比例） ----
+                                if (!classicMode && activeTypes.isNotEmpty()) {
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                "题型构成",
+                                                color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                "共 $count 题 · " +
+                                                    if (autoMix) "按题库各题型数量占比自动分配"
+                                                    else "按下方比例分配，拖动一处其余自动让出份额",
+                                                color = ui.textSub, fontSize = 11.sp,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        Text("自动配比", color = ui.textSub, fontSize = 12.sp)
+                                        Spacer(Modifier.width(6.dp))
+                                        GlassToggle(
+                                            checked = { autoMix },
+                                            onCheckedChange = { v ->
+                                                autoMix = v
+                                                if (!v) ratios = autoRatios(bankTypes, bankTypeCounts)
+                                                scope.launch { ServiceLocator.settings.setExamAutoMix(v) }
+                                            },
+                                            backdrop = backdrop
                                         )
                                     }
-                                    GlassToggle(
-                                        checked = { includeShort },
-                                        onCheckedChange = { v ->
-                                            includeShort = v
-                                            scope.launch { ServiceLocator.settings.setExamIncludeShort(v) }
-                                        },
-                                        backdrop = backdrop
-                                    )
+                                    if (autoMix) {
+                                        // 只读展示实际分配结果
+                                        Column(Modifier.padding(top = 6.dp)) {
+                                            activeTypes.forEach { t ->
+                                                Row(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        QuestionTypes.label(t),
+                                                        color = ui.text, fontSize = 13.sp
+                                                    )
+                                                    Spacer(Modifier.weight(1f))
+                                                    Text(
+                                                        "≈ ${plannedCounts[t] ?: 0} 题 · 库内 ${bankTypeCounts[t] ?: 0}",
+                                                        color = ui.textSub, fontSize = 12.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Column(Modifier.padding(top = 8.dp)) {
+                                            activeTypes.forEach { t ->
+                                                val avail = bankTypeCounts[t] ?: 0
+                                                val r = ratios[t] ?: 0
+                                                Column(Modifier.padding(vertical = 3.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            QuestionTypes.label(t),
+                                                            color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium
+                                                        )
+                                                        Text(
+                                                            "  可用 $avail",
+                                                            color = ui.textSub, fontSize = 11.sp
+                                                        )
+                                                        Spacer(Modifier.weight(1f))
+                                                        Text(
+                                                            "$r% ≈ ${plannedCounts[t] ?: 0} 题",
+                                                            color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                    if (avail > 0) {
+                                                        GlassSlider(
+                                                            value = { r.toFloat() },
+                                                            onValueChange = { v ->
+                                                                setRatio(t, v.roundToInt().coerceIn(0, 100))
+                                                            },
+                                                            valueRange = 0f..100f,
+                                                            step = 5f,
+                                                            backdrop = backdrop,
+                                                            modifier = Modifier.padding(top = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            }
-                            Text(
-                                "题型顺序 · 长按拖动调整（先做哪种题型）",
-                                color = ui.textSub, fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 14.dp)
-                            )
-                            ReorderableTypeList(
-                                order = activeTypes.ifEmpty { bankTypes.filter { it != "short" || includeShort } },
-                                onReorder = { newOrder ->
-                                    typeOrder = newOrder
-                                    scope.launch { ServiceLocator.settings.setExamTypeOrder(newOrder) }
+                                if ("short" in bankTypes) {
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("含简答题", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                "简答题提交后对照参考答案自评计分",
+                                                color = ui.textSub, fontSize = 11.sp,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        GlassToggle(
+                                            checked = { includeShort },
+                                            onCheckedChange = { v ->
+                                                includeShort = v
+                                                scope.launch { ServiceLocator.settings.setExamIncludeShort(v) }
+                                            },
+                                            backdrop = backdrop
+                                        )
+                                    }
                                 }
-                            )
-                        } // AnimatedVisibility
+                                Text(
+                                    "题型顺序 · 长按拖动调整（先做哪种题型）",
+                                    color = ui.textSub, fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 14.dp)
+                                )
+                                ReorderableTypeList(
+                                    order = activeTypes.ifEmpty { bankTypes.filter { it != "short" || includeShort } },
+                                    onReorder = { newOrder ->
+                                        typeOrder = newOrder
+                                        scope.launch { ServiceLocator.settings.setExamTypeOrder(newOrder) }
+                                    }
+                                )
+                                // v2.8.3：解释可排序的题型范围（只有单选+判断的题库用户会疑惑"怎么只有两个"）
+                                Text(
+                                    "当前题库共 ${bankTypes.size} 种题型，未导入的题型不参与排序",
+                                    color = ui.textSub, fontSize = 10.sp,
+                                    modifier = Modifier.padding(top = 2.dp, start = 4.dp)
+                                )
+                            } // AnimatedVisibility 内容 Column
+                        }
                     }
                 }
             }
@@ -477,7 +570,7 @@ fun ExamConfigScreen(
                 Text(
                     when {
                         starting -> "正在组卷…"
-                        plannedTotal <= 0 -> "请先设置题型题数"
+                        plannedTotal <= 0 -> "暂无可组卷题目，请调整数量或比例"
                         else -> "开始考试 · 共 $plannedTotal 题"
                     },
                     color = ui.onInk,
@@ -566,6 +659,13 @@ fun ExamConfigScreen(
         
 }
     }
+}
+
+/** 模考配置：按题库各题型可用量占比折成百分比（和≈100，四舍五入误差可忽略）。 */
+private fun autoRatios(types: List<String>, counts: Map<String, Int>): Map<String, Int> {
+    val sum = types.sumOf { counts[it] ?: 0 }
+    if (sum <= 0) return types.associateWith { 0 }
+    return types.associateWith { t -> (((counts[t] ?: 0) * 100f) / sum).roundToInt() }
 }
 
 /** 模考记录副标题：按题型拼装（兼容旧记录：无 extraCounts 时只有单选/判断）。 */
@@ -679,6 +779,20 @@ private fun ReorderableTypeList(order: List<String>, onReorder: (List<String>) -
 
 // ==================== 考试页 ====================
 
+/** 答题卡分组：连续同题型题目为一段（组卷按题型分段拼卷，段数 = 参与题型数）。 */
+private class SheetGroup(val type: String, val indices: MutableList<Int> = mutableListOf())
+
+private fun buildSheetGroups(questions: List<Question>): List<SheetGroup> {
+    val groups = mutableListOf<SheetGroup>()
+    questions.forEachIndexed { i, q ->
+        val last = groups.lastOrNull()
+        if (last != null && last.type == q.type) last.indices.add(i)
+        else groups.add(SheetGroup(q.type, mutableListOf(i)))
+    }
+    return groups
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExamScreen(
     backdrop: Backdrop,
@@ -953,33 +1067,51 @@ fun ExamScreen(
                     ExamSheetLegend(ui.ink.copy(alpha = 0.25f), "已答")
                     ExamSheetLegend(ui.ink.copy(alpha = 0.08f), "未答")
                 }
-                val sheetGridState = rememberLazyGridState()
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(6),
-                    state = sheetGridState,
+                // v2.8.3：按题型分段展示（组卷本就按题型分段拼卷，连续同题型为一段）+ 已答计数
+                val sheetListState = rememberLazyListState()
+                val sheetGroups = remember(questions) { buildSheetGroups(questions) }
+                LazyColumn(
+                    state = sheetListState,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(340.dp)
+                        .heightIn(max = 440.dp)
                         .padding(vertical = 14.dp)
                         .softVerticalEdges(
                             top = 16.dp, bottom = 22.dp,
-                            topScrolledPx = { sheetGridState.scrolledFromTopPx() },
-                            bottomRemainingPx = { sheetGridState.remainingBottomPx() }
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(total) { i ->
-                        val q = questions[i]
-                        ExamSheetCell(
-                            number = i + 1,
-                            answered = isAnswered(q, details[q.id]),
-                            isCurrent = pagerState.currentPage == i,
-                            onClick = {
-                                scope.launch { pagerState.animateScrollToPage(i) }
-                                showPanel = false
-                            }
+                            topScrolledPx = { sheetListState.scrolledFromTopPx() },
+                            bottomRemainingPx = { sheetListState.remainingBottomPx() }
                         )
+                ) {
+                    sheetGroups.forEach { g ->
+                        val start = g.indices.first()
+                        val answeredCnt = g.indices.count { isAnswered(questions[it], details[questions[it].id]) }
+                        item(key = "h$start") {
+                            Text(
+                                "${QuestionTypes.label(g.type)}题 · 第 ${start + 1}–${g.indices.last() + 1} 题 · 已答 $answeredCnt/${g.indices.size}",
+                                color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
+                        item(key = "c$start") {
+                            FlowRow(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                g.indices.forEach { i ->
+                                    val q = questions[i]
+                                    ExamSheetCell(
+                                        number = i + 1,
+                                        answered = isAnswered(q, details[q.id]),
+                                        isCurrent = pagerState.currentPage == i,
+                                        onClick = {
+                                            scope.launch { pagerState.animateScrollToPage(i) }
+                                            showPanel = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1215,8 +1347,9 @@ private fun ExamBlankSection(q: Question, ua: UserAnswer?, onAnswer: (UserAnswer
     val count = q.blankCount.coerceAtLeast(1)
     var texts by remember(q.id) { mutableStateOf(ua?.texts?.takeIf { it.isNotEmpty() } ?: List(count) { "" }) }
     Column(Modifier.padding(top = 14.dp)) {
-        BlankAnswerFields(
-            count = count,
+        // v2.8.3：题干内嵌输入（在 ____ 空位处直接点入），与刷题页同款
+        BlankInlineFields(
+            text = q.text,
             values = texts,
             onValueChange = { i, v ->
                 texts = texts.toMutableList().also { it[i] = v }

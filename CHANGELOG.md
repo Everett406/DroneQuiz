@@ -4,6 +4,42 @@
 
 ## [Unreleased]
 
+## [2.8.3] - 2026-09-04
+
+### 模考 —— 题型构成重构（第十八轮用户反馈）
+
+- **题型构成移入高级选项**：外部「题型构成」卡片删除；总题数由新外置的「题目数量」滑杆（10..100）承担
+- **自动配比开关**（DataStore `exam_auto_mix`，默认开）：开启后按题库内各题型可用量占比自动分配总题数，只读展示「≈ N 题 · 库内 M」
+- **手动比例滑杆**：关闭自动后每型一根 0..100%（步长 5）的比例滑杆，拖动某型其余按原比例等比让出份额（`setRatio`）；显示「60% ≈ 30 题」；实际题数 = 总题数 × 比例，clamp 到可用量
+- `autoRatios` 辅助函数：按可用量折算百分比（兼作手动模式初始值）
+
+### 模考 —— 修复与答题卡（第十八轮用户反馈）
+
+- **高级选项展开文字重叠修复**：根因是 `AnimatedVisibility` 的内容布局把多个直接子级叠放在同一点绘制（含简答行/提示文字/拖拽列表全部叠画），包一层 `Column` 修复
+- **答题卡按题型分段**：`buildSheetGroups` 按连续同题型分段（组卷本就按题型拼段），每段小标题「题型 · 第 X–Y 题 · 已答 x/y」，格子 FlowRow 摆放，替代单一平铺网格
+- **题型排序说明**：列表下方注明当前题库参与排序的题型总数（解答"怎么只有两个可排序"——题库本就只有两种题型）
+
+### 刷题 —— 填空题原位输入（第十八轮用户反馈）
+
+- 新组件 `BlankInlineFields`：题干按 `_{3,}` 占位符拆段（与导入校验同口径），在空位处原位嵌入 `BasicTextField`（居中、下划浅底胶囊、空时显示"第 N 空"占位）；刷题/模考共用；脏数据兜底（题干无占位但答案有 N 空 → 末尾补输入位）
+- 删除旧 `BlankAnswerFields`（第一空/第二空分行输入）；提交后逐空红绿着色，可接受答案见「正确答案」行
+
+### 刷题 —— 其他（第十八轮用户反馈）
+
+- **解析展开动画回归**：判定结果 + 解析区改 `AnimatedVisibility(visible = ua != null)`（expandVertically + fade），单选/判断、多选、填空、简答自评四处全覆盖；注意 AnimatedVisibility 必须常驻组合、由状态变化触发入场（`if` 包裹 + `visible=true` 不播动画）
+- **提交按钮禁用态对比度**：surface 0.25→0.12 透明度 + 次级文字（原灰底灰字看不清）；导入弹窗「确认导入」同步
+- **分类筛选移除**：刷题配置页删除「分类」区块（切题库即换内容，维度冗余）；`onStart` cat 恒传 "all"；概览「题库」总数改用 `Repo.bankCount`（不再经分类求和）；错题特训筛选不受影响
+- **题型 chips 自动换行**：题目范围 Row+horizontalScroll → FlowRow
+
+### 弹窗体系（第十八轮用户反馈）
+
+- **OverlayBlur 引用计数**：boolean → 持有者 id 列表（push/pop），修叠层弹窗互踩——关闭「CSV 模板」对话框后仍开着的导入题库弹窗不再丢背景模糊
+- **把手上拉过冲**：`rawDragY` 原始累计 + rubber-band 显示（上拉指数阻尼、上限 80px），松手弹簧回位；下滑关闭手感不变；`panelOffsetProvider` 允许负 translationY
+- **收款码两态推移动画**：`AnimatedContent` 前进/反向转场（旧内容上滑出让位、新内容下方滑入）+ `animateContentSize` 高度平滑；导入弹窗两态同步加 animateContentSize
+- **打赏文案动态化**：`formatUsage(usageMs)` 显示真实累计时长（"X 分钟 / X 小时 / X 小时 Y 分钟"），替代写死"2 小时"
+- **性能降档**：内容层模糊 16dp/220ms → 12dp/160ms；壁纸层单独 8dp；弹窗面板玻璃 blurDp 24→18dp（模糊逐帧重算是掉帧主因）
+- static_check must 断言 +8（examAutoMix / autoRatios / buildSheetGroups / BlankInlineFields / OverlayBlur.push / rawDragY / formatUsage）
+
 ## [2.8.2] - 2026-09-04
 
 ### 修复 —— 示例题库从未出现（第十七轮用户反馈）
