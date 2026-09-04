@@ -81,6 +81,7 @@ import com.drone.quiz.ui.theme.ReadingFontOptions
 import com.drone.quiz.ui.theme.readingFontOption
 import com.drone.quiz.work.ReminderScheduler
 import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -971,7 +972,18 @@ fun SettingsScreen(backdrop: Backdrop) {
         onDismiss = { showAboutSheet = false },
         onOpenReleases = { AppUpdater.openReleases(context) },
         onCheckUpdate = { checkUpdate() },
-        onSupport = { com.drone.quiz.ui.nav.SupportBus.manualOpen = true }
+        // v2.8.10：先关关于弹窗，等退场动画走完再拉起打赏弹窗。
+        // 根因：打赏弹窗宿主在 App 启动时就注册进 GlassOverlayPortal（列表底部），
+        // 关于弹窗在进设置页时才注册（列表顶部，后组合者在上）——同屏时打赏弹窗
+        // 被压在关于弹窗下面，且其上方关于层的透明点击层还会挡住打赏面板操作。
+        // 两者不同屏后层级问题自然消失（用户口径：关了关于，再弹奶茶）。
+        onSupport = {
+            showAboutSheet = false
+            scope.launch {
+                delay(420) // 关于弹窗退场（滑出 spring≈300ms 视觉完成 + 余量）
+                com.drone.quiz.ui.nav.SupportBus.manualOpen = true
+            }
+        }
     )
 
     BankImportSheet(
