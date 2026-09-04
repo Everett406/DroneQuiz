@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -41,12 +43,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -64,6 +71,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassToggle
 import com.drone.quiz.ui.glass.GlassSlider
+import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.GlassInputDialog
 import com.drone.quiz.ui.glass.BounceContainer
@@ -101,6 +109,11 @@ fun SettingsScreen(backdrop: Backdrop) {
     // 有新版弹窗引导浏览器去发布页；无新版/网络失败走轻提示
     var updateChecking by remember { mutableStateOf(false) }
     var updateFound by remember { mutableStateOf<String?>(null) }
+    // v2.8.9 修复：检查结果原本写进题库管理区的 importMsg（用户反馈“已是最新版本
+    // 跑到题库管理那个地方”），改用独立状态、只渲染在关于弹窗内
+    var updateMsg by remember { mutableStateOf<String?>(null) }
+    // v2.8.9 关于页由内联卡片改为底部弹窗（用户口径：从下面弹出来的那种）
+    var showAboutSheet by remember { mutableStateOf(false) }
 
     fun checkUpdate() {
         if (updateChecking) return
@@ -111,10 +124,10 @@ fun SettingsScreen(backdrop: Backdrop) {
                     if (AppUpdater.isNewer(remote, BuildConfig.VERSION_NAME)) {
                         updateFound = remote
                     } else {
-                        importMsg = "已是最新版本 v${BuildConfig.VERSION_NAME}"
+                        updateMsg = "已是最新版本 v${BuildConfig.VERSION_NAME}"
                     }
                 }
-                .onFailure { importMsg = "检查失败，请稍后重试" }
+                .onFailure { updateMsg = "检查失败，请稍后重试" }
             updateChecking = false
         }
     }
@@ -768,7 +781,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                 importMsg?.let {
                     Text(
                         it,
-                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除") || it.startsWith("已重命名") || it.startsWith("已是最新版本")) ui.correct else ui.wrong,
+                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除") || it.startsWith("已重命名")) ui.correct else ui.wrong,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 6.dp)
                     )
@@ -799,79 +812,35 @@ fun SettingsScreen(backdrop: Backdrop) {
             }
         }
 
-        // ---- 关于 ----
+        // ---- 关于（v2.8.9 由内联卡片改为底部弹窗入口，用户口径：从下面弹出来的那种） ----
         SectionLabel("关于", Modifier.padding(top = 16.dp))
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Column(Modifier.padding(18.dp)) {
-                // 版本行可点：直达 GitHub Releases 页（v2.8.8，引导更新入口）
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = null,
-                            indication = null
-                        ) { AppUpdater.openReleases(context) }
-                ) {
-                    Icon(AppIcons.Bell, null, tint = ui.accent, modifier = Modifier.size(18.dp))
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .padding(horizontal = 10.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = null,
+                        indication = null
                     ) {
-                        Text("题屿 v${BuildConfig.VERSION_NAME}", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "液态玻璃 by Kyant0 backdrop · 离线本地题库",
-                            color = ui.textSub, fontSize = 11.sp
-                        )
+                        updateMsg = null
+                        showAboutSheet = true
                     }
-                    Icon(AppIcons.ChevronRight, null, tint = ui.textSub, modifier = Modifier.size(16.dp))
-                }
-                Row(
+                    .padding(horizontal = 18.dp, vertical = 13.dp)
+            ) {
+                Icon(AppIcons.Bell, null, tint = ui.accent, modifier = Modifier.size(18.dp))
+                Column(
                     Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .weight(1f)
+                        .padding(horizontal = 10.dp)
                 ) {
-                    // 支持作者手动入口（v2.8.0）：复用打赏弹窗，手动打开不占用自动触达机会
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(50))
-                            .background(ui.accent.copy(alpha = 0.10f))
-                            .border(1.dp, ui.accent.copy(alpha = 0.35f), RoundedCornerShape(50))
-                            .clickable(
-                                interactionSource = null,
-                                indication = null
-                            ) { com.drone.quiz.ui.nav.SupportBus.manualOpen = true }
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "☕ 请作者喝杯奶茶",
-                            color = ui.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold
-                        )
-                    }
-                    // 检查更新（v2.8.8）：查最新 Release，有新版弹窗引导浏览器打开
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(50))
-                            .background(ui.ink.copy(alpha = 0.08f))
-                            .border(1.dp, ui.ink.copy(alpha = 0.15f), RoundedCornerShape(50))
-                            .clickable(
-                                interactionSource = null,
-                                indication = null
-                            ) { checkUpdate() }
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (updateChecking) "检查中…" else "检查更新",
-                            color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text("关于题屿", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "v${BuildConfig.VERSION_NAME} · 版本与支持",
+                        color = ui.textSub, fontSize = 11.sp
+                    )
                 }
+                Icon(AppIcons.ChevronRight, null, tint = ui.textSub, modifier = Modifier.size(16.dp))
             }
         }
 
@@ -993,6 +962,18 @@ fun SettingsScreen(backdrop: Backdrop) {
         )
     }
 
+    // 关于弹窗（v2.8.9）：内容/状态提升在设置页，关闭重开不丢检查结果；打开时清旧提示
+    AboutSheet(
+        visible = showAboutSheet,
+        backdrop = backdrop,
+        updateChecking = updateChecking,
+        updateMsg = updateMsg,
+        onDismiss = { showAboutSheet = false },
+        onOpenReleases = { AppUpdater.openReleases(context) },
+        onCheckUpdate = { checkUpdate() },
+        onSupport = { com.drone.quiz.ui.nav.SupportBus.manualOpen = true }
+    )
+
     BankImportSheet(
         visible = showImportSheet,
         backdrop = backdrop,
@@ -1006,4 +987,140 @@ fun SettingsScreen(backdrop: Backdrop) {
             }
         }
     )
+}
+
+// ==================== 关于弹窗（v2.8.9，用户口径：从下面弹出来的那种） ====================
+
+/** 文楷（应用内置字体）：关于弹窗的文档风标题与正文专用，不随阅读字体设置变化。 */
+private val AboutKai = FontFamily(
+    Font(R.font.lxgwwenkai_regular, FontWeight.Normal),
+    Font(R.font.lxgwwenkai_medium, FontWeight.Bold)
+)
+
+@Composable
+private fun AboutSheet(
+    visible: Boolean,
+    backdrop: Backdrop,
+    updateChecking: Boolean,
+    updateMsg: String?,
+    onDismiss: () -> Unit,
+    onOpenReleases: () -> Unit,
+    onCheckUpdate: () -> Unit,
+    onSupport: () -> Unit
+) {
+    val ui = LocalUi.current
+    GlassBottomSheet(visible = visible, backdrop = backdrop, onDismiss = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                // 小屏/横屏保底：内容超高时内部滚动；把手拖拽仅顶部热区、不冲突
+                .heightIn(max = 480.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 22.dp)
+        ) {
+            Text(
+                "关于题屿",
+                color = ui.text, fontSize = 23.sp, fontWeight = FontWeight.Bold,
+                fontFamily = AboutKai,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            // 虚线分隔（参考用户旧版刷题本的文档式排版）
+            Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .height(1.dp)
+            ) {
+                drawLine(
+                    color = ui.textSub.copy(alpha = 0.40f),
+                    start = Offset(0f, size.height / 2f),
+                    end = Offset(size.width, size.height / 2f),
+                    strokeWidth = size.height,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))
+                )
+            }
+            Text(
+                "题屿把无人机装调修理的题库搬进了手机，顺序刷题、随机刷题、模拟考试和错题本，都在这座小岛上。",
+                color = ui.text, fontSize = 14.sp, lineHeight = 25.sp, fontFamily = AboutKai,
+                modifier = Modifier.padding(top = 14.dp)
+            )
+            Text(
+                "做它的原因很简单：刷题不想一直抱着厚厚的文档，想在手机上随时做几道题。做着做着，就长成了现在的样子。",
+                color = ui.text, fontSize = 14.sp, lineHeight = 25.sp, fontFamily = AboutKai,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            Text(
+                "如果发现题目有错、选项不对，或者想要新功能，欢迎告诉我。人生的意义在于折腾，希望这座小岛也能陪你顺利通过考试。",
+                color = ui.text, fontSize = 14.sp, lineHeight = 25.sp, fontFamily = AboutKai,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            // 版本行可点：直达 GitHub Releases 页（沿用 v2.8.8 行为）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .clickable(
+                        interactionSource = null,
+                        indication = null,
+                        onClick = onOpenReleases
+                    )
+            ) {
+                Text(
+                    "v${BuildConfig.VERSION_NAME} · GitHub 发布页",
+                    color = ui.textSub, fontSize = 11.sp
+                )
+                Icon(AppIcons.ChevronRight, null, tint = ui.textSub, modifier = Modifier.size(12.dp))
+            }
+            // 等高双胶囊（v2.8.8 的「请作者喝杯奶茶」换行导致不等高，在此根治：
+            // GlassButton .height() 固定高度 + maxLines(1) + 文案缩短）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 支持作者（v2.8.0）：复用打赏弹窗，手动打开不占用自动触达机会
+                GlassButton(
+                    onClick = onSupport,
+                    backdrop = backdrop,
+                    surfaceColor = ui.accent.copy(alpha = 0.14f),
+                    heightDp = 44.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        "☕ 请喝奶茶",
+                        color = ui.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+                // 检查更新（v2.8.8）：查最新 Release，有新版弹窗引导浏览器打开
+                GlassButton(
+                    onClick = onCheckUpdate,
+                    backdrop = backdrop,
+                    surfaceColor = ui.ink,
+                    heightDp = 44.dp,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(AppIcons.Refresh, null, tint = ui.onInk, modifier = Modifier.size(15.dp))
+                    Text(
+                        if (updateChecking) "检查中…" else "检查更新",
+                        color = ui.onInk, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+            // 检查结果只落在本弹窗内（v2.8.8 bug：结果误写入题库管理区的 importMsg）
+            updateMsg?.let { msg ->
+                Text(
+                    msg,
+                    color = if (msg.startsWith("已是最新")) ui.correct else ui.wrong,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                )
+            }
+        }
+    }
 }
