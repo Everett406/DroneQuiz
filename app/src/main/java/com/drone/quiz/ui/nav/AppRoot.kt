@@ -513,8 +513,8 @@ private fun formatUsage(ms: Long): String {
     val h = totalMin / 60
     val m = totalMin % 60
     return when {
-        h <= 0 -> "$totalMin 分钟"
-        m == 0 -> "$h 小时"
+        h <= 0L -> "$totalMin 分钟"
+        m == 0L -> "$h 小时"
         else -> "$h 小时 $m 分钟"
     }
 }
