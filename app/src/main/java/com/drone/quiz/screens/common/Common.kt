@@ -157,6 +157,19 @@ fun androidx.compose.foundation.lazy.grid.LazyGridState.remainingBottomPx(): Flo
     return tail + (info.totalItemsCount - 1 - last.index) * avg
 }
 
+/** 列表"距底部剩余像素"近似（同网格版，答题卡 v2.8.3 改 LazyColumn 分段后需要）。 */
+fun androidx.compose.foundation.lazy.LazyListState.remainingBottomPx(): Float {
+    val info = layoutInfo
+    val infos = info.visibleItemsInfo
+    if (infos.isEmpty()) return 0f
+    val last = infos.last()
+    if (last.index >= info.totalItemsCount - 1) return 0f
+    val lastBottom = last.offset + last.size
+    val tail = (info.viewportEndOffset - lastBottom).coerceAtLeast(0)
+    val avg = infos.map { it.size }.average().toFloat().coerceAtLeast(1f)
+    return tail + (info.totalItemsCount - 1 - last.index) * avg
+}
+
 /**
  * 上下双向柔化（答题卡网格上下边缘渐隐，替代硬切行）。
  * v2.7.1 同步生长式模型：带高 = min(滚出/剩余像素, 带高上限)，
