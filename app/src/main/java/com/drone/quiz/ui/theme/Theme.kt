@@ -223,3 +223,24 @@ fun backdropIsDark(): Boolean {
     val effective = wall * (1f - scrimAlpha) + scrimLuminance * scrimAlpha
     return effective < 0.5f
 }
+
+/**
+ * 页面级辅助小字的自适应色（v2.8.7）。
+ *
+ * 适用对象：直接坐在壁纸上的低层级文字——分区标题（SectionLabel）、页面副标题
+ * （ScreenTitle.subtitle）、页脚提示（续刷进度/错题本脚注/每日精进入口）。
+ * 用户实测：浅色主题 + 深色壁纸时 textSub（中灰）对比度不足，圈出多处"看不清"。
+ *
+ * 规则：壁纸明暗与主题**同向** → 保持设计原色（不动默认观感）；
+ * **翻暗** → 提亮为暖沙色；**翻亮** → 压深为暖灰。判定复用 backdropIsDark()（含主题纱合成）。
+ */
+@Composable
+fun readableSubColor(): Color {
+    val ui = LocalUi.current
+    val dark = backdropIsDark()
+    return when {
+        dark == ui.isDark -> ui.textSub
+        dark -> Color(0xFFC7BDA6)
+        else -> Color(0xFF6E6555)
+    }
+}

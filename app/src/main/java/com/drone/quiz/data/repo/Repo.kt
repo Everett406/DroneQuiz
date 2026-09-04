@@ -104,6 +104,16 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
         qDao.countByBank(bankId)
     }
 
+    /**
+     * 重命名题库（v2.8.7，用户反馈"导入的题库没办法重命名"）。
+     * 仅改显示名：trim + 限长 16 + 空名拒绝（保持原名静默返回，UI 侧已先行守卫）。
+     * 内置/导入题库均可改——name 只是 banks 表的展示字段，与播种版本/墓碑机制无关。
+     */
+    suspend fun renameBank(bankId: String, newName: String) = withContext(Dispatchers.IO) {
+        val name = newName.trim().take(16)
+        if (name.isNotEmpty()) bDao.rename(bankId, name)
+    }
+
     suspend fun categoriesOf(bankId: String): List<CatCount> = qDao.catCounts(bankId)
 
     fun countByBankFlow(bankId: String): Flow<Int> = qDao.countByBankFlow(bankId)

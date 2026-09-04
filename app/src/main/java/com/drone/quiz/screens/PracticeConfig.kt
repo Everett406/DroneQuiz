@@ -53,6 +53,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.ui.theme.readableSubColor
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChangedBy
@@ -271,7 +272,8 @@ fun PracticeConfigScreen(
                 ) {
                     Text(
                         "将接续上次进度 · 第 ${(snap.index + 1).coerceAtMost(snap.ids.size)} / ${snap.ids.size} 题",
-                        color = ui.textSub, fontSize = 12.sp
+                        // v2.8.7 页脚小字直接坐在壁纸上，改自适应色（壁纸翻暗提亮）
+                        color = readableSubColor(), fontSize = 12.sp
                     )
                     // 重新设计：浅红底描边胶囊（原裸文字偏丑），点击弹二次确认，不再一键直清
                     Box(

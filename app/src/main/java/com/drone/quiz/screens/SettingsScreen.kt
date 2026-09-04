@@ -64,6 +64,7 @@ import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassToggle
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassConfirmDialog
+import com.drone.quiz.ui.glass.GlassInputDialog
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.theme.LocalReadingFont
 import com.drone.quiz.ui.theme.LocalUi
@@ -93,6 +94,7 @@ fun SettingsScreen(backdrop: Backdrop) {
     var banksRefreshTick by remember { mutableIntStateOf(0) }
     var showImportSheet by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<com.drone.quiz.data.db.BankEntity?>(null) }
+    var renameTarget by remember { mutableStateOf<com.drone.quiz.data.db.BankEntity?>(null) } // v2.8.7 重命名
 
     LaunchedEffect(banksRefreshTick, settings.currentBank) {
         runCatching { banksState = ServiceLocator.repo.bankListWithCounts() }
@@ -354,8 +356,9 @@ fun SettingsScreen(backdrop: Backdrop) {
                     Column {
                         Text("画面特效", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (settings.effects) "液态玻璃折射 / 模糊（推荐）"
-                            else "已关闭（省电，老旧设备更流畅）",
+                            // v2.8.7 说明字压缩：全部设置项副标 ≤10 字（硬上限 15，不许换行，用户口径）
+                            if (settings.effects) "玻璃折射 · 推荐"
+                            else "已关闭 · 省电",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }
@@ -463,7 +466,7 @@ fun SettingsScreen(backdrop: Backdrop) {
                 Column(Modifier.padding(top = 18.dp)) {
                     Text("及格分", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "${settings.passScore} 分（50 – 95，步进 5）",
+                        "${settings.passScore} 分（50–95）",
                         color = ui.textSub, fontSize = 12.sp
                     )
                     GlassSlider(
@@ -485,12 +488,12 @@ fun SettingsScreen(backdrop: Backdrop) {
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
                 Text(
-                    if (settings.wallpaper.isBlank()) "未设置 · 使用默认渐变"
-                    else "已设置 · 作全局背景纹路",
+                    if (settings.wallpaper.isBlank()) "未设置 · 默认渐变"
+                    else "已设置 · 全局背景",
                     color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "导入后作为各页面的背景质感；开启模糊后更含蓄、文字更易读",
+                    "导入后作为全局背景",
                     color = ui.textSub, fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -605,8 +608,8 @@ fun SettingsScreen(backdrop: Backdrop) {
                     Column(Modifier.weight(1f)) {
                         Text("每日提醒", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (settings.dailyNotify) "已开启 · 刷过当天不打扰"
-                            else "每天定时提醒 · 刷过不打扰",
+                            if (settings.dailyNotify) "已开启 · 刷过不打扰"
+                            else "每天定时提醒",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }
@@ -641,10 +644,11 @@ fun SettingsScreen(backdrop: Backdrop) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("护眼提醒", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        // v2.8.7 改名："护眼提醒"→"防沉迷"（用户口径），说明字同步压缩 ≤10 字
+                        Text("防沉迷", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (settings.eyeCareReminder) "已开启 · 连续刷题每 20 分钟提醒休息"
-                            else "连续刷题 20 分钟提醒休息 · 考试不受影响",
+                            if (settings.eyeCareReminder) "已开启 · 20 分钟提醒"
+                            else "刷题 20 分钟提醒休息",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }
@@ -704,6 +708,17 @@ fun SettingsScreen(backdrop: Backdrop) {
                             )
                         }
                         Icon(
+                            AppIcons.Edit, null,
+                            tint = ui.textSub,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable(
+                                    interactionSource = null,
+                                    indication = null
+                                ) { renameTarget = bank } // v2.8.7 重命名入口
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Icon(
                             AppIcons.Trash, null,
                             tint = ui.textSub,
                             modifier = Modifier
@@ -722,14 +737,14 @@ fun SettingsScreen(backdrop: Backdrop) {
                     )
                 }
                 Text(
-                    "点题库名切换；删除内置题库后，可通过「清空记录」重新恢复。",
+                    "点名称切换；铅笔重命名，垃圾桶删除。",
                     color = ui.textSub, fontSize = 11.sp, lineHeight = 15.sp,
                     modifier = Modifier.padding(top = 10.dp)
                 )
                 importMsg?.let {
                     Text(
                         it,
-                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除")) ui.correct else ui.wrong,
+                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除") || it.startsWith("已重命名")) ui.correct else ui.wrong,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 6.dp)
                     )
@@ -877,6 +892,29 @@ fun SettingsScreen(backdrop: Backdrop) {
                 }
             },
             onDismiss = { deleteTarget = null }
+        )
+    }
+
+    // 重命名题库（v2.8.7）：空名拒绝（对话框内已守卫），Repo 层再兜一层
+    renameTarget?.let { target ->
+        GlassInputDialog(
+            backdrop = backdrop,
+            title = "重命名题库",
+            initialText = target.name,
+            hint = "最长 16 字，留空则不改",
+            confirmText = "确定",
+            dismissText = "取消",
+            onConfirm = { newName ->
+                renameTarget = null
+                if (newName.isNotEmpty()) {
+                    scope.launch {
+                        runCatching { ServiceLocator.repo.renameBank(target.id, newName) }
+                        banksRefreshTick++
+                        importMsg = "已重命名为「$newName」"
+                    }
+                }
+            },
+            onDismiss = { renameTarget = null }
         )
     }
 

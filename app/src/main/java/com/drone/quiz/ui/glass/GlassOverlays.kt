@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -50,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -471,6 +473,120 @@ fun GlassPromptDialog(
                         }
                         GlassButton(
                             onClick = onConfirm,
+                            backdrop = backdrop,
+                            surfaceColor = ui.ink.copy(alpha = 0.92f),
+                            heightDp = 44.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(confirmText, color = ui.onInk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 玻璃输入对话框（v2.8.7 题库重命名用）：单行输入 + 确认/取消。
+ * 与 GlassPromptDialog（纯展示）不同，本对话框携带用户输入回调。
+ */
+@Composable
+fun GlassInputDialog(
+    backdrop: Backdrop,
+    title: String,
+    initialText: String,
+    hint: String = "",
+    maxLength: Int = 16,
+    confirmText: String,
+    dismissText: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    GlassOverlayRegistration(visible = true, onDismiss = onDismiss) {
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        AnimatedVisibility(
+            visible = shown,
+            enter = fadeIn(tween(160)) + scaleIn(
+                initialScale = 0.92f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
+            ),
+            exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.95f, animationSpec = tween(140))
+        ) {
+            val ui = LocalUi.current
+            var draft by remember { mutableStateOf(initialText) }
+            GlassOverlayPanel(
+                scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
+                contentAlignment = Alignment.Center,
+                panelShape = RoundedCornerShape(26.dp),
+                panelModifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp),
+                backdrop = backdrop,
+                onDismiss = onDismiss
+            ) {
+                Column(Modifier.padding(horizontal = 22.dp, vertical = 22.dp)) {
+                    Text(
+                        title,
+                        color = ui.text,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (hint.isNotBlank()) {
+                        Text(
+                            hint,
+                            color = ui.textSub,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 14.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ui.ink.copy(alpha = 0.05f))
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                    ) {
+                        BasicTextField(
+                            value = draft,
+                            onValueChange = { draft = it.take(maxLength) },
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = ui.text,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            cursorBrush = SolidColor(ui.text),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (draft.isBlank()) {
+                            Text(
+                                "输入新名称",
+                                color = ui.textSub.copy(alpha = 0.55f),
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GlassButton(
+                            onClick = onDismiss,
+                            backdrop = backdrop,
+                            heightDp = 44.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(dismissText, color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        GlassButton(
+                            // 空名禁点：GlassButton 无 enabled 参数，onClick 内守卫
+                            onClick = { if (draft.isNotBlank()) onConfirm(draft.trim()) },
                             backdrop = backdrop,
                             surfaceColor = ui.ink.copy(alpha = 0.92f),
                             heightDp = 44.dp,

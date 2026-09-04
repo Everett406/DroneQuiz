@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,9 +68,11 @@ import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceLazyColumn
 import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.ui.theme.readableSubColor
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -206,19 +209,33 @@ fun WrongBookScreen(
                     item {
                         Text(
                             "答对 ${settings.removeThreshold} 次自动移除 · 点卡片看解析",
-                            color = ui.textSub, fontSize = 11.sp,
+                            // v2.8.7 列表脚注坐在壁纸上，改自适应色
+                            color = readableSubColor(), fontSize = 11.sp,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                         )
                     }
                     items(filtered, key = { it.qid }) { item ->
-                        WrongItem(
-                            item = item,
-                            backdrop = backdrop,
-                            threshold = settings.removeThreshold,
-                            onRemove = {
-                                scope.launch { ServiceLocator.repo.removeWrongForever(item.qid) }
-                            }
-                        )
+                        // v2.8.7 删除动画：条目淡出退场 + 其余条目弹性靠拢（animateItem 位置动画）
+                        Box(
+                            Modifier.animateItem(
+                                fadeInSpec = androidx.compose.animation.core.spring(
+                                    stiffness = 480f, dampingRatio = 0.9f
+                                ),
+                                placementSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = 0.85f, stiffness = 380f
+                                ),
+                                fadeOutSpec = androidx.compose.animation.core.tween(180)
+                            )
+                        ) {
+                            WrongItem(
+                                item = item,
+                                backdrop = backdrop,
+                                threshold = settings.removeThreshold,
+                                onRemove = {
+                                    scope.launch { ServiceLocator.repo.removeWrongForever(item.qid) }
+                                }
+                            )
+                        }
                     }
                     item { Spacer(Modifier.height(130.dp)) }
                 }
@@ -357,7 +374,8 @@ private fun FastScrollHandle(
     ) {
         Box(
             Modifier
-                .width(44.dp)
+                // v2.8.7 轨道 44→24dp：原 44dp 横踞右缘把列表右缘点击全吞了（删除钮难点中的共犯）
+                .width(24.dp)
                 .fillMaxHeight()
                 .pointerInput(trackHeight) {
                     detectVerticalDragGestures(
@@ -414,15 +432,35 @@ private fun WrongItem(
     onRemove: () -> Unit
 ) {
     val ui = LocalUi.current
+    val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
+    // v2.8.7 删除动画前半段：先缩放淡出（"掉下去"），150ms 后再真正删库触发 animateItem 靠拢
+    var removing by remember { mutableStateOf(false) }
+    val removeScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (removing) 0.82f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = 0.65f, stiffness = 520f
+        ),
+        label = "wrongRemoveScale"
+    )
+    val removeAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (removing) 0f else 1f,
+        animationSpec = androidx.compose.animation.core.tween(170),
+        label = "wrongRemoveAlpha"
+    )
 
     GlassCard(
         backdrop = backdrop,
         modifier = Modifier
             .padding(horizontal = 20.dp, vertical = 6.dp)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = removeScale
+                scaleY = removeScale
+                alpha = removeAlpha
+            },
         cornerRadius = 22.dp,
-        onClick = { expanded = !expanded }
+        onClick = { if (!removing) expanded = !expanded }
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -435,19 +473,30 @@ private fun WrongItem(
                     SimpleDateFormat("MM/dd", Locale.CHINA).format(Date(item.addedAt)),
                     color = ui.textSub, fontSize = 11.sp
                 )
-                Icon(
-                    AppIcons.Trash,
-                    null,
-                    tint = ui.textSub,
-                    modifier = Modifier
-                        .padding(start = 10.dp)
-                        .size(16.dp)
+                // v2.8.7 删除钮：30dp 触达区（原裸 16dp 图标难点中）+ 左移避开右侧滚动把手
+                // 轨道（轨道横踞整个右缘拦截手势，删除点击会被把手吞掉）；点击先缩放淡出再删库
+                Box(
+                    Modifier
+                        .padding(start = 8.dp, end = 12.dp)
+                        .size(30.dp)
                         .clickable(
                             interactionSource = null,
-                            indication = null,
-                            onClick = onRemove
-                        )
-                )
+                            indication = null
+                        ) {
+                            if (!removing) {
+                                removing = true
+                                scope.launch { delay(150); onRemove() }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        AppIcons.Trash,
+                        null,
+                        tint = if (removing) ui.wrong else ui.textSub,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
             Text(
                 item.question,

@@ -35,11 +35,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
+import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.ui.theme.readableSubColor
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.compositionLocalOf
-import com.drone.quiz.ui.theme.LocalUi
 
 /**
  * 分段选择器：槽内滑动的墨色胶囊。
@@ -115,15 +116,14 @@ fun TagChip(text: String, color: Color = LocalUi.current.textSub, outline: Boole
 }
 
 /**
- * 卡片区块标题。
+ * 卡片区块标题（直接坐在壁纸上；v2.8.7 改自适应色——壁纸翻暗提亮/翻亮压深，修用户圈出的"看不清"）。
  */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    val ui = LocalUi.current
     Text(
         text,
         modifier = modifier.padding(start = 6.dp, bottom = 8.dp),
-        color = ui.textSub,
+        color = readableSubColor(),
         fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold
     )
@@ -253,7 +253,8 @@ fun ScreenTitle(title: String, subtitle: String? = null, modifier: Modifier = Mo
         if (subtitle != null) {
             Text(
                 subtitle,
-                color = ui.textSub,
+                // 页面副标题同样裸坐在壁纸上，v2.8.7 同步自适应（用户圈出"选择范围…""外观/刷题/数据"）
+                color = readableSubColor(),
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp)
             )

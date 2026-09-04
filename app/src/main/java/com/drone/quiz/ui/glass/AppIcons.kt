@@ -349,6 +349,28 @@ object AppIcons {
         }
     }
 
+    /** 重命名（填充铅笔，v2.8.7 题库重命名入口）。 */
+    val Edit: ImageVector by lazy {
+        filledIcon("AppEdit") {
+            // 笔杆（斜置圆角矩形，笔尖朝左下）
+            moveTo(14.1f, 4.4f)
+            lineTo(19.6f, 9.9f)
+            lineTo(9.3f, 20.2f)
+            lineTo(4.4f, 20.6f)
+            curveTo(3.8f, 20.65f, 3.35f, 20.2f, 3.4f, 19.6f)
+            lineTo(3.8f, 14.7f)
+            close()
+            // 笔尾橡皮头（独立小块，与笔杆留缝）
+            moveTo(15.6f, 2.9f)
+            lineTo(17.1f, 1.4f)
+            curveTo(17.5f, 1f, 18.1f, 1f, 18.5f, 1.4f)
+            lineTo(22.6f, 5.5f)
+            curveTo(23f, 5.9f, 23f, 6.5f, 22.6f, 6.9f)
+            lineTo(21.1f, 8.4f)
+            close()
+        }
+    }
+
     /** 删除（填充垃圾桶 + 镂空条纹）。 */
     val Trash: ImageVector by lazy {
         filledIcon("AppTrash", evenOdd = true) {

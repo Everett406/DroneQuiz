@@ -806,15 +806,16 @@ private fun BankSwitchChip(
     ) {
         Text(
             "每日精进 · ",
-            color = ui.textSub, fontSize = 12.sp
+            // v2.8.7 页面级裸文字坐壁纸，改自适应色
+            color = com.drone.quiz.ui.theme.readableSubColor(), fontSize = 12.sp
         )
         Text(
             banks.firstOrNull { it.id == currentBankId }?.name ?: "题库",
-            color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+            color = com.drone.quiz.ui.theme.readableSubColor(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold
         )
         Text(
             " ▾",
-            color = ui.textSub, fontSize = 11.sp
+            color = com.drone.quiz.ui.theme.readableSubColor(), fontSize = 11.sp
         )
     }
 

@@ -30,6 +30,10 @@ interface BankDao {
 
     @Query("DELETE FROM banks WHERE id = :id")
     suspend fun delete(id: String)
+
+    /** 重命名（v2.8.7）：仅改显示名，id/source/createdAt 不动；校验在 Repo 层。 */
+    @Query("UPDATE banks SET name = :name WHERE id = :id")
+    suspend fun rename(id: String, name: String)
 }
 
 @Dao

@@ -163,18 +163,31 @@ must = [
     ("AGENT_PROMPT", "Agent 整理提示词模板(v2.8.5)"),
     ("MIGRATION_2_3", "questions+images 重建表迁移(v2.8.5)"),
     ("_new_questions", "MIGRATION_2_3 重建表模式(v2.8.5)"),
+    ("eyeCareReminder", "防沉迷刷题计时开关(v2.8.6/2.8.7 更名)"),
+    ("sessionAtEnd", "顺序刷题刷到末题口径(v2.8.6)"),
+    ("loadCatchUpRound", "顺序刷题未刷题回补(v2.8.6)"),
+    ("passLine", "成绩单回显合格线(v2.8.6)"),
+    ("conflateForRoot", "根级订阅收敛性能治理(v2.8.6)"),
+    ("renameBank", "题库重命名 Repo/DAO(v2.8.7)"),
+    ("GlassInputDialog", "玻璃输入对话框·重命名用(v2.8.7)"),
+    ("readableSubColor", "小字自适应背景色(v2.8.7)"),
+    ("animateItem", "错题本删除靠拢动画(v2.8.7)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):
         print(f"[FAIL] 未找到 {desc}（{pat}）"); fail = True
 
-# 3.5) 迁移 SQL 禁止模式：NOT NULL 列带 DEFAULT 会与实体(未声明 defaultValue)校验不匹配，
-#      启动即崩（v2.8.0(23) 已踩坑）。非空新列必须走重建表模式。
+# 3.5) 迁移 SQL 模式检查（v2.8.0(23) 踩坑：NOT NULL 列带 DEFAULT 而实体未声明 defaultValue，
+#      Room 逐列校验不匹配 → 启动即崩）。
+#      v2.8.6 起放行"对齐模式"：ADD COLUMN ... NOT NULL DEFAULT x 的同时，
+#      实体必须声明 @ColumnInfo(defaultValue = "x")（v2.8.1 先验证、v2.8.6 passLine 复用）。
+#      grep 级实现：db 文件出现 NOT NULL DEFAULT 时，Entities.kt 必须存在 @ColumnInfo(defaultValue。
+_has_aligned_entity = any("@ColumnInfo(defaultValue" in load(f) for f in FILES)
 for f in FILES:
     if os.sep + "db" + os.sep in f or f.endswith(os.sep + "AppDatabase.kt"):
         for lineno, line in enumerate(load(f).splitlines(), 1):
-            if "NOT NULL DEFAULT" in line:
-                print(f"[FAIL] 迁移 SQL 禁止 NOT NULL DEFAULT（实体无 defaultValue 必崩）: {f}:{lineno}")
+            if "NOT NULL DEFAULT" in line and not _has_aligned_entity:
+                print(f"[FAIL] 迁移 SQL 含 NOT NULL DEFAULT 但实体未声明 @ColumnInfo(defaultValue)（Room 校验必崩）: {f}:{lineno}")
                 fail = True
 
 print("PASS" if not fail else "STATIC CHECK FAILED")
