@@ -11,7 +11,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.20-7F52FF?style=flat-square)
 
 内置《无人机装调题库（含解析）》**800 题**（单选 640 / 判断 160），
-支持自定义题库导入、模考自动阅卷、错题强化训练与每日学习提醒。
+支持多题库管理与自定义题库导入（CSV / ZIP，含图片题，五种题型）、模考自动阅卷、错题强化训练与每日学习提醒。
 
 [下载最新 APK](https://github.com/Everett406/TiYu/releases/latest) · [更新日志](CHANGELOG.md) · [问题反馈](https://github.com/Everett406/TiYu/issues)
 
@@ -64,16 +64,17 @@
 | 页面 | 功能要点 |
 |------|----------|
 | **首页** | 时间问候 + 昵称、学习进度环、预估通过率条、近 7 日刷题量柱状图 / 正确率折线（Canvas 自绘）、连续打卡双卡、错题提示、上次模考成绩速览；全局壁纸之上铺主题纱（wallScrim）保证可读性 |
-| **刷题** | **配置入口页**（`PracticeConfig.kt`：题型 / 分类筛选 chips、顺序 / 随机双模式、「将接续上次进度 · 第 N/M 题」实时提示、重新开始胶囊按钮）→ 全屏刷题页（`HorizontalPager` 左右滑题、点选即判、答错抖动 + 解析弹簧展开、题号面板单一数据源、自动切题）；**顺序与随机两套进度槽独立记忆**（v2.7.4 双槽，见下文）；重新开始按钮带二次确认 |
-| **模考** | 题数、判断题占比、时长、及格分全部可拖滑杆配置；倒计时（< 60s 红色脉冲）、到时自动交卷、交卷确认、玻璃答题卡面板（点号跳题）、自动阅卷；**已完成历史记录可单击回看成绩页**（数据库按 examId 重建，v2.7.4）；进行中记录可继续 / 放弃 / 删除 |
-| **模考成绩页** | 得分 / 用时 / 正误统计、错题解析懒加载列表（`LazyColumn` 滚动流畅，v2.7.4 优化）、右上角浅色「三点」删除本次记录（**每周限删 2 次**，ISO 周自动重置，配额弹窗告知） |
-| **错题本** | 答错自动收录、「连续答对 N 次」三档移除策略、错题特训入口（不占用刷题进度槽）、分类筛选胶囊、展开解析、像素级连续映射滚动把手 |
+| **刷题** | **配置入口页**（`PracticeConfig.kt`：题型多选 / 筛选 chips、顺序 / 随机双模式、「将接续上次进度 · 第 N/M 题」实时提示、重新开始胶囊按钮）→ 全屏刷题页（`HorizontalPager` 左右滑题、点选即判、答错抖动 + 解析弹簧展开、题号面板单一数据源、自动切题、**题目图片**小图点开大图）；**顺序与随机两套进度槽独立记忆，且按题库隔离**（v2.7.4 双槽 + v2.8.8 读口校验，见下文）；**顺序模式循环补漏**（v2.8.6：刷到末题自动开新一轮，只挑没刷过的题）；**防沉迷**（v2.8.6：连续刷题 20 分钟弹窗提醒看远处，考试不受影响）；重新开始按钮带二次确认 |
+| **模考** | 题数、时长、及格分（合格线）可拖滑杆配置；**题型构成**在高级选项内（自动按库占比配比 / 手动比例滑杆联动 / 拖拽排序，v2.8.3–2.8.4）；倒计时（< 60s 红色脉冲）、到时自动交卷、交卷确认、玻璃答题卡面板（按题型分段 + 点号跳题）、自动阅卷；**已完成历史记录可单击回看成绩页**（数据库按 examId 重建，v2.7.4）；进行中记录可继续 / 放弃 / 删除 |
+| **模考成绩页** | 得分 / 用时 / 正误统计、**合格线回显**（开考时设定的分数定格存档，v2.8.6）、错题解析懒加载列表（`LazyColumn` 滚动流畅，v2.7.4 优化）、右上角浅色「三点」删除本次记录（**每周限删 2 次**，ISO 周自动重置，配额弹窗告知） |
+| **错题本** | 答错自动收录、「连续答对 N 次」三档移除策略、错题特训入口（不占用刷题进度槽）、分类筛选胶囊、展开解析、像素级连续映射滚动把手、条目删除（30dp 触达区 + 缩放淡出 / 其余条目弹性靠拢动画，v2.8.7） |
 | **搜索** | 题干 / 选项 / 解析全文检索、搜索历史（最多 8 条）、结果解析弹簧展开动画 |
-| **设置** | 主题三档、字号四档、**阅读字体四款**（手机自带 / 思源黑体 / 思源宋体 / 霞鹜文楷，内置子集化字体文件）、刷题顺序、自动切题、及格分滑杆、错题移除阈值、每日提醒（WorkManager，刷过当天不打扰）、壁纸（内置 4 张 + 自定义 + 可选模糊）、昵称、底栏玻璃模糊三档、SAF 导入自定义题库（CSV / ZIP，带图题目支持）、清空学习记录、画面特效开关、关于页 |
+| **设置** | 主题三档、字号四档、**阅读字体四款**（手机自带 / 思源黑体 / 思源宋体 / 霞鹜文楷，内置子集化字体文件）、刷题顺序、自动切题、及格分滑杆、错题移除阈值、每日提醒（WorkManager，刷过当天不打扰）、**防沉迷**（连续刷题 20 分钟提醒，考试不受影响）、壁纸（内置 4 张 + 自定义 + 可选模糊）、昵称、底栏玻璃模糊三档、**题库管理**（多题库切换 / 导入 CSV·ZIP / 重命名 / 删除 / 清空恢复，带图题目支持）、清空学习记录、画面特效开关、**关于**（底部弹窗：应用介绍 / 检查更新 / 请喝奶茶） |
 
 ### 交互与视觉
 
-- **液态玻璃 UI**：底部导航胶囊、按钮、滑杆、开关、卡片均基于 backdrop 折射渲染；弹窗体系（`GlassOverlays.kt`）提供 `GlassBottomSheet` / `GlassConfirmDialog` / Portal 槽位机制，弹窗展开时页面内容层联动模糊（OverlayBlur）；所有玻璃组件带纯 Compose 降级分支
+- **液态玻璃 UI**：底部导航胶囊、按钮、滑杆、开关、卡片均基于 backdrop 折射渲染；弹窗体系（`GlassOverlays.kt`）提供 `GlassBottomSheet` / `GlassConfirmDialog` / `GlassInputDialog` / Portal 槽位机制，弹窗展开时页面内容层联动模糊（OverlayBlur）；所有玻璃组件带纯 Compose 降级分支
+- **细节打磨**：分区标题 / 页脚小字按壁纸明暗自动切换可读色（v2.8.7）；错题本删除带缩放淡出 + 弹性靠拢动画（v2.8.7）；关于页为文楷文档式底部弹窗（v2.8.9）
 - **动画系统**：页面转场统一（淡入 + 轻缩放）、iOS 式过冲回弹（BounceState）、按压缩放、搜索框 Hero 动画、倒计时脉冲
 - **壁纸系统**：内置 4 张主题壁纸（黄昏原野 / 深林 / 浅林 / 天空），支持自定义图片与模糊化处理
 - **配色**：奶油底 + 墨黑主操作 + 橙色点缀（浅色）；暖夜深色主题
@@ -81,6 +82,7 @@
 
 ### 支持作者（打赏，v2.7.4 新增）
 
+- **手动入口**：设置 → 关于 → 「☕ 请喝奶茶」（v2.8.9 起在关于底部弹窗内，随时打开、不影响自动触达）；
 - 累计前台使用满 **2 小时**后，温和弹一次打赏弹窗（仅一次）；
 - 点「看看收款码」展示打赏码（白底大图），可一键**保存到相册** `Pictures/题屿`（MediaStore，API 31+ 无需存储权限）；
 - 点「以后别提醒我」则**永久不再弹**；弹窗外关闭视为已弹过；
@@ -107,8 +109,9 @@
 ### 使用提示
 
 - **题库升级**：升级到内置题库版本更新的 APK 时，应用会自动重置学习数据（题目 id 变化，旧记录无法映射），属预期行为，详见[题库版本机制](#题库版本机制)；
-- **自定义题库**：设置 → 导入题库，纯文字题导 CSV，带图题打包 ZIP（题目 CSV + images 图片文件夹）；可将「Agent 提示词」连同 Excel / Word / PDF 材料交给 AI Agent 整理成可导入格式；
-- **刷题进度**：顺序 / 随机两种模式的进度**各自独立记忆**，切回任一模式都接着该模式上次的位置；「重新开始」会清空**当前模式**的进度，且需二次确认；
+- **自定义题库**：设置 → 题库管理 → 导入题库，纯文字题导 CSV，带图题打包 ZIP（题目 CSV + images 图片文件夹）；可将「提示词」连同 Excel / Word / PDF 材料交给 Agent 整理成可导入格式；
+- **检查更新**：设置 → 关于 → 「检查更新」，应用比对 GitHub Releases 最新版，有新版时引导浏览器打开发布页手动下载 APK（不做应用内下载安装）；
+- **刷题进度**：顺序 / 随机两种模式的进度**各自独立记忆**，切回任一模式都接着该模式上次的位置；进度**按题库隔离保存**（v2.8.8），切库互不干扰、切回原库进度仍在；「重新开始」会清空**当前模式**的进度，且需二次确认；
 - **画面特效**：低端设备若出现卡顿或渲染异常，可在 设置 → 画面特效 关闭液态玻璃（应用也会在检测到异常退出后自动降级）；
 - **打赏弹窗**：累计使用满 2 小时会弹一次，不喜欢点「以后别提醒我」即可永久关闭。
 
@@ -164,18 +167,21 @@ TiYu/
 │       │   │   ├── ExamScreens.kt       # 模考配置 + 考试 + 成绩单（历史回看 / 三点删除 + 周限额）
 │       │   │   ├── SearchScreen.kt      # 题目搜索（全文检索 / 历史 / 解析展开）
 │       │   │   ├── WrongBookScreen.kt   # 错题本 + 特训（筛选 / 滚动把手）
-│       │   │   ├── SettingsScreen.kt    # 设置（字体 / 壁纸 / 提醒 / SAF 题库导入 / 关于）
+│       │   │   ├── SettingsScreen.kt    # 设置（字体 / 壁纸 / 提醒 / 题库管理 / 关于弹窗 AboutSheet）
+│       │   │   ├── BankImportSheet.kt   # 导入题库底部弹窗（CSV / ZIP 解析 / 模板 / Agent 提示词 / 导入报告）
 │       │   │   └── common/Common.kt     # 公共组件（进度环、滑杆、确认对话框等）
 │       │   ├── ui/
 │       │   │   ├── glass/               # 液态玻璃组件族
 │       │   │   │   ├── GlassKit.kt      #   GlassRuntime / glass() / GlassCard / GlassButton / GlassSlider / GlassToggle
 │       │   │   │   ├── GlassBottomBar.kt#   底部导航（真折射玻璃胶囊，官方 LiquidBottomTabs 移植）
-│       │   │   │   ├── GlassOverlays.kt #   GlassBottomSheet / GlassConfirmDialog / Portal 槽位 / OverlayBlur 全局状态
+│       │   │   │   ├── GlassOverlays.kt #   GlassBottomSheet / GlassConfirmDialog / GlassInputDialog / Portal 槽位 / OverlayBlur 全局状态
 │       │   │   │   ├── Bounce.kt        #   BounceState（iOS 式过冲回弹）/ rememberPressScale
 │       │   │   │   └── AppIcons.kt      #   自绘描边矢量图标（底栏 5 图标 + 通用 glyphs）
 │       │   │   ├── nav/AppRoot.kt       # NavHost：路由 + 统一转场 + glassMaterial() 布局 + 打赏弹窗宿主（考试路由判断）
 │       │   │   └── theme/Theme.kt       # 三档主题 / 四档字号 / 阅读字体四款 / 暖夜深色配色
 │       │   ├── util/GallerySave.kt      # MediaStore 存相册工具（打赏码保存到 Pictures/题屿，API 31+ 免权限）
+│       │   ├── util/GalleryShare.kt     # 系统分享面板（CSV 模板分享，FileProvider，v2.8.2）
+│       │   ├── util/AppUpdater.kt       # 检查更新（GitHub Releases API 比对版本 + 浏览器打开发布页，v2.8.8）
 │       │   └── work/Notify.kt           # 每日学习提醒（WorkManager，刷过当天不打扰）
 │       ├── com/kyant/backdrop/          # ★ vendored Kyant0 backdrop 库（Apache-2.0，勿随意重构）
 │       │   ├── Backdrop.kt / LayerBackdrop.kt / DrawBackdropModifier.kt
@@ -265,19 +271,20 @@ v2.7.4 教训固化：**错题解析展开后 20+ 条全量组合在外层滚动
 
 ### 数据层
 
-#### Room 数据库（drone_quiz_v2.db，七表）
+#### Room 数据库（drone_quiz_v2.db，八表，version = 4）
 
 | 表名 | 用途 | 关键点 |
 |------|------|--------|
-| `questions` | 题库 | 索引 category / type；id 由 CSV 题号或题干哈希生成 |
+| `banks` | 题库元数据（多题库，v2.8.0） | 名称 / 来源 / 播种版本；当前题库 id 存 DataStore |
+| `questions` | 题库 | 索引 category / type；id 由 CSV 题号或题干哈希生成；v2.8.5 起带 `images` 列（图片题，文件名按 \| 分隔） |
 | `practice_records` | 刷题记录 | 索引 qid / ts |
 | `question_stats` | 题目维度统计 | 正确次数 / 作答次数等 |
-| `exam_records` | 模考记录 | 配置、得分、用时（成绩页重建来源之一） |
+| `exam_records` | 模考记录 | 配置、得分、用时、合格线 `pass_line`（v2.8.6，开考定格；成绩页重建来源之一） |
 | `exam_answers` | 模考答题明细 | 索引 examId / qid（**成绩按 examId 重建的数据基础**） |
 | `wrongbook` | 错题本 | qid 唯一索引；`addedAt` **非空默认 0**（v2.0 交卷崩溃修复点，所有插入路径必须显式赋值 `System.currentTimeMillis()`） |
 | `streak_log` | 连续打卡 | 按日记录 |
 
-- 迁移策略为 `fallbackToDestructiveMigration()`：**升级改表结构会清库重建**，不要指望旧数据保留；正式发版前如改 schema，建议正确编写 Migration；
+- 迁移策略（v2.8.1 起为**显式重建式 Migration**，`MIGRATION_1_2 / 2_3 / 3_4` 已注册）：模式为「建新表 → 拷数据 → 删旧表 → 改名 → 补齐全部索引」，逐列逐索引与实体校验一致；**改表必须新增 Migration 并递增 DB version**，带默认值的新列须 `@ColumnInfo(defaultValue = ...)` 与 SQL `DEFAULT` 对齐（v2.8.6 教训）；`fallbackToDestructiveMigration()` 仅作漏写迁移时的兜底，**绝不能再依赖它发版**；
 - 模考交卷曾因 `wrongbook.addedAt` 非空约束触发 `SQLiteConstraintException`，此约束已被修复并固化为编码规约。
 
 #### DataStore（settings，键全表）
@@ -306,6 +313,12 @@ v2.7.4 教训固化：**错题解析展开后 20+ 条全量组合在外层滚动
 | `practice_session_random` | string(JSON) | **随机模式**刷题会话快照 | — |
 | `exam_del_week` | string | 模考删除限额 ISO 周键（如 2026-W36） | — |
 | `exam_del_count` | int | 本周已删模考记录次数 | 0 |
+| `current_bank` | string | 当前使用题库 id（v2.8.0 多题库） | 内置题库 |
+| `deleted_banks` | string(JSON) | 被删除内置题库的墓碑数组（清空记录后重新播种） | [] |
+| `exam_include_short` | bool | 模考高级选项：含简答题（v2.8.0） | false |
+| `exam_type_order` | string(JSON) | 模考题型顺序（高级选项拖拽；空 = 单选→多选→填空→判断→简答） | [] |
+| `exam_auto_mix` | bool | 模考题型构成自动配比（关 = 手动拖比例，v2.8.3） | true |
+| `eye_care_reminder` | bool | 防沉迷：连续刷题 20 分钟提醒（v2.8.6） | false |
 
 #### 阅读字体（res/font）
 
@@ -382,7 +395,7 @@ curl -s -H "Authorization: token $GITHUB_TOKEN" \
   "https://api.github.com/repos/Everett406/TiYu/actions/runs?per_page=5"
 ```
 
-### 发版 Checklist（每版必做，四处同步）
+### 发版 Checklist（每版必做，五处同步）
 
 | 顺序 | 位置 | 字段 | 示例 |
 |------|------|------|------|
@@ -390,6 +403,7 @@ curl -s -H "Authorization: token $GITHUB_TOKEN" \
 | 2 | `.github/workflows/build.yml` `env` | `APP_VERSION_NAME`、`APP_VERSION_TAG` | `2.7.5` / `v2.7.5` |
 | 3 | `.github/workflows/build.yml` `body:` | Release notes 文案 | 按更新内容撰写 |
 | 4 | `CHANGELOG.md` | 版本变更记录 | 见现有条目 |
+| 5 | `README.md` 版本历史表 | 补 `vX.Y.Z` 一行（v2.8.8 曾漏补、v2.8.9 追补，固化进流程） | 见表尾 |
 
 提交前：
 
@@ -452,6 +466,19 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 
 `scripts/gen_bank.py` 是初版 801 题参数化生成器（11 分类），仅作为历史数据源留存，不再用于当前题库。
 
+### 用户题库导入格式（CSV / ZIP，v2.8.0 起）
+
+应用内「提示词」按钮复制的是一份可直接发给 Agent 的完整整理规范；人工对照时速记如下：
+
+| 通道 | 结构 | 要点 |
+|------|------|------|
+| CSV | 列头：题号 / 题干 / 选项A–H / 答案 / 解析 / 类型 / 分类 / 图片（可选） | RFC4180 解析；类型支持单选 / 多选 / 判断 / 填空 / 简答；图片列填文件名，多图 `\|` 分隔 |
+| ZIP | 题目 CSV + `images/` 图片文件夹（也兼容只打包单个 CSV） | 仅被引用的图片落盘、随题库删除一并清理；图片支持 jpg / jpeg / png / webp / gif / bmp，建议英文数字命名 |
+
+- 导入完成自动切换为新题库；学习数据（进度 / 统计 / 错题）按题库隔离保存；
+- 题库可重命名（列表铅笔入口，≤16 字）与删除（内置题库删除后可经「清空记录」恢复）；
+- 「CSV 模板」按钮走系统分享面板（可发微信 / 邮件等），模板含图片列与 ZIP 打包示例行。
+
 ---
 
 ## 诊断与排障
@@ -463,8 +490,9 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 | 打开即闪退 | 重新打开应用：若出现「启动报告」屏，复制内容反馈；否则应用会自动进入安全模式（顶部出现安全模式横幅） |
 | 安全模式下正常，开特效后异常 | 设置 → 画面特效 关闭；将机型 + Android 版本反馈到 Issues |
 | 无法覆盖安装 | 先卸载旧版再装（多为混入了 debug 签名构建或 v2.0.x 旧签名版本） |
-| 想换题库 | 设置 → 导入题库（CSV / ZIP），或复制 Agent 提示词让 AI 整理材料 |
+| 想换题库 | 设置 → 题库管理 → 导入题库（CSV / ZIP），或复制「提示词」交给 Agent 整理材料 |
 | 打赏弹窗不想再看到 | 点「以后别提醒我」即永久关闭 |
+| 「检查更新」失败或无反应 | 检查网络后重试（应用仅访问 GitHub Releases API）；也可直接到 Releases 页下载最新 APK |
 
 ### 开发侧
 
@@ -480,7 +508,7 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 
 ## 已知限制与注意事项
 
-1. **破坏性迁移**：Room 未编写正式 Migration，改表结构升级即清库；正式运营阶段应补充 Migration；
+1. **迁移纪律**：DB 已建立显式重建式 Migration（1→4），但每次改表结构仍必须手写新 Migration + 递增 version + 默认值列对齐，漏写即触发兜底清库（见[数据层](#数据层)）；
 2. **题库升级重置**：内置题库 `version` 变更会清空全部学习数据（设计如此，因题目 id 不具备跨版本稳定性）；若未来需要保留记录，须改为「题干哈希稳定 id + 迁移映射」方案；
 3. **液态玻璃依赖 GPU 驱动**：AGSL 行为在不同厂商 GPU 上存在差异，已有三层守护兜底，但新增玻璃用法仍需真机验证（见[硬约束](#⚠️-硬约束记录层内禁止-drawbackdrop-采样v210-血泪教训)）；
 4. **minSdk = 31**：Android 11 及以下不在支持范围（RenderEffect 基线；同时也是 MediaStore 免权限保存打赏码的基线）；
