@@ -639,9 +639,9 @@ private fun ReorderableTypeList(order: List<String>, onReorder: (List<String>) -
                             onDragStart = { dragging = index; dragOffset = 0f },
                             onDragEnd = { dragging = null; dragOffset = 0f },
                             onDragCancel = { dragging = null; dragOffset = 0f },
-                            onDrag = { change, dy ->
+                            onDrag = { change, dragAmount ->
                                 change.consume()
-                                dragOffset += dy
+                                dragOffset += dragAmount.y
                                 val cur = latestOrder
                                 if (cur.isNotEmpty()) {
                                     val rowPx = rowH.toPx()
