@@ -171,13 +171,21 @@ class Repo(private val db: AppDatabase) {
         return bank.questions.map { q ->
             val type = BankImport.normalizeType(q.type) ?: QuestionTypes.SINGLE
             val opts = if (type == QuestionTypes.JUDGE) listOf("正确", "错误") else q.options
+            // multi 支持两种写法：answer 位掩码 / answers 下标数组（v2.8.2 修复：示例题库
+            // 用 answers 数组，此前只读 answer → 校验全失败 → 播种静默失败，示例题库永远不出现）
+            val answerMask = when {
+                !q.answers.isNullOrEmpty() ->
+                    q.answers.fold(0) { acc, i -> acc or (1 shl i.coerceIn(0, 31)) }
+                q.answer != null -> q.answer
+                else -> 0
+            }
             val parsed = ParsedQuestion(
                 id = q.id,
                 category = q.category.ifBlank { defaultCategory },
                 type = type,
                 question = q.question,
                 options = opts,
-                answer = q.answer ?: 0,
+                answer = answerMask,
                 answerText = q.answerText ?: "",
                 explanation = q.explanation
             )
@@ -634,6 +642,45 @@ class Repo(private val db: AppDatabase) {
             )
         }
     }
+
+    /**
+     * 按题库隔离的今日/近 7 天统计（v2.8.2）：practice_records JOIN questions 过滤。
+     * 返回 (近 7 天逐日, 今日已刷, 今日答对)；打卡连击（streak）仍为全局习惯数据。
+     */
+    suspend fun last7DaysByBank(bankId: String): Triple<List<DayStat>, Int, Int> =
+        withContext(Dispatchers.IO) {
+            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+            val todayStart = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val since = todayStart - 6 * 86_400_000L
+            val rows = rDao.rowsByBankSince(bankId, since)
+            // 逐日聚合（本地时区 yyyy-MM-dd）
+            val byDay = rows.groupBy { fmt.format(java.util.Date(it.ts)) }
+                .mapValues { (_, list) ->
+                    list.count() to list.count { it.isCorrect }
+                }
+            val dayStats = (6 downTo 0).map { off ->
+                val d = java.util.Calendar.getInstance().apply {
+                    add(java.util.Calendar.DAY_OF_YEAR, -off)
+                }.time
+                val key = fmt.format(d)
+                val (a, c) = byDay[key] ?: (0 to 0)
+                DayStat(
+                    label = listOf("日", "一", "二", "三", "四", "五", "六")[
+                        java.util.Calendar.getInstance().apply { time = d }.get(java.util.Calendar.DAY_OF_WEEK) - 1
+                    ],
+                    isToday = off == 0,
+                    answered = a,
+                    correct = c
+                )
+            }
+            val today = rows.filter { it.ts >= todayStart }
+            Triple(dayStats, today.size, today.count { it.isCorrect })
+        }
 
     suspend fun accuracy(bankId: String): Float = withContext(Dispatchers.IO) {
         val a = rDao.totalAttemptsByBank(bankId)

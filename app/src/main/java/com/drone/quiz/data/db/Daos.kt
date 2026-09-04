@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.Flow
 data class CatCount(val category: String, val cnt: Int)
 data class TypeCount(val type: String, val cnt: Int)
 
+/** 作答记录行（按题库 JOIN 过滤后取回，用于今日/近 7 天逐日聚合） */
+data class TsCorrect(val ts: Long, val isCorrect: Boolean)
+
 @Dao
 interface BankDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -134,6 +137,13 @@ interface RecordDao {
             "JOIN questions q ON s.qid = q.id WHERE q.bankId = :bankId AND s.attempts > 0"
     )
     suspend fun totalAttemptsByBank(bankId: String): Int
+
+    /** 按题库过滤的作答记录行（v2.8.2：今日/近 7 天逐日聚合用；ts 有索引） */
+    @Query(
+        "SELECT r.ts AS ts, r.isCorrect AS isCorrect FROM practice_records r " +
+            "JOIN questions q ON r.qid = q.id WHERE q.bankId = :bankId AND r.ts >= :since"
+    )
+    suspend fun rowsByBankSince(bankId: String, since: Long): List<TsCorrect>
 
     @Query("SELECT COALESCE(SUM(correct),0) FROM question_stats WHERE attempts > 0")
     suspend fun totalCorrect(): Int

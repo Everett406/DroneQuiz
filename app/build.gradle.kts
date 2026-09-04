@@ -16,8 +16,8 @@ android {
         applicationId = "com.drone.quiz"
         minSdk = 31
         targetSdk = 35
-        versionCode = 24
-        versionName = "2.8.1"
+        versionCode = 25
+        versionName = "2.8.2"
     }
 
     // 固定签名：本地（环境变量 DQ_KS_PATH/DQ_KS_STORE_PASS）与 GitHub Actions（secrets）共用同一 keystore，

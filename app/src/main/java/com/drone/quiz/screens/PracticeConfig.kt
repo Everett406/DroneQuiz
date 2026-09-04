@@ -53,6 +53,8 @@ import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -89,22 +91,30 @@ fun PracticeConfigScreen(
     var wrongCount by remember { mutableIntStateOf(0) }
     var todayAnswered by remember { mutableIntStateOf(0) }
 
+    // v2.8.2 修复题库隔离 bug：原先 LaunchedEffect(Unit) 在首帧读到的是 collectAsState 的
+    // 默认值 currentBank="drone" 且永不重跑 → 切库后分类/概览永远加载旧题库。
+    // 改为持续收集 settings（按 currentBank 去重）：首发射就是 DataStore 真值，切库后自动重载。
     LaunchedEffect(Unit) {
-        runCatching {
-            val bank = settings.currentBank
-            types = ServiceLocator.repo.typesInBank(bank)
-            val cats = ServiceLocator.repo.categoriesOf(bank).map { it.category to it.cnt }
-            categories = cats
-            total = cats.sumOf { it.second }
-            // 分类去掉「全部」后，默认选中第一个分类（单分类题库效果与原全部一致）
-            if (catFilter !in cats.map { it.first }) catFilter = cats.firstOrNull()?.first.orEmpty()
-        }
-        runCatching { accuracy = (ServiceLocator.repo.accuracy(settings.currentBank) * 100).toInt() }
-        runCatching { wrongCount = ServiceLocator.repo.wrongCount(settings.currentBank) }
-        runCatching {
-            val days = ServiceLocator.repo.last7Days()
-            todayAnswered = days.lastOrNull()?.answered ?: 0
-        }
+        ServiceLocator.settings.settings
+            .distinctUntilChangedBy { it.currentBank }
+            .collectLatest { st ->
+                runCatching {
+                    val bank = st.currentBank
+                    types = ServiceLocator.repo.typesInBank(bank)
+                    val cats = ServiceLocator.repo.categoriesOf(bank).map { it.category to it.cnt }
+                    categories = cats
+                    total = cats.sumOf { it.second }
+                    // 分类去掉「全部」后，默认选中第一个分类（单分类题库效果与原全部一致）
+                    if (catFilter !in cats.map { it.first }) catFilter = cats.firstOrNull()?.first.orEmpty()
+                }
+                runCatching { accuracy = (ServiceLocator.repo.accuracy(bank) * 100).toInt() }
+                runCatching { wrongCount = ServiceLocator.repo.wrongCount(bank) }
+                // 今日已刷同步按题库隔离（v2.8.2）；连击/近 7 天为全局习惯数据
+                runCatching {
+                    val (_, today, _) = ServiceLocator.repo.last7DaysByBank(bank)
+                    todayAnswered = today
+                }
+            }
     }
 
     Column(

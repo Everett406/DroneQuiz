@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -125,19 +126,13 @@ fun BankImportSheet(
         Column(
             Modifier
                 .fillMaxWidth()
+                // v2.8.2：键盘避让（此前命名输入框被键盘完全遮挡，弹窗不上移，用户反馈）
+                .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 16.dp)
         ) {
-            // 抓手
-            Box(
-                Modifier
-                    .padding(top = 10.dp)
-                    .width(44.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(ui.ink.copy(alpha = 0.14f))
-                    .align(Alignment.CenterHorizontally)
-            )
+            // 抓手由 GlassBottomSheet 自带（v2.8.2 删去重复把手）
             Text(
                 if (preview == null) "导入题库" else "导入预览",
                 color = ui.text, fontSize = 19.sp, fontWeight = FontWeight.Bold,
@@ -192,10 +187,12 @@ fun BankImportSheet(
                     }
                     GlassButton(
                         onClick = {
-                            val ok = GallerySave.saveTextToDownloads(
+                            // v2.8.2：改用系统分享（可发微信/文件助手等，零基础友好），
+                            // 替代原先只存到「下载/题屿」的方式（用户反馈）
+                            val ok = GalleryShare.shareTextFile(
                                 context, "tiyu_bank_template.csv", CSV_TEMPLATE
                             )
-                            templateSaved = if (ok) "已保存到 下载/题屿" else "保存失败"
+                            if (!ok) templateSaved = "分享失败，可试复制模板"
                         },
                         backdrop = backdrop,
                         surfaceColor = ui.surface.copy(alpha = 0.6f),
@@ -203,8 +200,8 @@ fun BankImportSheet(
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            templateSaved ?: "保存到下载",
-                            color = if (templateSaved?.startsWith("已保存") == true) ui.correct else ui.text,
+                            templateSaved ?: "分享给好友 / 电脑",
+                            color = if (templateSaved?.startsWith("分享失败") == true) ui.wrong else ui.text,
                             fontSize = 13.sp, fontWeight = FontWeight.SemiBold
                         )
                     }

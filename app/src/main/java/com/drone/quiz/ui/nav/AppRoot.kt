@@ -168,6 +168,9 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
             Modifier
                 .matchParentSize()
                 .layerBackdrop(bgBackdrop)
+                // v2.8.2：弹窗打开时壁纸层同步真模糊（此前只模糊内容层，
+                // 自定义壁纸用户能明显看到玻璃后的壁纸仍是清晰的，用户反馈）
+                .blur(overlayBlur)
                 .background(ui.bgGradient)
         ) {
             val bmp = wallBmp
@@ -511,15 +514,7 @@ private fun SupportSheetContent(
             .padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 顶部抓手
-        Box(
-            Modifier
-                .padding(top = 10.dp)
-                .width(44.dp)
-                .height(4.dp)
-                .clip(RoundedCornerShape(50))
-                .background(ui.ink.copy(alpha = 0.14f))
-        )
+        // 顶部把手由 GlassBottomSheet 自带（v2.8.2 删去内容层重复把手：弹窗出现两个把手）
         Text(
             if (stage == 0) "喜欢题屿吗？" else "感谢支持",
             color = ui.text, fontSize = 19.sp, fontWeight = FontWeight.Bold,

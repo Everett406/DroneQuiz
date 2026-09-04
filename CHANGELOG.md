@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-09-04
+
+### 修复 —— 示例题库从未出现（第十七轮用户反馈）
+
+- **根因**：`questions_sample.json` 的多选题用 `answers: [下标数组]` 写法，而 `buildBuiltinEntities` 只读 `answer` 位掩码 → 每道多选题校验都失败 → 整个示例题库播种静默失败（runCatching 吞掉），「生活常识示例题库」在任何设备上都从未出现
+- **修复**：播种支持 `answers` 数组（折算为位掩码），与 JSON 导入通道口径一致；升级后启动自动补种
+
+### 修复 —— 题库隔离（第十七轮用户反馈）
+
+- **刷题配置页**：`LaunchedEffect(Unit)` 在首帧读到 `collectAsState` 默认值 `currentBank="drone"` 且永不重跑 → 切库后分类/题型/概览永远是旧题库（v2.7.3 首帧教训在 v2.8.0 的复现）。改为持续收集 settings 并按 `currentBank` 去重，首发射即 DataStore 真值、切库自动重载
+- **模考配置页**：加载改挂起读 `settings.first()`，消除旧库闪帧
+- **首页**：今日卡与近 7 天图表改为按当前题库统计（新增 `rowsByBankSince` JOIN 查询 + `last7DaysByBank`），卡片加「本题库」范围标记；打卡连击保持全局习惯数据；总览/错题/上次模考本就按库隔离，复核无误
+
+### 体验打磨（第十七轮用户反馈）
+
+- **弹窗把手去重**：GlassBottomSheet 自带把手，导入题库弹窗与打赏/收款码弹窗内容层又各画了一个 → 删除内容层重复把手
+- **高级选项动画**：模考高级选项展开/收起加 `expandVertically/shrinkVertically + fade` 动画
+- **首页题库切换菜单玻璃化**：`Popup` + 原生 surface → 新组件 `GlassAnchorMenu`（传送门渲染、折射「背景+内容」合成层、缩放淡入动画、锚定副标题下方）；副标题文本与问候语左对齐（去胶囊水平 padding）
+- **模考题型构成**：加减号步进器 → 每题型一根滑杆（0..可用量、步长 1），显示 `N / 可用`
+- **CSV 模板系统分享**：新增 `GalleryShare.shareTextFile`（cache/share + FileProvider 只读授权 + ACTION_SEND chooser），替代「保存到下载」；Manifest 注册 FileProvider（`@xml/file_paths` 仅暴露 cache/share/）
+- **导入弹窗键盘避让**：内容区加 `imePadding + verticalScroll`，命名输入框不再被键盘遮挡
+- **弹窗壁纸模糊**：AppRoot 背景层（壁纸/渐变）在 OverlayBlur 激活时与内容层一起真模糊，玻璃面板折射源整体成毛玻璃
+- static_check must 断言 +5（answers 数组播种 / last7DaysByBank / GlassAnchorMenu / shareTextFile / imePadding）
+
 ## [2.8.1] - 2026-09-04
 
 ### 修复 —— 升级启动崩溃（v2.8.0(23) 老用户升级必崩）

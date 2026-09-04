@@ -1,8 +1,13 @@
 package com.drone.quiz.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -144,13 +149,16 @@ fun ExamConfigScreen(
 
     LaunchedEffect(settings.currentBank) {
         runCatching {
-            val bank = settings.currentBank
+            // 关键：挂起读 DataStore 真值——collectAsState 首帧是 AppSettings() 默认值（drone），
+            // 直接读 settings.currentBank 会先用旧库加载一帧（v2.8.2 与 PracticeConfig 同款修复）
+            val st = ServiceLocator.settings.settings.first()
+            val bank = st.currentBank
             val types = ServiceLocator.repo.typesInBank(bank)
             bankTypes = types
             bankTypeCounts = ServiceLocator.repo.bankTypeCounts(bank)
-            typeOrder = settings.examTypeOrder.ifEmpty { QuestionTypes.canonicalOrder }
-            includeShort = settings.examIncludeShort
-            // 多题型题库：初始化每型默认题数（ clamp 到题库实际拥有量）
+            typeOrder = st.examTypeOrder.ifEmpty { QuestionTypes.canonicalOrder }
+            includeShort = st.examIncludeShort
+            // 多题型题库：初始化每型默认题数（clamp 到题库实际拥有量）
             if (types.size > 2 || types.any { it != "single" && it != "judge" }) {
                 typeCounts = buildMap {
                     put("single", minOf(30, bankTypeCounts["single"] ?: 0))
@@ -316,26 +324,51 @@ fun ExamConfigScreen(
                 SectionLabel("题型构成", Modifier.padding(top = 14.dp))
                 GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                     Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                        bankTypes.filter { it != "short" || includeShort }.forEach { t ->
-                            val avail = bankTypeCounts[t] ?: 0
-                            TypeStepperRow(
-                                label = QuestionTypes.label(t),
-                                count = typeCounts[t] ?: 0,
-                                available = avail,
-                                onMinus = {
-                                    typeCounts = typeCounts.toMutableMap().apply {
-                                        put(t, ((this[t] ?: 0) - 1).coerceIn(0, avail))
-                                    }
-                                },
-                                onPlus = {
-                                    typeCounts = typeCounts.toMutableMap().apply {
-                                        put(t, ((this[t] ?: 0) + 1).coerceIn(0, avail))
-                                    }
-                                }
+                        // v2.8.2：加减号步进器 → 每型一根滑杆（0..可用量，步长 1），
+                        // 与全 app 滑杆交互一致；加减号点几下才能到几十题，实在难用（用户反馈）
+                        val typesInCard = bankTypes.filter { it != "short" || includeShort }
+                        if (typesInCard.isEmpty()) {
+                            Text(
+                                "当前题库暂无可考题型",
+                                color = ui.textSub, fontSize = 13.sp
                             )
                         }
+                        typesInCard.forEach { t ->
+                            val avail = bankTypeCounts[t] ?: 0
+                            Column(Modifier.padding(vertical = 3.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        QuestionTypes.label(t),
+                                        color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        "  可用 $avail",
+                                        color = ui.textSub, fontSize = 11.sp
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        "${typeCounts[t] ?: 0} / $avail",
+                                        color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                if (avail > 0) {
+                                    GlassSlider(
+                                        value = { (typeCounts[t] ?: 0).toFloat() },
+                                        onValueChange = { v ->
+                                            typeCounts = typeCounts.toMutableMap().apply {
+                                                put(t, v.roundToInt().coerceIn(0, avail))
+                                            }
+                                        },
+                                        valueRange = 0f..avail.toFloat(),
+                                        step = 1f,
+                                        backdrop = backdrop,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         Text(
-                            "共 $plannedTotal 题 · 各题型题数不超过题库实际拥有量",
+                            "共 $plannedTotal 题 · 拖动滑杆设定各题型题数",
                             color = ui.textSub, fontSize = 11.sp,
                             modifier = Modifier.padding(top = 8.dp)
                         )
@@ -365,8 +398,13 @@ fun ExamConfigScreen(
                                 null, tint = ui.textSub, modifier = Modifier.size(16.dp)
                             )
                         }
-                        if (showAdvanced) {
-                            if ("short" in bankTypes) {
+                        // v2.8.2：展开/收起加高度+透明度动画（此前生硬跳变，用户反馈）
+                        AnimatedVisibility(
+                            visible = showAdvanced,
+                            enter = expandVertically(tween(260)) + fadeIn(tween(220)),
+                            exit = shrinkVertically(tween(220)) + fadeOut(tween(180))
+                        ) {
+                        if ("short" in bankTypes) {
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
@@ -403,7 +441,7 @@ fun ExamConfigScreen(
                                     scope.launch { ServiceLocator.settings.setExamTypeOrder(newOrder) }
                                 }
                             )
-                        }
+                        } // AnimatedVisibility
                     }
                 }
             }
@@ -566,48 +604,6 @@ private fun ExamSettingCell(
             )
             Box(Modifier.padding(top = 6.dp)) { slider() }
         }
-    }
-}
-
-/** 每型题数步进行。 */
-@Composable
-private fun TypeStepperRow(label: String, count: Int, available: Int, onMinus: () -> Unit, onPlus: () -> Unit) {
-    val ui = LocalUi.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Text("  可用 $available", color = ui.textSub, fontSize = 11.sp)
-        Spacer(Modifier.weight(1f))
-        StepperDot(if (count > 0) "−" else "−", enabled = count > 0, onClick = onMinus)
-        Text(
-            "$count",
-            color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 14.dp)
-        )
-        StepperDot("+", enabled = count < available, onClick = onPlus)
-    }
-}
-
-@Composable
-private fun StepperDot(symbol: String, enabled: Boolean, onClick: () -> Unit) {
-    val ui = LocalUi.current
-    Box(
-        Modifier
-            .size(30.dp)
-            .clip(CircleShape)
-            .background(if (enabled) ui.ink.copy(alpha = 0.08f) else ui.ink.copy(alpha = 0.03f))
-            .then(if (enabled) Modifier.clickable(interactionSource = null, indication = null, onClick = onClick) else Modifier),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            symbol,
-            color = if (enabled) ui.text else ui.textSub.copy(alpha = 0.5f),
-            fontSize = 16.sp, fontWeight = FontWeight.Bold
-        )
     }
 }
 

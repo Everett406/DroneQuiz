@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -302,6 +303,53 @@ fun GlassBottomSheet(
             ) {
                 content()
                 Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+/**
+ * 锚点玻璃小菜单（v2.8.2，替代首页题库切换的 Popup + 原生 surface）：
+ * - 走传送门渲染在内容层之上，面板折射「背景+内容」合成层 → 与其他弹窗同款液态玻璃；
+ * - 锚定在触发者（副标题胶囊）下方，入场缩放+淡入动画（transformOrigin 在锚点方向）；
+ * - 透明 scrim 点击关闭；OverlayBlur 生效期间内容层+背景层一起被真模糊。
+ *
+ * @param anchorPx 触发者在窗口坐标系下的 (x, y) 像素位置与高度（px）
+ */
+@Composable
+fun GlassAnchorMenu(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    anchorXpx: Float,
+    anchorYpx: Float,
+    anchorHeightPx: Float,
+    backdrop: Backdrop,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    GlassOverlayRegistration(visible, onDismiss) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(150)) + scaleIn(
+                initialScale = 0.86f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 480f)
+            ),
+            exit = fadeOut(tween(130)) + scaleOut(targetScale = 0.94f, animationSpec = tween(130))
+        ) {
+            val density = LocalDensity.current
+            val xDp = with(density) { anchorXpx.toDp() }
+            // 菜单顶部 = 触发者底部 + 8dp 间距；最小不低于状态栏之下
+            val yDp = with(density) { (anchorYpx + anchorHeightPx + 8f).toDp() }
+            GlassOverlayPanel(
+                scrimColor = Color.Transparent,
+                contentAlignment = Alignment.TopStart,
+                panelShape = RoundedCornerShape(18.dp),
+                panelModifier = Modifier
+                    .padding(start = xDp, top = yDp)
+                    .width(248.dp),
+                backdrop = backdrop,
+                onDismiss = onDismiss
+            ) {
+                Column(Modifier.padding(vertical = 6.dp)) { content() }
             }
         }
     }

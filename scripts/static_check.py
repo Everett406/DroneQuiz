@@ -136,6 +136,11 @@ must = [
     ("addUsageMs", "打赏使用时长累计"),
     ("_new_exam_records", "MIGRATION_1_2 重建表模式(v2.8.1 修启动崩)"),
     ("index_exam_records_startedAt", "迁移补建 startedAt 索引(Room 校验必需)"),
+    ("q.answers", "内置题库播种支持 multi answers 数组(修示例题库不出现)"),
+    ("last7DaysByBank", "今日/近7天统计按题库隔离"),
+    ("GlassAnchorMenu", "首页题库切换玻璃锚点菜单"),
+    ("shareTextFile", "CSV 模板系统分享(FileProvider)"),
+    ("imePadding", "键盘避让(刷题页/导入弹窗)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):

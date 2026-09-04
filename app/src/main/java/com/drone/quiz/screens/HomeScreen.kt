@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -53,6 +56,7 @@ import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.glass.GlassAnchorMenu
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
@@ -95,7 +99,7 @@ fun HomeScreen(
     )
 
     var stats by remember { mutableStateOf(HomeStats()) }
-    // v2.8.0：统计按当前题库隔离（打卡/近 7 日为全局习惯数据）
+    // v2.8.0：统计按当前题库隔离（v2.8.2：今日/近 7 天也改为按库；打卡连击为全局习惯数据）
     LaunchedEffect(settings.currentBank) {
         val bank = settings.currentBank
         combine(
@@ -115,13 +119,16 @@ fun HomeScreen(
         }.collect { s0 ->
             val acc = ServiceLocator.repo.accuracy(bank)
             val streak = ServiceLocator.repo.streakDays()
-            val days = ServiceLocator.repo.last7Days()
+            // 今日/近 7 天按题库隔离（practice_records JOIN questions），连击仍全局
+            val (days, todayAns, todayCor) = runCatching {
+                ServiceLocator.repo.last7DaysByBank(bank)
+            }.getOrElse { Triple(ServiceLocator.repo.last7Days(), 0, 0) }
             stats = s0.copy(
                 accuracy = acc,
                 streak = streak,
                 days = days,
-                todayAnswered = days.lastOrNull()?.answered ?: 0,
-                todayCorrect = days.lastOrNull()?.correct ?: 0
+                todayAnswered = todayAns,
+                todayCorrect = todayCor
             )
         }
     }
@@ -167,8 +174,9 @@ fun HomeScreen(
                         ?.let { "$greeting，$it" } ?: greeting,
                     color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold
                 )
-                // v2.8.0：副标题 = 当前题库切换入口（右键菜单式小弹窗）
+                // v2.8.0：副标题 = 当前题库切换入口（v2.8.2 起为玻璃锚点小菜单）
                 BankSwitchChip(
+                    backdrop = backdrop,
                     currentBankId = settings.currentBank,
                     onPick = { id ->
                         if (id != settings.currentBank) {
@@ -442,6 +450,16 @@ fun HomeScreen(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f)
+                        )
+                        // 范围标记（v2.8.2：今日/近 7 天已按题库隔离，与全局打卡区分）
+                        Text(
+                            "本题库",
+                            color = ui.textSub, fontSize = 10.sp,
+                            modifier = Modifier
+                                .padding(end = 10.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(ui.ink.copy(alpha = 0.06f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                         // 图例
                         Box(
@@ -746,10 +764,12 @@ fun WeekChart(
  * 首页当前题库切换入口（v2.8.0）：
  * 副标题位置展示「每日精进 · 当前题库名 ▾」，点击弹出右键菜单式小窗：
  * 题库列表（✓ 标记当前项）+「管理题库」入口。
- * 用 Popup + 原生 surface 样式（不用玻璃采样：弹窗窗口与 backdrop 记录坐标系不同，避免错位）。
+ * v2.8.2：改用 GlassAnchorMenu（传送门液态玻璃 + 入场动画，替代 Popup 原生 surface——
+ * 用户反馈"不像玻璃、没动画"）；文本左缘与问候语对齐（去掉胶囊内水平 padding）。
  */
 @Composable
 private fun BankSwitchChip(
+    backdrop: Backdrop,
     currentBankId: String,
     onPick: (String) -> Unit,
     onManage: () -> Unit
@@ -757,6 +777,10 @@ private fun BankSwitchChip(
     val ui = LocalUi.current
     var open by remember { mutableStateOf(false) }
     var banks by remember { mutableStateOf<List<com.drone.quiz.data.db.BankEntity>>(emptyList()) }
+    // 锚点（窗口坐标 px）：玻璃菜单出现在副标题正下方
+    var anchorX by remember { mutableFloatStateOf(0f) }
+    var anchorY by remember { mutableFloatStateOf(0f) }
+    var anchorH by remember { mutableFloatStateOf(0f) }
 
     // 题库列表：打开时拉取一次即可（删除/导入在设置页完成，回来再开窗会重拉）
     androidx.compose.runtime.LaunchedEffect(open) {
@@ -771,9 +795,14 @@ private fun BankSwitchChip(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .padding(top = 4.dp)
+            .onGloballyPositioned { coords ->
+                anchorX = coords.positionInWindow().x
+                anchorY = coords.positionInWindow().y
+                anchorH = coords.size.height.toFloat()
+            }
             .clip(RoundedCornerShape(50))
             .clickable(interactionSource = null, indication = null) { open = true }
-            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .padding(vertical = 2.dp)
     ) {
         Text(
             "每日精进 · ",
@@ -789,86 +818,74 @@ private fun BankSwitchChip(
         )
     }
 
-    if (open) {
-        androidx.compose.ui.window.Popup(
-            alignment = Alignment.TopStart,
-            offset = androidx.compose.ui.unit.IntOffset(40, 96),
-            onDismissRequest = { open = false },
-            properties = androidx.compose.ui.window.PopupProperties(focusable = true)
-        ) {
-            Column(
-                Modifier
-                    .width(228.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        if (ui.isDark) Color(0xFF26221C).copy(alpha = 0.98f)
-                        else Color(0xFFF8F3E8).copy(alpha = 0.99f)
-                    )
-                    .border(1.dp, ui.ink.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
-                    .padding(vertical = 6.dp)
-            ) {
-                if (banks.isEmpty()) {
-                    Text(
-                        "加载中…",
-                        color = ui.textSub, fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                    )
-                }
-                banks.forEach { b ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(interactionSource = null, indication = null) {
-                                open = false
-                                onPick(b.id)
-                            }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                b.name,
-                                color = ui.text,
-                                fontSize = 14.sp,
-                                fontWeight = if (b.id == currentBankId) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                        if (b.id == currentBankId) {
-                            Icon(
-                                AppIcons.Check, null,
-                                tint = ui.correct, modifier = Modifier.size(16.dp)
-                            )
-                        }
+    GlassAnchorMenu(
+        visible = open,
+        onDismiss = { open = false },
+        anchorXpx = anchorX,
+        anchorYpx = anchorY,
+        anchorHeightPx = anchorH,
+        backdrop = backdrop
+    ) {
+        if (banks.isEmpty()) {
+            Text(
+                "加载中…",
+                color = ui.textSub, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+            )
+        }
+        banks.forEach { b ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(interactionSource = null, indication = null) {
+                        open = false
+                        onPick(b.id)
                     }
-                }
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .height(1.dp)
-                        .background(ui.ink.copy(alpha = 0.08f))
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(interactionSource = null, indication = null) {
-                            open = false
-                            onManage()
-                        }
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Icon(
-                        AppIcons.Tune, null,
-                        tint = ui.textSub, modifier = Modifier.size(15.dp)
-                    )
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        "管理题库",
-                        color = ui.text, fontSize = 13.sp,
-                        modifier = Modifier.padding(start = 8.dp)
+                        b.name,
+                        color = ui.text,
+                        fontSize = 14.sp,
+                        fontWeight = if (b.id == currentBankId) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
+                if (b.id == currentBankId) {
+                    Icon(
+                        AppIcons.Check, null,
+                        tint = ui.correct, modifier = Modifier.size(16.dp)
                     )
                 }
             }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .height(1.dp)
+                .background(ui.ink.copy(alpha = 0.08f))
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(interactionSource = null, indication = null) {
+                    open = false
+                    onManage()
+                }
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Icon(
+                AppIcons.Tune, null,
+                tint = ui.textSub, modifier = Modifier.size(15.dp)
+            )
+            Text(
+                "管理题库",
+                color = ui.text, fontSize = 13.sp,
+                modifier = Modifier.padding(start = 8.dp)
+            )
         }
     }
 }
