@@ -102,6 +102,9 @@ class SettingsStore(private val context: Context) {
         val examAutoMix = booleanPreferencesKey("exam_auto_mix")
         // v2.8.6 护眼提醒
         val eyeCareReminder = booleanPreferencesKey("eye_care_reminder")
+
+        /** currentBank 缺省值（与 AppSettings.currentBank 默认一致） */
+        const val BANK_DEFAULT = "drone"
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -138,12 +141,20 @@ class SettingsStore(private val context: Context) {
         )
     }
 
-    /** 指定模式（0 顺序 / 1 随机）的刷题会话（null = 无未完成会话）。双槽互不影响。 */
+    /**
+     * 指定模式（0 顺序 / 1 随机）的刷题会话（null = 无未完成会话）。双槽互不影响。
+     *
+     * v2.8.8 切库隔离堵漏（用户实测：导入新题库后「接续上次进度」仍显示旧题库的
+     * 「523/2000」，切随机又变内置题库 20 道）：快照的 bankId 必须与当前题库一致，
+     * 否则视同无会话。在唯一读口过滤，所有消费方（配置页续刷提示/刷题页恢复/
+     * 自动接续/补漏轮）一次性生效；切回旧题库时进度仍在，不丢数据。
+     */
     fun practiceSession(order: Int): Flow<PracticeSession?> = context.dataStore.data.map { p ->
         val raw = if (order == 1) p[K.practiceSessionRandom] else p[K.practiceSession]
+        val bank = p[K.currentBank] ?: K.BANK_DEFAULT
         raw?.let {
             runCatching { json.decodeFromString<PracticeSession>(it) }.getOrNull()
-                ?.takeIf { s -> s.ids.isNotEmpty() }
+                ?.takeIf { s -> s.ids.isNotEmpty() && s.bankId == bank }
         }
     }
 
@@ -276,8 +287,10 @@ class SettingsStore(private val context: Context) {
  * 完整 settings，导致刷题时的每次快照落盘都触发「根 → AppRoot → 整个 NavHost」
  * 的连锁重组，叠加液态玻璃渲染造成可感知的卡顿（大题库导入后尤为明显）。
  *
- * 把根需要的字段映射成数据类并 distinctUntilChanged：只有这些字段真正变化时
- * （主题/字体/特效/壁纸/打赏门槛）根组合才重组，无关写入不再穿透。
+ * v2.8.8 追加剔除 usageMs/supportPrompted/supportRefused：前台计时每分钟 +60s
+ * 都会重发 settings flow，此前它们挂在 RootSettings 里，导致「根 → AppRoot」
+ * 每分钟全量重组一次（滚动中偶发掉帧）。打赏门槛判定下沉到 SupportPromptHost
+ * 内部自行收集，根组合只在主题/字体/特效/壁纸真正变化时才重组。
  */
 data class RootSettings(
     val themeMode: Int = 0,
@@ -285,10 +298,7 @@ data class RootSettings(
     val readingFont: String = "system",
     val effects: Boolean = true,
     val wallpaper: String = "",
-    val wallpaperBlur: Boolean = false,
-    val usageMs: Long = 0L,
-    val supportPrompted: Boolean = false,
-    val supportRefused: Boolean = false
+    val wallpaperBlur: Boolean = false
 )
 
 /** AppSettings flow → RootSettings flow（结构相等去重）。 */
@@ -299,9 +309,6 @@ fun Flow<AppSettings>.conflateForRoot(): Flow<RootSettings> = map {
         readingFont = it.readingFont,
         effects = it.effects,
         wallpaper = it.wallpaper,
-        wallpaperBlur = it.wallpaperBlur,
-        usageMs = it.usageMs,
-        supportPrompted = it.supportPrompted,
-        supportRefused = it.supportRefused
+        wallpaperBlur = it.wallpaperBlur
     )
 }.distinctUntilChanged()

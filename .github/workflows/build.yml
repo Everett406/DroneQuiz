@@ -12,8 +12,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION_NAME: 2.8.7
-  APP_VERSION_TAG: v2.8.7
+  APP_VERSION_NAME: 2.8.8
+  APP_VERSION_TAG: v2.8.8
 
 jobs:
   build:
@@ -44,37 +44,40 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/TiYu-${{ env.APP_VERSION_NAME }}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DroneQuiz-${{ env.APP_VERSION_NAME }}
-          path: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
+          name: TiYu-${{ env.APP_VERSION_NAME }}
+          path: dist/TiYu-${{ env.APP_VERSION_NAME }}.apk
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.APP_VERSION_TAG }}
-          name: DroneQuiz ${{ env.APP_VERSION_TAG }}
-          files: dist/DroneQuiz-${{ env.APP_VERSION_NAME }}.apk
+          name: 题屿 TiYu ${{ env.APP_VERSION_TAG }}
+          files: dist/TiYu-${{ env.APP_VERSION_NAME }}.apk
           body: |
-            题屿 v2.8.7 —— 防沉迷更名 + 题库重命名 + 错题本删除动画 + 小字自适应背景
-            
-            【设置 · 防沉迷】
-            - 「护眼提醒」正式更名为「防沉迷」；
-            - 全部设置项的说明文字统一压缩到 10 字左右（最长不超 15 字），不再换行。
-            
-            【题库 · 重命名】
-            - 设置 → 题库管理，每个题库行新增铅笔按钮，点开即可重命名（最长 16 字，空名不改）。
-            
-            【错题本 · 删除体验】
-            - 删除按钮改为 30dp 大触达区并左移，不再和右侧滚动把手贴身、好点多了；
-            - 把手拖动轨道收窄，列表右缘点击不再被吞；
-            - 删除错题有动画了：当前条目缩放淡出，其余条目弹性靠拢补位。
-            
-            【小字 · 自适应背景】
-            - 各页面的分区标题、页面副标题、页脚提示等灰色小字随壁纸明暗自适应：
-              壁纸偏暗自动提亮、偏亮自动压深，深色壁纸上看不清的问题解决了。
-            
+            题屿 v2.8.8 —— 切库数据隔离堵漏 + 检查更新 + 仓库更名 TiYu
+
+            【刷题 · 切库数据混乱修复】
+            - 修复：导入/切换题库后，「将接续上次进度」仍显示旧题库的进度（如 523/2000）、
+              点开始刷出旧题库题目、切随机变内置题库 20 道等一系列串库现象；
+            - 现在所有刷题入口严格跟随当前题库：各模式进度按题库各自保存，
+              切回旧题库时原进度仍在，不丢数据。
+
+            【关于 · 检查更新】
+            - 设置 → 关于，新增「检查更新」：自动比对 GitHub Releases 最新版；
+            - 有新版弹窗提示，一键用浏览器打开发布页下载（不做自动下载安装）；
+            - 点版本行也可直达 Releases 页。
+
+            【流畅度】
+            - 修复前台使用计时每分钟触发的全局连锁重组（滚动中偶发掉帧）；
+            - 修复异库旧会话引发的整库重复加载（大题库导入后更明显）。
+
+            【仓库更名】
+            - 仓库 DroneQuiz 更名为 TiYu（题屿拼音，GitHub 不支持纯中文名）；
+            - 旧链接自动 301 重定向，历史发布不可 404；安装包更名为 TiYu-x.y.z.apk。
+
             固定签名，可直接覆盖安装 v2.x

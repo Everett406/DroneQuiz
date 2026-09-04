@@ -258,7 +258,10 @@ fun PracticeConfigScreen(
             val snap = lastSession
             val typeArgNow = QuestionTypes.canonicalOrder
                 .filter { it in selectedTypes }.joinToString(",").ifEmpty { "all" }
+            // v2.8.8：切库隔离双保险——读口已按 currentBank 过滤，这里再显式校验一次，
+            // 防「523/2000」这种异库旧进度漏进续刷提示
             val snapReusable = snap != null && snap.src == "all" &&
+                snap.bankId == settings.currentBank &&
                 snap.type == typeArgNow && snap.cat == "all" &&
                 // v2.8.6：刷到末题即视为本轮结束（不再提示接续，进入后自动补漏/开新一轮）
                 !sessionAtEnd(snap) && (snap.index > 0 || snap.answers.isNotEmpty())

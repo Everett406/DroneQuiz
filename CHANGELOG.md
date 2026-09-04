@@ -1,8 +1,46 @@
 # 更新日志 (Changelog)
 
-本文件记录 DroneQuiz 每个版本的变更明细。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本（MAJOR.MINOR.PATCH）。
+本文件记录题屿（TiYu）每个版本的变更明细。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本（MAJOR.MINOR.PATCH）。
 
 ## [Unreleased]
+
+## [2.8.8] - 2026-09-04
+
+### 刷题 —— 切库数据混乱修复（第二十三轮反馈，P0）
+
+- **根因**：刷题会话快照（顺序/随机双槽）虽带 `bankId`，但配置页续刷提示行未校验题库归属，
+  「将接续上次进度 · 第 523 / 2000 题」显示的是异库旧进度；切换随机又露出内置题库的 20 题旧会话；
+- **修复**：`SettingsStore.practiceSession()` 在唯一读口按 `currentBank` 过滤
+  （快照 bankId 与当前题库不一致即视同无会话），配置页提示、刷题页恢复、自动接续、
+  补漏轮全链路一次堵住；配置页 `snapReusable` 再加一道显式校验双保险；
+- **语义**：进度按题库各自保存、互不干扰——切回旧题库时原进度仍在，不丢数据；
+- 顺带消除异库旧会话引发的整库重复加载（2000 题 IN 查询 / 3059 题全量取回）。
+
+### 流畅度 —— 两处重组/加载浪费
+
+- `RootSettings` 剔除 `usageMs/supportPrompted/supportRefused`：前台计时每分钟 +60s
+  都会重发 settings flow，此前挂在根级导致「MainActivity → AppRoot → NavHost」
+  每分钟全量连锁重组（滚动中偶发掉帧）；打赏门槛判定下沉到 `SupportPromptHost`
+  内部自行收集，重组范围收敛到该小组件；
+- 异库旧会话的重复加载浪费（见上）一并消除。
+
+### 关于 —— 检查更新（引导 GitHub Releases）
+
+- 设置 → 关于，新增**「检查更新」**胶囊：调 GitHub API `releases/latest` 比对版本号
+  （数字段逐段比较，"2.8.10" > "2.8.9"）；有新版弹玻璃对话框**引导浏览器打开发布页**
+  自行下载（明确不做自动下载/静默安装，用户口径）；无新版轻提示「已是最新版本」，
+  网络失败提示「检查失败，请稍后重试」；
+- **版本行可点**：直达 GitHub Releases 页；
+- 新增 `util/AppUpdater`（HttpURLConnection + org.json，零新依赖）；
+- Manifest 新增 `INTERNET` 权限（仅检查更新用，题库功能仍完全离线）。
+
+### 仓库 —— 更名 TiYu
+
+- GitHub 仓库 `Everett406/DroneQuiz` 更名为 **`Everett406/TiYu`**（题屿拼音；
+  GitHub 仓库名不支持纯中文，「题屿」会被消毒为 "-"）；描述同步为「题屿 TiYu — …」；
+- 旧链接（含 Releases/Issues）GitHub 自动 301 重定向，**不会 404**；
+- 安装包更名 `TiYu-x.y.z.apk`、Gradle 项目名 `TiYu`、README 徽章/链接/CI 监控地址全部同步；
+- 包名保持 `com.drone.quiz` 不变（改动会导致覆盖安装变全新应用、数据丢失）。
 
 ## [2.8.7] - 2026-09-04
 

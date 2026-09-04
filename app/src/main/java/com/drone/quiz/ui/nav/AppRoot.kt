@@ -66,6 +66,8 @@ import androidx.navigation.compose.rememberNavController
 import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.settings.RootSettings
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.drone.quiz.screens.ExamConfigScreen
 import com.drone.quiz.screens.ExamResultScreen
 import com.drone.quiz.screens.ExamScreen
@@ -443,7 +445,8 @@ fun AppRoot(settings: RootSettings) {
         PortalHost()
 
         // 层 5：支持作者弹窗（累计使用 2h 触发一次；考试中不弹，出考试再弹）
-        SupportPromptHost(backdrop = bgBackdrop, currentRoute = route, settings = settings)
+        // v2.8.8：不再从根级传 RootSettings（usageMs 每分钟变化会拖动全根重组）
+        SupportPromptHost(backdrop = bgBackdrop, currentRoute = route)
     }
     }
 }
@@ -470,16 +473,29 @@ object SupportBus {
  * 触发宿主：累计使用超 2h 且未弹过、未拒绝 → 弹一次。
  * 用户正在考试（examRun 路由）时不弹——面板收起且不标记"已弹"，出考试后本 effect 自动拉起。
  * 手动打开（SupportBus）不受 2h/考试路由限制，且关闭不标记"已弹"。
+ *
+ * v2.8.8：usageMs/supportPrompted/supportRefused 从 RootSettings 剔除后由本组件内部
+ * 自行收集——它们每分钟都在变（前台计时 +60s），挂在根级会让 MainActivity → AppRoot
+ * → NavHost 每分钟全量连锁重组（滚动中偶发掉帧）。重组范围收敛到这个小组件自身。
  */
 @Composable
 private fun SupportPromptHost(
     backdrop: Backdrop,
-    currentRoute: String?,
-    settings: RootSettings
+    currentRoute: String?
 ) {
     val scope = rememberCoroutineScope()
     var show by remember { mutableStateOf(false) }
     var manual by remember { mutableStateOf(false) }
+    var usageMs by remember { mutableStateOf(0L) }
+    var prompted by remember { mutableStateOf(false) }
+    var refused by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        ServiceLocator.settings.settings
+            .map { Triple(it.usageMs, it.supportPrompted, it.supportRefused) }
+            .distinctUntilChanged()
+            .collect { (u, p, r) -> usageMs = u; prompted = p; refused = r }
+    }
 
     // 手动入口：设置页点击立即拉起（考试中也不打断——考试页无此入口，仅作防御）
     LaunchedEffect(SupportBus.manualOpen) {
@@ -492,14 +508,13 @@ private fun SupportPromptHost(
         }
     }
 
-    LaunchedEffect(settings.usageMs, settings.supportPrompted, settings.supportRefused, currentRoute) {
+    LaunchedEffect(usageMs, prompted, refused, currentRoute) {
         val inExam = currentRoute?.startsWith("examRun") == true
         if (inExam) {
             show = false
             return@LaunchedEffect
         }
-        val eligible = settings.usageMs >= SUPPORT_USAGE_THRESHOLD_MS &&
-            !settings.supportPrompted && !settings.supportRefused
+        val eligible = usageMs >= SUPPORT_USAGE_THRESHOLD_MS && !prompted && !refused
         if (eligible) {
             manual = false
             show = true
@@ -519,7 +534,7 @@ private fun SupportPromptHost(
     ) {
         SupportSheetContent(
             backdrop = backdrop,
-            usageMs = settings.usageMs,
+            usageMs = usageMs,
             onRefuse = {
                 show = false
                 scope.launch { runCatching { ServiceLocator.settings.setSupportRefused() } }

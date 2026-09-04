@@ -2,18 +2,18 @@
 
 # 题屿 · TiYu
 
-**原「无人机装调题库 DroneQuiz」— Android 原生刷题 / 模考 / 错题本应用 · Jetpack Compose · 液态玻璃 UI**
+**题屿 TiYu**（原「无人机装调题库 DroneQuiz」，v2.8.8 起更名）— Android 原生刷题 / 模考 / 错题本应用 · Jetpack Compose · 液态玻璃 UI
 
-[![Release](https://img.shields.io/github/v/release/Everett406/DroneQuiz?style=flat-square)](https://github.com/Everett406/DroneQuiz/releases)
-[![Build APK](https://github.com/Everett406/DroneQuiz/actions/workflows/build.yml/badge.svg)](https://github.com/Everett406/DroneQuiz/actions/workflows/build.yml)
-[![License](https://img.shields.io/github/license/Everett406/DroneQuiz?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Everett406/TiYu?style=flat-square)](https://github.com/Everett406/TiYu/releases)
+[![Build APK](https://github.com/Everett406/TiYu/actions/workflows/build.yml/badge.svg)](https://github.com/Everett406/TiYu/actions/workflows/build.yml)
+[![License](https://img.shields.io/github/license/Everett406/TiYu?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Android%2012%2B-3DDC84?style=flat-square)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.20-7F52FF?style=flat-square)
 
 内置《无人机装调题库（含解析）》**800 题**（单选 640 / 判断 160），
 支持自定义题库导入、模考自动阅卷、错题强化训练与每日学习提醒。
 
-[下载最新 APK](https://github.com/Everett406/DroneQuiz/releases/latest) · [更新日志](CHANGELOG.md) · [问题反馈](https://github.com/Everett406/DroneQuiz/issues)
+[下载最新 APK](https://github.com/Everett406/TiYu/releases/latest) · [更新日志](CHANGELOG.md) · [问题反馈](https://github.com/Everett406/TiYu/issues)
 
 </div>
 
@@ -49,11 +49,11 @@
 
 ## 项目简介
 
-**题屿**是一款面向**无人机装调员职业技能培训**的离线刷题应用（仓库与包名沿用历史名 DroneQuiz / `com.drone.quiz`，桌面名称与关于页自 v2.7.3 起改为「题屿」）。应用内置 800 道含解析的正式题库，覆盖单选与判断两类题型，提供刷题练习、全真模考、错题本、题目搜索、学习打卡与每日提醒等完整学习闭环，同时支持通过设置页导入自定义题库（CSV / 带图片的 ZIP）以适配其他科目。
+**题屿**是一款面向**无人机装调员职业技能培训**的离线刷题应用（仓库 v2.8.8 起更名为 TiYu——题屿拼音，GitHub 仓库名不支持纯中文；包名沿用历史 `com.drone.quiz`，桌面名称与关于页自 v2.7.3 起为「题屿」）。应用内置 800 道含解析的正式题库，覆盖单选与判断两类题型，提供刷题练习、全真模考、错题本、题目搜索、学习打卡与每日提醒等完整学习闭环，同时支持通过设置页导入自定义题库（CSV / 带图片的 ZIP）以适配其他科目。
 
 项目采用纯 Kotlin + Jetpack Compose 构建，UI 层基于 Kyant0 的 **AndroidLiquidGlass (backdrop)** 库实现了 Android 平台少见的「液态玻璃」视觉效果（折射、色散、振动度），并为此建立了一整套**运行时守护与自动降级机制**（BootGuard / CrashGuard / 安全模式），保证在低端 GPU 或异常渲染环境下应用始终可用。全部构建、签名与发版流程由 GitHub Actions 自动化完成，本地无需 Android Studio 亦可参与开发。
 
-> 应用完全离线运行，不申请网络权限，不收集任何用户数据。
+> 应用题库、做题、模考等全部核心功能均离线运行，不收集任何用户数据；唯一联网行为是手动点「检查更新」（访问 GitHub Releases API），以及跳转浏览器打开发布页。
 
 ---
 
@@ -99,7 +99,7 @@
 
 ### 安装步骤
 
-1. 从 [Releases](https://github.com/Everett406/DroneQuiz/releases/latest) 下载最新 `DroneQuiz-x.y.z.apk`；
+1. 从 [Releases](https://github.com/Everett406/TiYu/releases/latest) 下载最新 `TiYu-x.y.z.apk`；
 2. 直接安装。**v2.0.2 起所有版本使用同一固定签名，之后升级均可直接覆盖安装，无需卸载旧版**；
    - 若从 v2.0.x 旧签名版本升级，需先卸载一次旧版（签名不同导致）；
 3. 首次启动若提示未知来源，按系统引导授权即可。
@@ -139,9 +139,9 @@
 ### 源码结构
 
 ```
-DroneQuiz/
+TiYu/
 ├── app/src/main/
-│   ├── AndroidManifest.xml              # 权限：POST_NOTIFICATIONS、VIBRATE；竖屏锁定
+│   ├── AndroidManifest.xml              # 权限：POST_NOTIFICATIONS、VIBRATE、INTERNET（仅检查更新）；竖屏锁定
 │   ├── assets/questions.json            # 内置题库（800 题，version=2）
 │   ├── res/
 │   │   ├── font/                        # 内置阅读字体（子集化）：Noto Sans SC、Noto Serif SC、霞鹜文楷 各 regular/medium(bold)
@@ -368,7 +368,7 @@ CI 由 [.github/workflows/build.yml](.github/workflows/build.yml) 承担，`push
 Checkout → JDK 21(Temurin) → Gradle Setup
   → 从 Secrets 恢复 keystore（DQ_KEYSTORE_B64 解码 + DQ_KS_STORE_PASS）
   → ./gradlew assembleRelease
-  → 重命名为 DroneQuiz-${APP_VERSION_NAME}.apk
+  → 重命名为 TiYu-${APP_VERSION_NAME}.apk
   → Upload Artifact
   → softprops/action-gh-release 自动发布到 tag ${APP_VERSION_TAG}
 ```
@@ -379,7 +379,7 @@ Checkout → JDK 21(Temurin) → Gradle Setup
 
 ```bash
 curl -s -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/Everett406/DroneQuiz/actions/runs?per_page=5"
+  "https://api.github.com/repos/Everett406/TiYu/actions/runs?per_page=5"
 ```
 
 ### 发版 Checklist（每版必做，四处同步）

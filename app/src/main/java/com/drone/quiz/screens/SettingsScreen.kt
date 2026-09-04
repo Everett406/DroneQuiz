@@ -53,6 +53,7 @@ import androidx.core.content.ContextCompat
 import com.drone.quiz.BuildConfig
 import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
+import com.drone.quiz.util.AppUpdater
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
@@ -95,6 +96,28 @@ fun SettingsScreen(backdrop: Backdrop) {
     var showImportSheet by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<com.drone.quiz.data.db.BankEntity?>(null) }
     var renameTarget by remember { mutableStateOf<com.drone.quiz.data.db.BankEntity?>(null) } // v2.8.7 重命名
+
+    // v2.8.8 检查更新（用户口径：不做自动下载）：查 GitHub Releases 最新版，
+    // 有新版弹窗引导浏览器去发布页；无新版/网络失败走轻提示
+    var updateChecking by remember { mutableStateOf(false) }
+    var updateFound by remember { mutableStateOf<String?>(null) }
+
+    fun checkUpdate() {
+        if (updateChecking) return
+        updateChecking = true
+        scope.launch {
+            runCatching { AppUpdater.fetchLatestVersion() }
+                .onSuccess { remote ->
+                    if (AppUpdater.isNewer(remote, BuildConfig.VERSION_NAME)) {
+                        updateFound = remote
+                    } else {
+                        importMsg = "已是最新版本 v${BuildConfig.VERSION_NAME}"
+                    }
+                }
+                .onFailure { importMsg = "检查失败，请稍后重试" }
+            updateChecking = false
+        }
+    }
 
     LaunchedEffect(banksRefreshTick, settings.currentBank) {
         runCatching { banksState = ServiceLocator.repo.bankListWithCounts() }
@@ -737,14 +760,15 @@ fun SettingsScreen(backdrop: Backdrop) {
                     )
                 }
                 Text(
-                    "点名称切换；铅笔重命名，垃圾桶删除。",
+                    // v2.8.8 说明字 ≤15 字（用户口径），原文 17 字
+                    "点名称切换 · 铅笔 · 垃圾桶",
                     color = ui.textSub, fontSize = 11.sp, lineHeight = 15.sp,
                     modifier = Modifier.padding(top = 10.dp)
                 )
                 importMsg?.let {
                     Text(
                         it,
-                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除") || it.startsWith("已重命名")) ui.correct else ui.wrong,
+                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除") || it.startsWith("已重命名") || it.startsWith("已是最新版本")) ui.correct else ui.wrong,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 6.dp)
                     )
@@ -779,7 +803,16 @@ fun SettingsScreen(backdrop: Backdrop) {
         SectionLabel("关于", Modifier.padding(top = 16.dp))
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // 版本行可点：直达 GitHub Releases 页（v2.8.8，引导更新入口）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = null,
+                            indication = null
+                        ) { AppUpdater.openReleases(context) }
+                ) {
                     Icon(AppIcons.Bell, null, tint = ui.accent, modifier = Modifier.size(18.dp))
                     Column(
                         Modifier
@@ -792,26 +825,52 @@ fun SettingsScreen(backdrop: Backdrop) {
                             color = ui.textSub, fontSize = 11.sp
                         )
                     }
+                    Icon(AppIcons.ChevronRight, null, tint = ui.textSub, modifier = Modifier.size(16.dp))
                 }
-                // 支持作者手动入口（v2.8.0）：复用打赏弹窗，手动打开不占用自动触达机会
-                Box(
+                Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(ui.accent.copy(alpha = 0.10f))
-                        .border(1.dp, ui.accent.copy(alpha = 0.35f), RoundedCornerShape(50))
-                        .clickable(
-                            interactionSource = null,
-                            indication = null
-                        ) { com.drone.quiz.ui.nav.SupportBus.manualOpen = true }
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        "☕ 请作者喝杯奶茶",
-                        color = ui.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold
-                    )
+                    // 支持作者手动入口（v2.8.0）：复用打赏弹窗，手动打开不占用自动触达机会
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(50))
+                            .background(ui.accent.copy(alpha = 0.10f))
+                            .border(1.dp, ui.accent.copy(alpha = 0.35f), RoundedCornerShape(50))
+                            .clickable(
+                                interactionSource = null,
+                                indication = null
+                            ) { com.drone.quiz.ui.nav.SupportBus.manualOpen = true }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "☕ 请作者喝杯奶茶",
+                            color = ui.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
+                    // 检查更新（v2.8.8）：查最新 Release，有新版弹窗引导浏览器打开
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(50))
+                            .background(ui.ink.copy(alpha = 0.08f))
+                            .border(1.dp, ui.ink.copy(alpha = 0.15f), RoundedCornerShape(50))
+                            .clickable(
+                                interactionSource = null,
+                                indication = null
+                            ) { checkUpdate() }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (updateChecking) "检查中…" else "检查更新",
+                            color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -915,6 +974,22 @@ fun SettingsScreen(backdrop: Backdrop) {
                 }
             },
             onDismiss = { renameTarget = null }
+        )
+    }
+
+    // 发现新版本（v2.8.8）：引导浏览器打开 Releases 页，用户自行下载安装包
+    updateFound?.let { v ->
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "发现新版本 v$v",
+            body = "当前版本 v${BuildConfig.VERSION_NAME}。将用浏览器打开 GitHub Releases 页面，在新版说明下下载 APK 安装即可（覆盖安装，数据保留）。",
+            confirmText = "打开发布页",
+            dismissText = "取消",
+            onConfirm = {
+                updateFound = null
+                AppUpdater.openReleases(context)
+            },
+            onDismiss = { updateFound = null }
         )
     }
 
