@@ -117,6 +117,13 @@ class MainActivity : ComponentActivity() {
                         result.onFailure {
                             BootGuard.log(context, "load", "题库加载失败: ${it.javaClass.name}: ${it.message}")
                         }
+                        // v2.8.0：内置示例题库（多选/填空/简答演示）播种（墓碑内不重生）
+                        runCatching {
+                            ServiceLocator.repo.ensureSampleLoaded(
+                                applicationContext,
+                                ServiceLocator.settings.deletedBanks()
+                            )
+                        }
                     }
                     // 最多等 8 秒：超时也放行主界面，绝不停留在"正在加载题库"死等
                     // （刷题页检测到题数 0→N 会自动重载）

@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Question
+import com.drone.quiz.data.repo.optionLabel
 import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.screens.common.heroSearchField
 import com.drone.quiz.screens.common.scrolledFromTopPx
@@ -90,7 +91,8 @@ fun SearchScreen(
         }
         searching = true
         delay(300)
-        results = runCatching { ServiceLocator.repo.searchQuestions(q) }.getOrDefault(emptyList())
+        val bank = runCatching { ServiceLocator.settings.settings.first().currentBank }.getOrDefault("drone")
+        results = runCatching { ServiceLocator.repo.searchQuestions(bank, q) }.getOrDefault(emptyList())
         searching = false
         if (results.isNotEmpty()) {
             runCatching { ServiceLocator.settings.addSearchHistory(q) }
@@ -284,10 +286,10 @@ private fun SearchResultItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TagChip(q.category)
                 Spacer(Modifier.width(6.dp))
-                TagChip(if (q.isJudge) "判断" else "单选")
+                TagChip(com.drone.quiz.data.repo.QuestionTypes.label(q.type))
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "正确答案：${optionLabel(q.answer, q.isJudge)}",
+                    "正确答案：${q.correctAnswerText()}",
                     color = ui.correct, fontSize = 11.sp, fontWeight = FontWeight.SemiBold
                 )
             }
@@ -310,8 +312,19 @@ private fun SearchResultItem(
                 ) + fadeOut()
             ) {
                 Column(Modifier.padding(top = 10.dp)) {
-                    q.optionsOrJudge.forEachIndexed { i, opt ->
-                        val isAnswer = i == q.answer
+                    if (q.type == "blank" || q.type == "short") {
+                        Text(
+                            if (q.type == "short") "参考答案：${q.answerText}"
+                            else "各空答案：${q.blankAnswers.joinToString("；") { vs -> vs.joinToString(" / ") }}",
+                            color = ui.correct,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                    } else q.optionsOrJudge.forEachIndexed { i, opt ->
+                        val isAnswer = when (q.type) {
+                            "multi" -> (q.answer and (1 shl i)) != 0
+                            else -> i == q.answer
+                        }
                         Row(
                             Modifier
                                 .fillMaxWidth()

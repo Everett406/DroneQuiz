@@ -4,15 +4,29 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "questions", indices = [Index("category"), Index("type")])
+@Entity(
+    tableName = "questions",
+    indices = [Index("category"), Index("type"), Index("bankId")]
+)
 data class QuestionEntity(
     @PrimaryKey val id: Long,
     val category: String,
-    val type: String, // "single" | "judge"
+    val type: String, // "single" | "judge" | "multi" | "blank" | "short"（v2.8.0 扩展）
     val question: String,
-    val options: String, // JSON array string
-    val answer: Int,
-    val explanation: String
+    val options: String, // JSON array string（判断题固定 ["正确","错误"]；填空/简答为空数组）
+    val answer: Int,     // single/judge：正确选项下标；multi：正确项位掩码（bit i = 选项 i）
+    val explanation: String,
+    val bankId: String = "drone",     // 所属题库（v2.8.0 多题库）
+    val answerText: String = ""       // blank：各空答案（|| 分隔空，| 分隔同空可接受变体）；short：参考答案
+)
+
+/** 题库登记表（v2.8.0）：内置题库（assets 播种）与导入题库统一管理。 */
+@Entity(tableName = "banks")
+data class BankEntity(
+    @PrimaryKey val id: String,       // "drone" | "sample" | "imp_<时间戳>"
+    val name: String,
+    val source: String,               // "builtin" | "imported"
+    val createdAt: Long
 )
 
 @Entity(tableName = "practice_records", indices = [Index("qid"), Index("ts")])
@@ -33,7 +47,7 @@ data class QuestionStatsEntity(
     val lastTs: Long = 0
 )
 
-@Entity(tableName = "exam_records")
+@Entity(tableName = "exam_records", indices = [Index("startedAt")])
 data class ExamRecordEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val startedAt: Long,
@@ -43,7 +57,9 @@ data class ExamRecordEntity(
     val judgeCount: Int,
     val durationSec: Int,
     val score: Float? = null,
-    val passed: Boolean? = null
+    val passed: Boolean? = null,
+    val bankId: String = "drone",        // v2.8.0：所属题库（按题库隔离展示）
+    val extraCounts: String = ""         // v2.8.0：新题型计数 JSON，如 {"multi":5,"blank":3,"short":2}
 )
 
 @Entity(tableName = "exam_answers", indices = [Index("examId"), Index("qid")])
@@ -51,8 +67,9 @@ data class ExamAnswerEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val examId: Long,
     val qid: Long,
-    val picked: Int? = null, // null = unanswered
-    val isCorrect: Boolean? = null
+    val picked: Int? = null,  // null = 未答；single/judge 选项下标；multi 位掩码；blank/short 1=已提交
+    val isCorrect: Boolean? = null,
+    val detail: String? = null // v2.8.0：UserAnswer JSON（填空各空文本 / 简答内容）
 )
 
 /**

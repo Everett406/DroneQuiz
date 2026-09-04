@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.settings.PracticeSession
+import com.drone.quiz.data.repo.QuestionTypes
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
@@ -71,8 +72,10 @@ fun PracticeConfigScreen(
     val settings by ServiceLocator.settings.settings
         .collectAsState(initial = AppSettings())
 
-    var typeFilter by remember { mutableStateOf("all") }   // all | single | judge
-    var catFilter by remember { mutableStateOf("all") }
+    // 题型/分类筛选（v2.8.0 自适应：题型选项 = 当前题库实际拥有的题型；分类不再有「全部」）
+    var typeFilter by remember { mutableStateOf("all") }   // all | single | multi | blank | judge | short
+    var catFilter by remember { mutableStateOf("") }
+    var types by remember { mutableStateOf<List<String>>(emptyList()) }
     // 当前模式的会话快照（双槽：顺序/随机各存各的进度），响应式——切换模式提示即随之切换；
     // 也用于“重新开始”按钮与二次确认（v2.7.4）
     var showResetConfirm by remember { mutableStateOf(false) }
@@ -88,11 +91,16 @@ fun PracticeConfigScreen(
 
     LaunchedEffect(Unit) {
         runCatching {
-            categories = ServiceLocator.repo.categories().map { it.category to it.cnt }
-            total = categories.sumOf { it.second }
+            val bank = settings.currentBank
+            types = ServiceLocator.repo.typesInBank(bank)
+            val cats = ServiceLocator.repo.categoriesOf(bank).map { it.category to it.cnt }
+            categories = cats
+            total = cats.sumOf { it.second }
+            // 分类去掉「全部」后，默认选中第一个分类（单分类题库效果与原全部一致）
+            if (catFilter !in cats.map { it.first }) catFilter = cats.firstOrNull()?.first.orEmpty()
         }
-        runCatching { accuracy = (ServiceLocator.repo.accuracy() * 100).toInt() }
-        runCatching { wrongCount = ServiceLocator.repo.wrongCount().first() }
+        runCatching { accuracy = (ServiceLocator.repo.accuracy(settings.currentBank) * 100).toInt() }
+        runCatching { wrongCount = ServiceLocator.repo.wrongCount(settings.currentBank) }
         runCatching {
             val days = ServiceLocator.repo.last7Days()
             todayAnswered = days.lastOrNull()?.answered ?: 0
@@ -154,45 +162,15 @@ fun PracticeConfigScreen(
                 .padding(horizontal = 20.dp)
         ) {
 
-            // ---- 题型范围 ----
+            // ---- 题型范围（自适应：只列出当前题库拥有的题型） ----
             SectionLabel("题目范围")
             GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                     Text(
                         when (typeFilter) {
-                            "single" -> "只刷单选题"
-                            "judge" -> "只刷判断题"
-                            else -> "全部题型"
+                            "all" -> "全部题型"
+                            else -> "只刷${QuestionTypes.label(typeFilter)}题"
                         },
-                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
-                    )
-                    SegmentedRow(
-                        options = listOf("全部", "单选", "判断"),
-                        selectedIndex = when (typeFilter) {
-                            "single" -> 1
-                            "judge" -> 2
-                            else -> 0
-                        },
-                        onSelect = {
-                            typeFilter = when (it) {
-                                1 -> "single"
-                                2 -> "judge"
-                                else -> "all"
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp)
-                    )
-                }
-            }
-
-            // ---- 分类 ----
-            SectionLabel("分类", Modifier.padding(top = 14.dp))
-            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                    Text(
-                        if (catFilter == "all") "全部分类" else catFilter,
                         color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
                     )
                     Row(
@@ -202,11 +180,36 @@ fun PracticeConfigScreen(
                             .padding(top = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        ConfigChip("全部", catFilter == "all") { catFilter = "all" }
-                        categories.forEach { (cat, _) ->
-                            ConfigChip(cat, catFilter == cat) {
-                                catFilter = if (catFilter == cat) "all" else cat
+                        ConfigChip("全部", typeFilter == "all") { typeFilter = "all" }
+                        types.forEach { t ->
+                            ConfigChip(
+                                QuestionTypes.label(t),
+                                typeFilter == t
+                            ) {
+                                typeFilter = if (typeFilter == t) "all" else t
                             }
+                        }
+                    }
+                }
+            }
+
+            // ---- 分类（v2.8.0：去掉「全部」，只保留当前题库的真实分类） ----
+            SectionLabel("分类", Modifier.padding(top = 14.dp))
+            GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                    Text(
+                        catFilter.ifBlank { "加载中…" },
+                        color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categories.forEach { (cat, _) ->
+                            ConfigChip(cat, catFilter == cat) { catFilter = cat }
                         }
                     }
                 }
@@ -233,7 +236,7 @@ fun PracticeConfigScreen(
 
             // ---- 开始刷题 ----
             GlassButton(
-                onClick = { onStart("all", typeFilter, catFilter, false) },
+                onClick = { if (catFilter.isNotBlank()) onStart("all", typeFilter, catFilter, false) },
                 backdrop = backdrop,
                 surfaceColor = ui.ink,
                 heightDp = 54.dp,

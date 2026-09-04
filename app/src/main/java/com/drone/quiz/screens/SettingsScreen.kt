@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,12 +81,22 @@ fun SettingsScreen(backdrop: Backdrop) {
     val context = LocalContext.current
     val settings by ServiceLocator.settings.settings.collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
 
-    var bankInfo by remember { mutableStateOf("加载中…") }
+    var bankInfo by remember { mutableStateOf("暂无题库，点下方「导入题库」") }
     var nameDraft by remember(settings.nickname) { mutableStateOf(settings.nickname) }
     val nameDirty = nameDraft.trim() != settings.nickname
     var importMsg by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    // ---- 题库管理（v2.8.0） ----
+    var banksState by remember { mutableStateOf<List<Pair<com.drone.quiz.data.db.BankEntity, Int>>>(emptyList()) }
+    var banksRefreshTick by remember { mutableIntStateOf(0) }
+    var showImportSheet by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<com.drone.quiz.data.db.BankEntity?>(null) }
+
+    LaunchedEffect(banksRefreshTick, settings.currentBank) {
+        runCatching { banksState = ServiceLocator.repo.bankListWithCounts() }
+    }
 
     // 通知权限：Android 13+ 系统弹窗请求；拒绝则静默不置位，不再展示说教文案
     val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -106,14 +117,6 @@ fun SettingsScreen(backdrop: Backdrop) {
             ReminderScheduler.ensureChannel(context)
             ReminderScheduler.schedule(context)
         }
-    }
-
-    LaunchedEffect(Unit) {
-        runCatching {
-            val cats = ServiceLocator.repo.categories()
-            val total = cats.sumOf { it.cnt }
-            bankInfo = "共 $total 题 · ${cats.size} 个分类"
-        }.onFailure { bankInfo = "题库为空，请导入" }
     }
 
     // 壁纸选择器：导入后复制到私有目录（重启/源文件删除后仍可用）。
@@ -154,29 +157,6 @@ fun SettingsScreen(backdrop: Backdrop) {
                 ServiceLocator.settings.setWallpaper(dst.absolutePath)
                 if (old.startsWith(context.filesDir.absolutePath) && old != dst.absolutePath) {
                     java.io.File(old).delete()
-                }
-            }
-        }
-    }
-
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(uri)?.use {
-                        it.readBytes()
-                    } ?: error("无法读取文件")
-                    ServiceLocator.repo.importBank(bytes)
-                }.onSuccess { r ->
-                    importMsg = "导入成功：${r.count} 题 / ${r.categories.size} 个分类"
-                }.onFailure { e ->
-                    importMsg = "导入失败：${e.message ?: "文件格式不正确"}"
-                }
-                runCatching {
-                    val cats = ServiceLocator.repo.categories()
-                    bankInfo = "共 ${cats.sumOf { it.cnt }} 题 · ${cats.size} 个分类"
                 }
             }
         }
@@ -654,46 +634,87 @@ fun SettingsScreen(backdrop: Backdrop) {
             }
         }
 
-        // ---- 数据 ----
-        SectionLabel("数据", Modifier.padding(top = 16.dp))
+        // ---- 题库管理（v2.8.0 多题库） ----
+        SectionLabel("题库管理", Modifier.padding(top = 16.dp))
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(AppIcons.Import, null, tint = ui.textSub, modifier = Modifier.size(18.dp))
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .padding(horizontal = 10.dp)
+                banksState.forEachIndexed { idx, (bank, cnt) ->
+                    val isCurrent = bank.id == settings.currentBank
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (idx > 0) Modifier.padding(top = 8.dp) else Modifier)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isCurrent) ui.ink.copy(alpha = 0.06f) else Color.Transparent)
+                            .clickable(
+                                interactionSource = null,
+                                indication = null
+                            ) {
+                                if (!isCurrent) {
+                                    scope.launch {
+                                        runCatching { ServiceLocator.settings.setCurrentBank(bank.id) }
+                                        importMsg = "已切换到「${bank.name}」"
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
-                        Text("题库", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text(bankInfo, color = ui.textSub, fontSize = 12.sp)
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    bank.name,
+                                    color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                                )
+                                if (isCurrent) {
+                                    Text(
+                                        "  当前使用",
+                                        color = ui.correct, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Text(
+                                "$cnt 题 · " + if (bank.source == "imported") "导入" else "内置",
+                                color = ui.textSub, fontSize = 11.sp
+                            )
+                        }
+                        Icon(
+                            AppIcons.Trash, null,
+                            tint = ui.textSub,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable(
+                                    interactionSource = null,
+                                    indication = null
+                                ) { deleteTarget = bank }
+                        )
                     }
                 }
+                if (banksState.isEmpty()) {
+                    Text(
+                        bankInfo,
+                        color = ui.textSub, fontSize = 12.sp
+                    )
+                }
+                Text(
+                    "点题库名切换；删除内置题库后，可通过「清空记录」重新恢复。",
+                    color = ui.textSub, fontSize = 11.sp, lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
                 importMsg?.let {
                     Text(
                         it,
-                        color = if (it.startsWith("导入成功")) ui.correct else ui.wrong,
+                        color = if (it.startsWith("导入成功") || it.startsWith("已切换") || it.startsWith("记录已清空") || it.startsWith("已删除")) ui.correct else ui.wrong,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 6.dp)
                     )
                 }
-                Text(
-                    "支持 JSON 格式：{\"questions\":[{\"category\":\"…\",\"type\":\"single|judge\"," +
-                        "\"question\":\"…\",\"options\":[…],\"answer\":0,\"explanation\":\"…\"}]}，" +
-                        "判断题无需 options。",
-                    color = ui.textSub,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
                 Row(
                     Modifier.padding(top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     GlassButton(
-                        onClick = {
-                            importLauncher.launch(arrayOf("application/json", "text/plain"))
-                        },
+                        onClick = { showImportSheet = true },
                         backdrop = backdrop,
                         surfaceColor = ui.ink,
                         heightDp = 44.dp
@@ -717,17 +738,39 @@ fun SettingsScreen(backdrop: Backdrop) {
         // ---- 关于 ----
         SectionLabel("关于", Modifier.padding(top = 16.dp))
         GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(AppIcons.Bell, null, tint = ui.accent, modifier = Modifier.size(18.dp))
-                Column(
+            Column(Modifier.padding(18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(AppIcons.Bell, null, tint = ui.accent, modifier = Modifier.size(18.dp))
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp)
+                    ) {
+                        Text("题屿 v${BuildConfig.VERSION_NAME}", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "液态玻璃 by Kyant0 backdrop · 离线本地题库",
+                            color = ui.textSub, fontSize = 11.sp
+                        )
+                    }
+                }
+                // 支持作者手动入口（v2.8.0）：复用打赏弹窗，手动打开不占用自动触达机会
+                Box(
                     Modifier
-                        .weight(1f)
-                        .padding(horizontal = 10.dp)
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(ui.accent.copy(alpha = 0.10f))
+                        .border(1.dp, ui.accent.copy(alpha = 0.35f), RoundedCornerShape(50))
+                        .clickable(
+                            interactionSource = null,
+                            indication = null
+                        ) { com.drone.quiz.ui.nav.SupportBus.manualOpen = true }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("题屿 v${BuildConfig.VERSION_NAME}", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "液态玻璃 by Kyant0 backdrop · 离线本地题库",
-                        color = ui.textSub, fontSize = 11.sp
+                        "☕ 请作者喝杯奶茶",
+                        color = ui.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -743,21 +786,86 @@ fun SettingsScreen(backdrop: Backdrop) {
         GlassConfirmDialog(
             backdrop = backdrop,
             title = "清空做题记录？",
-            body = "将清空刷题记录、统计、打卡、错题本与最近模考（含未完成的考试），题库保留。此操作不可撤销。",
+            body = "将清空刷题记录、统计、打卡、错题本与最近模考（含未完成的考试）；已删除的内置题库也会重新恢复。此操作不可撤销。",
             confirmText = "清空",
             dismissText = "取消",
             confirmColor = ui.wrong,
             onConfirm = {
                 showClearConfirm = false
                 scope.launch {
-                    ServiceLocator.repo.clearAllRecords()
-                    // 刷题进度快照（顺序+随机双槽）同属做题记录，一并清掉
-                    runCatching { ServiceLocator.settings.setPracticeSession(null, 0) }
-                    runCatching { ServiceLocator.settings.setPracticeSession(null, 1) }
-                    importMsg = "记录已清空"
+                    runCatching {
+                        ServiceLocator.repo.clearAllRecords()
+                        // 墓碑清零 + 版本归零 → 内置题库（无人机 + 示例）立即重新播种
+                        ServiceLocator.settings.clearDeletedBanks()
+                        ServiceLocator.settings.setBankVersion(0)
+                        val v = ServiceLocator.repo.ensureBankLoaded(context, 0)
+                        if (v > 0) ServiceLocator.settings.setBankVersion(v)
+                        ServiceLocator.repo.ensureSampleLoaded(context, emptyList())
+                        ServiceLocator.settings.setCurrentBank(com.drone.quiz.data.repo.Repo.BANK_DRONE)
+                        // 刷题进度快照（顺序+随机双槽）一并清掉
+                        ServiceLocator.settings.setPracticeSession(null, 0)
+                        ServiceLocator.settings.setPracticeSession(null, 1)
+                    }
+                    banksRefreshTick++
+                    importMsg = "记录已清空，内置题库已恢复"
                 }
             },
             onDismiss = { showClearConfirm = false }
         )
     }
+
+    // 删除题库确认
+    deleteTarget?.let { target ->
+        GlassConfirmDialog(
+            backdrop = backdrop,
+            title = "删除题库「${target.name}」？",
+            body = buildString {
+                append("将删除该题库的全部题目与相关学习记录，不可恢复。")
+                if (target.source != "imported") {
+                    append("内置题库删除后，可通过「清空记录」恢复。")
+                }
+                if (target.id == settings.currentBank) {
+                    append("它是当前使用的题库，删除后将自动切换到其他题库。")
+                }
+            },
+            confirmText = "删除",
+            dismissText = "取消",
+            confirmColor = ui.wrong,
+            onConfirm = {
+                deleteTarget = null
+                scope.launch {
+                    runCatching {
+                        val wasCurrent = target.id == settings.currentBank
+                        ServiceLocator.repo.deleteBankData(target.id)
+                        if (target.source != "imported") {
+                            ServiceLocator.settings.addDeletedBank(target.id)
+                        }
+                        if (wasCurrent) {
+                            val rest = ServiceLocator.repo.bankListWithCounts()
+                            ServiceLocator.settings.setCurrentBank(
+                                rest.firstOrNull()?.first?.id ?: com.drone.quiz.data.repo.Repo.BANK_DRONE
+                            )
+                        }
+                    }
+                    banksRefreshTick++
+                    importMsg = "已删除「${target.name}」"
+                }
+            },
+            onDismiss = { deleteTarget = null }
+        )
+    }
+
+    BankImportSheet(
+        visible = showImportSheet,
+        backdrop = backdrop,
+        onDismiss = { showImportSheet = false },
+        onImported = { bankId, name, cnt ->
+            showImportSheet = false
+            scope.launch {
+                runCatching { ServiceLocator.settings.setCurrentBank(bankId) }
+                banksRefreshTick++
+                importMsg = "导入成功：$name（$cnt 题），已切换为新题库"
+            }
+        }
+    )
 }

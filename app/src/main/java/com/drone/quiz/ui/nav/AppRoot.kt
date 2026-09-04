@@ -331,9 +331,11 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                 composable(Routes.WRONG) {
                     WrongBookScreen(
                         backdrop = bgBackdrop,
-                        onPractice = {
+                        // 特训按当前筛选刷（v2.8.0 修复：此前无论筛选什么都刷全部错题）
+                        onPractice = { type, cat ->
+                            val catEnc = android.net.Uri.encode(cat)
                             navController.navigate(
-                                "practiceRun?src=wrong&type=all&cat=all&resume=false"
+                                "practiceRun?src=wrong&type=$type&cat=$catEnc&resume=false"
                             ) { launchSingleTop = true }
                         }
                     )
@@ -418,9 +420,15 @@ private fun PortalHost() {
 
 private const val SUPPORT_USAGE_THRESHOLD_MS = 2 * 60 * 60 * 1000L
 
+/** 手动打开打赏弹窗的全局开关（设置页「请作者喝杯奶茶」入口用，v2.8.0）。 */
+object SupportBus {
+    var manualOpen by mutableStateOf(false)
+}
+
 /**
  * 触发宿主：累计使用超 2h 且未弹过、未拒绝 → 弹一次。
  * 用户正在考试（examRun 路由）时不弹——面板收起且不标记"已弹"，出考试后本 effect 自动拉起。
+ * 手动打开（SupportBus）不受 2h/考试路由限制，且关闭不标记"已弹"。
  */
 @Composable
 private fun SupportPromptHost(
@@ -430,6 +438,18 @@ private fun SupportPromptHost(
 ) {
     val scope = rememberCoroutineScope()
     var show by remember { mutableStateOf(false) }
+    var manual by remember { mutableStateOf(false) }
+
+    // 手动入口：设置页点击立即拉起（考试中也不打断——考试页无此入口，仅作防御）
+    LaunchedEffect(SupportBus.manualOpen) {
+        if (SupportBus.manualOpen) {
+            SupportBus.manualOpen = false
+            if (currentRoute?.startsWith("examRun") != true) {
+                manual = true
+                show = true
+            }
+        }
+    }
 
     LaunchedEffect(settings.usageMs, settings.supportPrompted, settings.supportRefused, currentRoute) {
         val inExam = currentRoute?.startsWith("examRun") == true
@@ -439,16 +459,21 @@ private fun SupportPromptHost(
         }
         val eligible = settings.usageMs >= SUPPORT_USAGE_THRESHOLD_MS &&
             !settings.supportPrompted && !settings.supportRefused
-        if (eligible) show = true
+        if (eligible) {
+            manual = false
+            show = true
+        }
     }
 
     GlassBottomSheet(
         visible = show,
         backdrop = backdrop,
         onDismiss = {
-            // 外部点击/返回关闭视为"已弹过"：不再自动打扰
             show = false
-            scope.launch { runCatching { ServiceLocator.settings.setSupportPrompted() } }
+            // 自动触发的关闭视为"已弹过"；手动打开不标记，保留自动触达机会
+            if (!manual) {
+                scope.launch { runCatching { ServiceLocator.settings.setSupportPrompted() } }
+            }
         }
     ) {
         SupportSheetContent(
@@ -459,7 +484,9 @@ private fun SupportPromptHost(
             },
             onClose = {
                 show = false
-                scope.launch { runCatching { ServiceLocator.settings.setSupportPrompted() } }
+                if (!manual) {
+                    scope.launch { runCatching { ServiceLocator.settings.setSupportPrompted() } }
+                }
             }
         )
     }

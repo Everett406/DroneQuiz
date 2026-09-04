@@ -6,15 +6,19 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,6 +46,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -49,15 +54,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Question
+import com.drone.quiz.data.repo.QuestionTypes
 import com.drone.quiz.data.repo.Repo
+import com.drone.quiz.data.repo.UserAnswer
+import com.drone.quiz.data.repo.judgeAnswer
+import com.drone.quiz.data.repo.isAnswered
+import com.drone.quiz.data.repo.optionLabel
+import com.drone.quiz.screens.common.BlankAnswerFields
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
+import com.drone.quiz.screens.common.SubmitAnswerButton
+import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.WrongAnswerBlock
 import com.drone.quiz.screens.common.remainingBottomPx
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
@@ -69,6 +85,7 @@ import com.drone.quiz.ui.glass.GlassIconButton
 import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.GlassConfirmDialog
+import com.drone.quiz.ui.glass.GlassToggle
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.theme.LocalUi
@@ -77,10 +94,14 @@ import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
+
+private val examJson = Json { ignoreUnknownKeys = true }
 
 /** 模考会话内存持有者（本地单用户，接受进程被杀后模考丢失）。 */
 object ExamSessionHolder {
@@ -109,7 +130,53 @@ fun ExamConfigScreen(
     var durationMin by remember { mutableIntStateOf(60) }
     var starting by remember { mutableStateOf(false) }
 
-    val recentExams by ServiceLocator.repo.recentExams().collectAsState(initial = emptyList())
+    // v2.8.0 题库自适应
+    var bankTypes by remember { mutableStateOf<List<String>>(emptyList()) }
+    var bankTypeCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var typeCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var showAdvanced by remember { mutableStateOf(false) }
+    var includeShort by remember { mutableStateOf(settings.examIncludeShort) }
+    var typeOrder by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    val recentExams by remember(settings.currentBank) {
+        ServiceLocator.repo.recentExams(settings.currentBank)
+    }.collectAsState(initial = emptyList())
+
+    LaunchedEffect(settings.currentBank) {
+        runCatching {
+            val bank = settings.currentBank
+            val types = ServiceLocator.repo.typesInBank(bank)
+            bankTypes = types
+            bankTypeCounts = ServiceLocator.repo.bankTypeCounts(bank)
+            typeOrder = settings.examTypeOrder.ifEmpty { QuestionTypes.canonicalOrder }
+            includeShort = settings.examIncludeShort
+            // 多题型题库：初始化每型默认题数（ clamp 到题库实际拥有量）
+            if (types.size > 2 || types.any { it != "single" && it != "judge" }) {
+                typeCounts = buildMap {
+                    put("single", minOf(30, bankTypeCounts["single"] ?: 0))
+                    if ("multi" in types) put("multi", minOf(5, bankTypeCounts["multi"] ?: 0))
+                    if ("blank" in types) put("blank", minOf(5, bankTypeCounts["blank"] ?: 0))
+                    if ("judge" in types) put("judge", minOf(15, bankTypeCounts["judge"] ?: 0))
+                }
+            }
+        }
+    }
+
+    // 组卷题数（自适应两种模式）：
+    // - 只有单选/判断的题库（内置无人机题库）：沿用「题目数量 + 判断占比」滑杆
+    // - 含新题型的题库：每型题数步进器
+    val classicMode = bankTypes.isNotEmpty() && bankTypes.all { it == "single" || it == "judge" }
+    val activeTypes = typeOrder
+        .ifEmpty { QuestionTypes.canonicalOrder }
+        .filter { it in bankTypes && (it != "short" || includeShort) }
+    val plannedCounts: Map<String, Int> = if (classicMode) {
+        val judgeAvail = bankTypeCounts["judge"] ?: 0
+        val wantJudge = if (judgeAvail == 0) 0 else (count * judgeRatio).toInt().coerceAtMost(judgeAvail)
+        mapOf("single" to (count - wantJudge).coerceAtLeast(0), "judge" to wantJudge)
+    } else {
+        typeCounts.filterKeys { it in activeTypes }.filterValues { it > 0 }
+    }
+    val plannedTotal = plannedCounts.values.sum()
 
     Column(
         Modifier
@@ -121,7 +188,6 @@ fun ExamConfigScreen(
             ScreenTitle("模考", "模拟真实考试 · 倒计时自动交卷", Modifier.padding(vertical = 16.dp))
         }
 
-        // 标题柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影，滑出渐显跟手）
         val scrollState = rememberScrollState()
         BounceContainer(
             Modifier
@@ -135,91 +201,224 @@ fun ExamConfigScreen(
                 .padding(horizontal = 20.dp)
         ) {
 
-            // ---- 考试设置：2×2 紧凑网格 ----
-            // 此前四张大卡各占一大截，题目数量/判断占比/时长/及格分挤满整屏，
-            // 孰轻孰重失衡；压缩为两行小卡后，开始考试与最近模考首屏可达。
-            SectionLabel("考试设置")
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ExamSettingCell(
-                    backdrop = backdrop,
-                    label = "题目数量",
-                    value = "$count 题",
-                    modifier = Modifier.weight(1f)
+            if (classicMode) {
+                // ---- 考试设置：2×2 紧凑网格（单选+判断题库） ----
+                SectionLabel("考试设置")
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    GlassSlider(
-                        value = { count.toFloat() },
-                        onValueChange = { count = it.roundToInt() },
-                        valueRange = 10f..100f,
-                        step = 5f,
-                        backdrop = backdrop
-                    )
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "题目数量",
+                        value = "$count 题",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { count.toFloat() },
+                            onValueChange = { count = it.roundToInt() },
+                            valueRange = 10f..100f,
+                            step = 5f,
+                            backdrop = backdrop
+                        )
+                    }
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "考试时长",
+                        value = "$durationMin 分钟",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { durationMin.toFloat() },
+                            onValueChange = { durationMin = it.roundToInt() },
+                            valueRange = 15f..120f,
+                            step = 5f,
+                            backdrop = backdrop
+                        )
+                    }
                 }
-                ExamSettingCell(
-                    backdrop = backdrop,
-                    label = "考试时长",
-                    value = "$durationMin 分钟",
-                    modifier = Modifier.weight(1f)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    GlassSlider(
-                        value = { durationMin.toFloat() },
-                        onValueChange = { durationMin = it.roundToInt() },
-                        valueRange = 15f..120f,
-                        step = 5f,
-                        backdrop = backdrop
-                    )
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "判断题占比",
+                        value = "${(judgeRatio * 100).toInt()}%",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { judgeRatio },
+                            onValueChange = { judgeRatio = it },
+                            valueRange = 0f..0.6f,
+                            step = 0.1f,
+                            backdrop = backdrop
+                        )
+                    }
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "及格分",
+                        value = "${settings.passScore} 分",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { settings.passScore.toFloat() },
+                            onValueChange = { v ->
+                                scope.launch { ServiceLocator.settings.setPassScore(v.roundToInt()) }
+                            },
+                            valueRange = 50f..95f,
+                            step = 5f,
+                            backdrop = backdrop
+                        )
+                    }
+                }
+            } else {
+                // ---- 含新题型题库：时长 / 及格分 + 每型题数步进 ----
+                SectionLabel("考试设置")
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "考试时长",
+                        value = "$durationMin 分钟",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { durationMin.toFloat() },
+                            onValueChange = { durationMin = it.roundToInt() },
+                            valueRange = 15f..120f,
+                            step = 5f,
+                            backdrop = backdrop
+                        )
+                    }
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "及格分",
+                        value = "${settings.passScore} 分",
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        GlassSlider(
+                            value = { settings.passScore.toFloat() },
+                            onValueChange = { v ->
+                                scope.launch { ServiceLocator.settings.setPassScore(v.roundToInt()) }
+                            },
+                            valueRange = 50f..95f,
+                            step = 5f,
+                            backdrop = backdrop
+                        )
+                    }
+                }
+
+                SectionLabel("题型构成", Modifier.padding(top = 14.dp))
+                GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                        bankTypes.filter { it != "short" || includeShort }.forEach { t ->
+                            val avail = bankTypeCounts[t] ?: 0
+                            TypeStepperRow(
+                                label = QuestionTypes.label(t),
+                                count = typeCounts[t] ?: 0,
+                                available = avail,
+                                onMinus = {
+                                    typeCounts = typeCounts.toMutableMap().apply {
+                                        put(t, ((this[t] ?: 0) - 1).coerceIn(0, avail))
+                                    }
+                                },
+                                onPlus = {
+                                    typeCounts = typeCounts.toMutableMap().apply {
+                                        put(t, ((this[t] ?: 0) + 1).coerceIn(0, avail))
+                                    }
+                                }
+                            )
+                        }
+                        Text(
+                            "共 $plannedTotal 题 · 各题型题数不超过题库实际拥有量",
+                            color = ui.textSub, fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                 }
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ExamSettingCell(
+
+            // ---- 高级选项（默认折叠）：含简答题 + 题型顺序拖拽 ----
+            if (bankTypes.size > 1) {
+                GlassCard(
                     backdrop = backdrop,
-                    label = "判断题占比",
-                    value = "${(judgeRatio * 100).toInt()}%",
-                    modifier = Modifier.weight(1f)
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    cornerRadius = 22.dp,
+                    onClick = { showAdvanced = !showAdvanced }
                 ) {
-                    GlassSlider(
-                        value = { judgeRatio },
-                        onValueChange = { judgeRatio = it },
-                        valueRange = 0f..0.6f,
-                        step = 0.1f,
-                        backdrop = backdrop
-                    )
-                }
-                ExamSettingCell(
-                    backdrop = backdrop,
-                    label = "及格分",
-                    value = "${settings.passScore} 分",
-                    modifier = Modifier.weight(1f)
-                ) {
-                    GlassSlider(
-                        value = { settings.passScore.toFloat() },
-                        onValueChange = { v ->
-                            scope.launch { ServiceLocator.settings.setPassScore(v.roundToInt()) }
-                        },
-                        valueRange = 50f..95f,
-                        step = 5f,
-                        backdrop = backdrop
-                    )
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "高级选项",
+                                color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                if (showAdvanced) AppIcons.Close else AppIcons.ChevronRight,
+                                null, tint = ui.textSub, modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        if (showAdvanced) {
+                            if ("short" in bankTypes) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("含简答题", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        Text(
+                                            "简答题提交后对照参考答案自评计分",
+                                            color = ui.textSub, fontSize = 11.sp,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        )
+                                    }
+                                    GlassToggle(
+                                        checked = { includeShort },
+                                        onCheckedChange = { v ->
+                                            includeShort = v
+                                            scope.launch { ServiceLocator.settings.setExamIncludeShort(v) }
+                                        },
+                                        backdrop = backdrop
+                                    )
+                                }
+                            }
+                            Text(
+                                "题型顺序 · 长按拖动调整（先做哪种题型）",
+                                color = ui.textSub, fontSize = 11.sp,
+                                modifier = Modifier.padding(top = 14.dp)
+                            )
+                            ReorderableTypeList(
+                                order = activeTypes.ifEmpty { bankTypes.filter { it != "short" || includeShort } },
+                                onReorder = { newOrder ->
+                                    typeOrder = newOrder
+                                    scope.launch { ServiceLocator.settings.setExamTypeOrder(newOrder) }
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
             GlassButton(
                 onClick = {
-                    if (!starting) {
+                    if (!starting && plannedTotal > 0) {
                         starting = true
                         scope.launch {
+                            val st = ServiceLocator.settings.settings.first()
                             val (id, qs) = ServiceLocator.repo.startExam(
-                                total = count,
-                                judgeRatio = judgeRatio,
+                                bankId = st.currentBank,
+                                counts = plannedCounts,
                                 durationSec = durationMin * 60,
-                                random = true
+                                typeOrder = typeOrder.ifEmpty { QuestionTypes.canonicalOrder }
                             )
                             ExamSessionHolder.examId = id
                             ExamSessionHolder.questions = qs
@@ -238,7 +437,11 @@ fun ExamConfigScreen(
             ) {
                 Icon(AppIcons.Play, null, tint = ui.onInk, modifier = Modifier.size(18.dp))
                 Text(
-                    if (starting) "正在组卷…" else "开始考试",
+                    when {
+                        starting -> "正在组卷…"
+                        plannedTotal <= 0 -> "请先设置题型题数"
+                        else -> "开始考试 · 共 $plannedTotal 题"
+                    },
                     color = ui.onInk,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -279,7 +482,7 @@ fun ExamConfigScreen(
                                     color = ui.text, fontSize = 13.sp, fontWeight = FontWeight.Medium
                                 )
                                 Text(
-                                    "${exam.total} 题 · ${exam.singleCount} 单选 ${exam.judgeCount} 判断",
+                                    "${exam.total} 题 · ${examTypeSummary(exam)}",
                                     color = ui.textSub, fontSize = 11.sp
                                 )
                             }
@@ -289,7 +492,7 @@ fun ExamConfigScreen(
                                     color = ui.textSub, fontSize = 12.sp
                                 )
                                 Spacer(Modifier.width(6.dp))
-                                // 删除未完成的幽灵记录（点击不可进/无法清理的问题修复）
+                                // 删除未完成的幽灵记录
                                 GlassIconButton(
                                     onClick = {
                                         scope.launch {
@@ -327,27 +530,127 @@ fun ExamConfigScreen(
     }
 }
 
+/** 模考记录副标题：按题型拼装（兼容旧记录：无 extraCounts 时只有单选/判断）。 */
+private fun examTypeSummary(rec: com.drone.quiz.data.db.ExamRecordEntity): String {
+    val extras = rec.extraCounts.takeIf { it.isNotBlank() }?.let { raw ->
+        runCatching { examJson.decodeFromString<Map<String, Int>>(raw) }.getOrNull()
+    } ?: emptyMap()
+    val parts = mutableListOf<String>()
+    if (rec.singleCount > 0) parts += "${rec.singleCount} 单选"
+    extras["multi"]?.takeIf { it > 0 }?.let { parts += "$it 多选" }
+    extras["blank"]?.takeIf { it > 0 }?.let { parts += "$it 填空" }
+    if (rec.judgeCount > 0) parts += "${rec.judgeCount} 判断"
+    extras["short"]?.takeIf { it > 0 }?.let { parts += "$it 简答" }
+    return parts.joinToString(" ").ifBlank { "${rec.total} 题" }
+}
+
+/** 每型题数步进行。 */
+@Composable
+private fun TypeStepperRow(label: String, count: Int, available: Int, onMinus: () -> Unit, onPlus: () -> Unit) {
+    val ui = LocalUi.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text("  可用 $available", color = ui.textSub, fontSize = 11.sp)
+        Spacer(Modifier.weight(1f))
+        StepperDot(if (count > 0) "−" else "−", enabled = count > 0, onClick = onMinus)
+        Text(
+            "$count",
+            color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 14.dp)
+        )
+        StepperDot("+", enabled = count < available, onClick = onPlus)
+    }
+}
+
+@Composable
+private fun StepperDot(symbol: String, enabled: Boolean, onClick: () -> Unit) {
+    val ui = LocalUi.current
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(if (enabled) ui.ink.copy(alpha = 0.08f) else ui.ink.copy(alpha = 0.03f))
+            .then(if (enabled) Modifier.clickable(interactionSource = null, indication = null, onClick = onClick) else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            symbol,
+            color = if (enabled) ui.text else ui.textSub.copy(alpha = 0.5f),
+            fontSize = 16.sp, fontWeight = FontWeight.Bold
+        )
+    }
+}
+
 /**
- * 模考设置小卡（2×2 网格单元）：标签 + 当前值 + 迷你滑杆，替代旧全宽大卡。
+ * 题型顺序拖拽列表（长按拖动上下换位）。
+ * 实现要点：pointerInput 只注册一次（key 固定），通过 rememberUpdatedState 读最新列表，
+ * 避免"拖动中途手势检测器重建"导致的手势丢失。
  */
 @Composable
-private fun ExamSettingCell(
-    backdrop: Backdrop,
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    slider: @Composable () -> Unit
-) {
+private fun ReorderableTypeList(order: List<String>, onReorder: (List<String>) -> Unit) {
     val ui = LocalUi.current
-    GlassCard(backdrop = backdrop, modifier = modifier, cornerRadius = 20.dp) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Text(label, color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Text(
-                value,
-                color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-            Box(Modifier.padding(top = 6.dp)) { slider() }
+    val rowH = 46.dp
+    val latestOrder by rememberUpdatedState(order)
+    var dragging by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableStateOf(0f) }
+
+    Column(Modifier.padding(top = 6.dp)) {
+        order.forEachIndexed { index, t ->
+            val isDragging = dragging == index
+            Row(
+                Modifier
+                    .height(rowH)
+                    .zIndex(if (isDragging) 1f else 0f)
+                    .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isDragging) ui.ink.copy(alpha = 0.08f) else Color.Transparent)
+                    .pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { dragging = index; dragOffset = 0f },
+                            onDragEnd = { dragging = null; dragOffset = 0f },
+                            onDragCancel = { dragging = null; dragOffset = 0f },
+                            onDrag = { change, dy ->
+                                change.consume()
+                                dragOffset += dy
+                                val cur = latestOrder
+                                if (cur.isEmpty()) return@detectDragGesturesAfterLongPress
+                                val rowPx = rowH.toPx()
+                                var guard = 0
+                                while (abs(dragOffset) > rowPx && guard++ < 10) {
+                                    val from = dragging ?: break
+                                    val dir = if (dragOffset > 0) 1 else -1
+                                    val to = from + dir
+                                    if (to !in cur.indices) break
+                                    val newList = cur.toMutableList().apply {
+                                        val item = removeAt(from); add(to, item)
+                                    }
+                                    onReorder(newList)
+                                    dragging = to
+                                    dragOffset -= dir * rowPx
+                                }
+                            }
+                        )
+                    }
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("≡", color = ui.textSub, fontSize = 16.sp)
+                Text(
+                    QuestionTypes.label(t),
+                    color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(start = 12.dp)
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "第 ${index + 1} 位",
+                    color = ui.textSub, fontSize = 11.sp
+                )
+            }
         }
     }
 }
@@ -380,7 +683,9 @@ fun ExamScreen(
     var showQuit by remember { mutableStateOf(false) }
     var showPanel by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
+    // 统一作答状态（picked 规范值 + details 完整 UserAnswer）
     val answers = remember { mutableStateMapOf<Long, Int>() }
+    val details = remember { mutableStateMapOf<Long, UserAnswer>() }
     val pagerState = rememberPagerState { total }
 
     LaunchedEffect(examId) {
@@ -390,17 +695,21 @@ fun ExamScreen(
             // 从 DB 重建：题目 + 已答 + 剩余时间（durationSec - 已耗时）
             val resumed = runCatching { ServiceLocator.repo.resumeExam(examId) }.getOrNull()
             if (resumed != null) {
-                val (exam, qs, picked) = resumed
+                val (exam, qs, uas) = resumed
                 ExamSessionHolder.examId = examId
                 ExamSessionHolder.questions = qs
                 ExamSessionHolder.durationSec = exam.durationSec
                 ExamSessionHolder.outcome = null
                 questions = qs
-                picked.forEach { (k, v) -> answers[k] = v }
+                uas.forEach { (k, v) ->
+                    details[k] = v
+                    answers[k] = v.picked
+                        ?: if (v.texts.isNotEmpty() || v.text.isNotBlank()) 1 else 0
+                }
                 val elapsed = ((System.currentTimeMillis() - exam.startedAt) / 1000).toInt()
                 remaining = (exam.durationSec - elapsed).coerceAtLeast(1)
             } else {
-                remaining = 0 // 无法恢复：提示用户返回（onExit 会清理残留记录）
+                remaining = 0 // 无法恢复：提示用户返回
             }
         }
     }
@@ -413,7 +722,7 @@ fun ExamScreen(
                 val outcome = ServiceLocator.repo.submitExam(
                     examId = examId,
                     questions = questions,
-                    picked = answers.toMap(),
+                    answers = details.toMap(),
                     durationSec = ExamSessionHolder.durationSec - remaining,
                     passScore = s.passScore,
                     removeThreshold = s.removeThreshold
@@ -458,6 +767,7 @@ fun ExamScreen(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .imePadding()
     ) {
         // 顶部计时条
         Row(
@@ -499,7 +809,6 @@ fun ExamScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f),
-            // 题目卡顶部对齐（此前 Pager 默认垂直居中，短题悬在屏幕中间不易阅读）
             verticalAlignment = Alignment.Top,
             key = { questions[it].id }
         ) { page ->
@@ -507,20 +816,23 @@ fun ExamScreen(
             ExamQuestionCard(
                 q = q,
                 index = page + 1,
-                picked = answers[q.id],
+                ua = details[q.id],
                 backdrop = backdrop,
-                onPick = { i ->
-                    answers[q.id] = i
+                onAnswer = { ua ->
+                    details[q.id] = ua
+                    answers[q.id] = ua.picked
+                        ?: if (ua.texts.isNotEmpty() || ua.text.isNotBlank()) 1 else 0
+                    val correct = judgeAnswer(q, ua) ?: false
                     scope.launch {
-                        ServiceLocator.repo.saveExamAnswer(
-                            examId, q.id, i, i == q.answer
-                        )
+                        runCatching {
+                            ServiceLocator.repo.saveExamAnswer(examId, q.id, ua, correct)
+                        }
                     }
                 }
             )
         }
 
-        // 底部操作条（避开手势指示条；滑块与左右按钮拉开间距防误触）
+        // 底部操作条
         Row(
             Modifier
                 .fillMaxWidth()
@@ -555,7 +867,9 @@ fun ExamScreen(
             GlassIconButton(
                 onClick = {
                     scope.launch {
-                        pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(total - 1))
+                        pagerState.animateScrollToPage(
+                            (pagerState.currentPage + 1).coerceAtMost(total - 1)
+                        )
                     }
                 },
                 backdrop = backdrop,
@@ -566,7 +880,7 @@ fun ExamScreen(
     }
 
     if (showConfirm) {
-        val unanswered = questions.count { answers[it.id] == null }
+        val unanswered = questions.count { !isAnswered(it, details[it.id]) }
         GlassConfirmDialog(
             backdrop = backdrop,
             title = "确认交卷？",
@@ -598,7 +912,7 @@ fun ExamScreen(
         )
     }
 
-    // ---- 答题卡面板（渲染在 AppRoot 顶层传送门：内容层模糊不波及面板自身） ----
+    // ---- 答题卡面板（渲染在 AppRoot 顶层传送门） ----
     GlassBottomSheet(
         visible = showPanel,
         backdrop = backdrop,
@@ -617,8 +931,6 @@ fun ExamScreen(
                     ExamSheetLegend(ui.ink.copy(alpha = 0.25f), "已答")
                     ExamSheetLegend(ui.ink.copy(alpha = 0.08f), "未答")
                 }
-                // 网格柔化：draw 阶段直读滚动像素（Modifier 稳定无伪影）；
-                // 贴顶/贴底的一侧自动无柔化，题号不再被渐变裁切
                 val sheetGridState = rememberLazyGridState()
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(6),
@@ -639,7 +951,7 @@ fun ExamScreen(
                         val q = questions[i]
                         ExamSheetCell(
                             number = i + 1,
-                            answered = answers[q.id] != null,
+                            answered = isAnswered(q, details[q.id]),
                             isCurrent = pagerState.currentPage == i,
                             onClick = {
                                 scope.launch { pagerState.animateScrollToPage(i) }
@@ -717,13 +1029,17 @@ private fun TimerText(remainingSec: Int) {
     )
 }
 
+/**
+ * 模考题目卡：按题型分流。与刷题页不同——考试中不揭示对错，
+ * 选项仅显示已选态；简答题提交后看参考答案并自评（自评结果即该题得分口径）。
+ */
 @Composable
 private fun ExamQuestionCard(
     q: Question,
     index: Int,
-    picked: Int?,
+    ua: UserAnswer?,
     backdrop: Backdrop,
-    onPick: (Int) -> Unit
+    onAnswer: (UserAnswer) -> Unit
 ) {
     val ui = LocalUi.current
     GlassCard(
@@ -740,9 +1056,9 @@ private fun ExamQuestionCard(
                 .padding(20.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                com.drone.quiz.screens.common.TagChip(q.category)
+                TagChip(q.category)
                 Spacer(Modifier.width(6.dp))
-                com.drone.quiz.screens.common.TagChip(if (q.isJudge) "判断" else "单选")
+                com.drone.quiz.screens.common.QuestionTypeTag(q.type)
                 Spacer(Modifier.weight(1f))
                 Text("第 $index 题", color = ui.textSub, fontSize = 11.sp)
             }
@@ -754,52 +1070,58 @@ private fun ExamQuestionCard(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(top = 12.dp)
             )
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                q.optionsOrJudge.forEachIndexed { i, opt ->
-                    val selected = picked == i
-                    Row(
+            when (q.type) {
+                QuestionTypes.MULTI -> ExamMultiSection(q, ua, onAnswer)
+                QuestionTypes.BLANK -> ExamBlankSection(q, ua, onAnswer)
+                QuestionTypes.SHORT -> ExamShortSection(q, ua, backdrop, onAnswer)
+                else -> {
+                    Column(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (selected) ui.ink else ui.ink.copy(alpha = 0.05f))
-                            .clickable(
-                                interactionSource = null,
-                                indication = null
-                            ) { onPick(i) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(top = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Box(
-                            Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (selected) ui.onInk else ui.ink.copy(alpha = 0.08f)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                if (q.isJudge) listOf("√", "×")[i.coerceIn(0, 1)]
-                                else ('A' + i).toString(),
-                                color = if (selected) ui.ink else ui.textSub,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        q.optionsOrJudge.forEachIndexed { i, opt ->
+                            val selected = ua?.picked == i
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (selected) ui.ink else ui.ink.copy(alpha = 0.05f))
+                                    .clickable(
+                                        interactionSource = null,
+                                        indication = null
+                                    ) { onAnswer(UserAnswer(picked = i)) }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (selected) ui.onInk else ui.ink.copy(alpha = 0.08f)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        optionLabel(i, q.isJudge),
+                                        color = if (selected) ui.ink else ui.textSub,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    opt,
+                                    color = if (selected) ui.onInk else ui.text,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 10.dp)
+                                )
+                            }
                         }
-                        Text(
-                            opt,
-                            color = if (selected) ui.onInk else ui.text,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 10.dp)
-                        )
                     }
                 }
             }
@@ -807,8 +1129,127 @@ private fun ExamQuestionCard(
     }
 }
 
+@Composable
+private fun ExamMultiSection(q: Question, ua: UserAnswer?, onAnswer: (UserAnswer) -> Unit) {
+    val ui = LocalUi.current
+    val pickedMask = ua?.picked ?: 0
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("多选题 · 可选多项，交卷时全对才算对", color = ui.textSub, fontSize = 11.sp)
+        q.options.forEachIndexed { i, opt ->
+            val selected = pickedMask and (1 shl i) != 0
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (selected) ui.ink.copy(alpha = 0.10f) else ui.ink.copy(alpha = 0.05f))
+                    .border(
+                        1.dp,
+                        if (selected) ui.ink.copy(alpha = 0.35f) else ui.ink.copy(alpha = 0.08f),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .clickable(
+                        interactionSource = null,
+                        indication = null
+                    ) {
+                        // 点选切换（位掩码），每次变更即落库；交卷时按位掩码全等判分
+                        onAnswer(UserAnswer(picked = pickedMask xor (1 shl i)))
+                    },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) ui.ink else ui.ink.copy(alpha = 0.08f))
+                        .border(1.dp, ui.ink.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        Icon(AppIcons.Check, null, tint = ui.onInk, modifier = Modifier.size(14.dp))
+                    }
+                }
+                Text(
+                    opt,
+                    color = ui.text,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 14.dp, top = 12.dp, bottom = 12.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamBlankSection(q: Question, ua: UserAnswer?, onAnswer: (UserAnswer) -> Unit) {
+    val count = q.blankCount.coerceAtLeast(1)
+    var texts by remember(q.id) { mutableStateOf(ua?.texts?.takeIf { it.isNotEmpty() } ?: List(count) { "" }) }
+    Column(Modifier.padding(top = 14.dp)) {
+        BlankAnswerFields(
+            count = count,
+            values = texts,
+            onValueChange = { i, v ->
+                texts = texts.toMutableList().also { it[i] = v }
+                onAnswer(UserAnswer(picked = 1, texts = texts))
+            },
+            enabled = true
+        )
+        Text(
+            "填空按精确匹配判分（区分空格）",
+            color = LocalUi.current.textSub, fontSize = 11.sp,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun ExamShortSection(
+    q: Question,
+    ua: UserAnswer?,
+    backdrop: Backdrop,
+    onAnswer: (UserAnswer) -> Unit
+) {
+    val submitted = ua != null
+    var draft by remember(q.id, submitted) { mutableStateOf("") }
+    Column(Modifier.padding(top = 14.dp)) {
+        com.drone.quiz.screens.common.ShortDraftField(
+            value = if (submitted) ua!!.text else draft,
+            onValueChange = { draft = it },
+            enabled = !submitted
+        )
+        if (!submitted) {
+            SubmitAnswerButton(
+                enabled = draft.isNotBlank(),
+                hint = "提交，看参考答案",
+                backdrop = backdrop
+            ) {
+                onAnswer(UserAnswer(picked = 1, text = draft, graded = false))
+            }
+        } else {
+            com.drone.quiz.screens.common.ShortReferenceCard(
+                reference = q.answerText,
+                yourText = ua!!.text,
+                graded = ua.graded,
+                selfCorrect = if (ua.graded) ua.picked == 1 else null,
+                onGrade = { correct ->
+                    onAnswer(ua.copy(picked = if (correct) 1 else 0, graded = true))
+                }
+            )
+        }
+    }
+}
+
 // ==================== 结果页 ====================
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExamResultScreen(
     backdrop: Backdrop,
@@ -826,7 +1267,7 @@ fun ExamResultScreen(
         mutableStateOf(ExamSessionHolder.outcome?.takeIf { ExamSessionHolder.examId == examId })
     }
     var loadingDone by remember(examId) { mutableStateOf(outcome != null) }
-    // 错题解析展开态（v2.7.4 重构时漏声明致 CI #40 失败，已补）
+    // 错题解析展开态
     var showWrongList by remember(examId) { mutableStateOf(false) }
 
     // 删除本次记录（右上角三点入口；每周限 2 次，弹窗告知）
@@ -944,36 +1385,35 @@ fun ExamResultScreen(
                     }
                 }
 
-                val wrongSingles = oc.wrongQuestions.count { !it.isJudge }
-                val wrongJudges = oc.wrongQuestions.count { it.isJudge }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp)
-                ) {
+                // 错题分布（按题型自适应，v2.8.0）
+                val wrongByType = oc.wrongQuestions.groupingBy { it.type }.eachCount()
+                if (wrongByType.isNotEmpty()) {
                     GlassCard(
                         backdrop = backdrop,
-                        Modifier.weight(1f),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 14.dp),
                         cornerRadius = 20.dp
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(
-                                "单选错 ${wrongSingles} 题",
-                                color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "判断错 ${wrongJudges} 题",
-                                color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 6.dp)
-                            )
+                        FlowRow(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            QuestionTypes.canonicalOrder.forEach { t ->
+                                wrongByType[t]?.let { n ->
+                                    Text(
+                                        "${QuestionTypes.label(t)}错 $n 题",
+                                        color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                // 错题解析：改为懒加载列表（只组合可见条目）。
-                // 此前 20+ 条解析全部组合在外层滚动 Column 里，配合玻璃卡逐帧采样，
-                // 长列表滑动每帧测量/绘制量巨大导致卡顿；LazyColumn + 固定上限高度后
-                // 滑动只渲染窗口内条目，滚到边界自动衔接外层滚动。
+                // 错题解析：懒加载列表（只组合可见条目）
                 if (oc.wrongQuestions.isNotEmpty()) {
                     GlassCard(
                         backdrop = backdrop,
@@ -1005,10 +1445,10 @@ fun ExamResultScreen(
                                         .fillMaxWidth()
                                         .padding(top = 10.dp)
                                         .heightIn(max = 420.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
                                     items(oc.wrongQuestions, key = { it.id }) { q ->
-                                        WrongParseItem(q)
+                                        WrongAnswerBlock(q, oc.userAnswers[q.id])
                                     }
                                 }
                             }
@@ -1078,38 +1518,5 @@ fun ExamResultScreen(
             onConfirm = { showQuotaExhausted = false },
             onDismiss = { showQuotaExhausted = false }
         )
-    }
-}
-
-/** 错题解析单条（静态内容，LazyColumn item 复用；此前为内联 Column 全量组合）。 */
-@Composable
-private fun WrongParseItem(q: Question) {
-    val ui = LocalUi.current
-    Column(Modifier.fillMaxWidth()) {
-        Text(
-            q.text,
-            color = ui.text,
-            fontSize = 13.sp,
-            lineHeight = 19.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Text(
-            "正确答案：${
-                if (q.isJudge) listOf("正确", "错误")[q.answer.coerceIn(0, 1)]
-                else "${('A' + q.answer)}·${q.options.getOrNull(q.answer) ?: ""}"
-            }",
-            color = ui.correct,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-        if (q.explanation.isNotBlank()) {
-            Text(
-                q.explanation,
-                color = ui.textSub,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
     }
 }

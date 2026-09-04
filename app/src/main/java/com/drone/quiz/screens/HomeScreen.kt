@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.repo.Repo
+import com.drone.quiz.data.db.BankEntity
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
@@ -59,8 +60,24 @@ import com.drone.quiz.ui.glass.BounceLazyColumn
 import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -91,13 +108,15 @@ fun HomeScreen(
     )
 
     var stats by remember { mutableStateOf(HomeStats()) }
-    LaunchedEffect(Unit) {
+    // v2.8.0：统计按当前题库隔离（打卡/近 7 日为全局习惯数据）
+    LaunchedEffect(settings.currentBank) {
+        val bank = settings.currentBank
         combine(
-            ServiceLocator.repo.countFlow(),
-            ServiceLocator.repo.answeredDistinctFlow(),
+            ServiceLocator.repo.countByBankFlow(bank),
+            ServiceLocator.repo.answeredDistinctFlow(bank),
             ServiceLocator.repo.totalAnsweredFlow(),
-            ServiceLocator.repo.wrongCount(),
-            ServiceLocator.repo.recentExams()
+            ServiceLocator.repo.activeWrong(bank).map { it.size },
+            ServiceLocator.repo.recentExams(bank)
         ) { total, distinct, answered, wrong, exams ->
             HomeStats(
                 total = total,
@@ -107,7 +126,7 @@ fun HomeScreen(
                 lastExam = exams.firstOrNull()
             )
         }.collect { s0 ->
-            val acc = ServiceLocator.repo.accuracy()
+            val acc = ServiceLocator.repo.accuracy(bank)
             val streak = ServiceLocator.repo.streakDays()
             val days = ServiceLocator.repo.last7Days()
             stats = s0.copy(
@@ -161,11 +180,15 @@ fun HomeScreen(
                         ?.let { "$greeting，$it" } ?: greeting,
                     color = ui.text, fontSize = 26.sp, fontWeight = FontWeight.Bold
                 )
-                Text(
-                    "装调考证 · 每日精进",
-                    color = ui.textSub,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 2.dp)
+                // v2.8.0：副标题 = 当前题库切换入口（右键菜单式小弹窗）
+                BankSwitchChip(
+                    currentBankId = settings.currentBank,
+                    onPick = { id ->
+                        if (id != settings.currentBank) {
+                            scope.launch { runCatching { ServiceLocator.settings.setCurrentBank(id) } }
+                        }
+                    },
+                    onManage = onSettings
                 )
             }
             GlassIconButton(
@@ -728,6 +751,137 @@ fun WeekChart(
                 size.height - labelPx * 0.4f,
                 textPaint
             )
+        }
+    }
+}
+
+/**
+ * 首页当前题库切换入口（v2.8.0）：
+ * 副标题位置展示「每日精进 · 当前题库名 ▾」，点击弹出右键菜单式小窗：
+ * 题库列表（✓ 标记当前项）+「管理题库」入口。
+ * 用 Popup + 原生 surface 样式（不用玻璃采样：弹窗窗口与 backdrop 记录坐标系不同，避免错位）。
+ */
+@Composable
+private fun BankSwitchChip(
+    currentBankId: String,
+    onPick: (String) -> Unit,
+    onManage: () -> Unit
+) {
+    val ui = LocalUi.current
+    var open by remember { mutableStateOf(false) }
+    var banks by remember { mutableStateOf<List<com.drone.quiz.data.db.BankEntity>>(emptyList()) }
+
+    // 题库列表：打开时拉取一次即可（删除/导入在设置页完成，回来再开窗会重拉）
+    androidx.compose.runtime.LaunchedEffect(open) {
+        if (open) {
+            runCatching {
+                ServiceLocator.repo.bankListWithCounts().map { it.first }
+            }.getOrNull()?.let { banks = it }
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = 4.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(interactionSource = null, indication = null) { open = true }
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    ) {
+        Text(
+            "每日精进 · ",
+            color = ui.textSub, fontSize = 12.sp
+        )
+        Text(
+            banks.firstOrNull { it.id == currentBankId }?.name ?: "题库",
+            color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            " ▾",
+            color = ui.textSub, fontSize = 11.sp
+        )
+    }
+
+    if (open) {
+        androidx.compose.ui.window.Popup(
+            alignment = Alignment.TopStart,
+            offset = androidx.compose.ui.unit.IntOffset(40, 96),
+            onDismissRequest = { open = false },
+            properties = androidx.compose.ui.window.PopupProperties(focusable = true)
+        ) {
+            Column(
+                Modifier
+                    .width(228.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(
+                        if (ui.isDark) Color(0xFF26221C).copy(alpha = 0.98f)
+                        else Color(0xFFF8F3E8).copy(alpha = 0.99f)
+                    )
+                    .border(1.dp, ui.ink.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
+                    .padding(vertical = 6.dp)
+            ) {
+                if (banks.isEmpty()) {
+                    Text(
+                        "加载中…",
+                        color = ui.textSub, fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                }
+                banks.forEach { b ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(interactionSource = null, indication = null) {
+                                open = false
+                                onPick(b.id)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                b.name,
+                                color = ui.text,
+                                fontSize = 14.sp,
+                                fontWeight = if (b.id == currentBankId) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                        if (b.id == currentBankId) {
+                            Icon(
+                                AppIcons.Check, null,
+                                tint = ui.correct, modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .height(1.dp)
+                        .background(ui.ink.copy(alpha = 0.08f))
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(interactionSource = null, indication = null) {
+                            open = false
+                            onManage()
+                        }
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        AppIcons.Tune, null,
+                        tint = ui.textSub, modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        "管理题库",
+                        color = ui.text, fontSize = 13.sp,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
         }
     }
 }

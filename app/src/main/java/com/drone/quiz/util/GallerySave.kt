@@ -33,4 +33,28 @@ object GallerySave {
             )
             true
         }.getOrDefault(false)
+
+    /** 文本保存到「下载/题屿」（CSV 模板导出用）；@return true = 保存成功 */
+    fun saveTextToDownloads(context: Context, displayName: String, content: String): Boolean =
+        runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/题屿")
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+            ) ?: return false
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+                out.flush()
+            }
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                null, null
+            )
+            true
+        }.getOrDefault(false)
 }

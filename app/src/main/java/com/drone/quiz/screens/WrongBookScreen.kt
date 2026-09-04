@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.offset
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.db.WrongWithQuestion
+import com.drone.quiz.data.repo.QuestionTypes
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.screens.common.scrolledFromTopPx
@@ -77,21 +78,24 @@ import kotlin.math.roundToInt
 @Composable
 fun WrongBookScreen(
     backdrop: Backdrop,
-    onPractice: () -> Unit
+    onPractice: (type: String, cat: String) -> Unit
 ) {
     val ui = LocalUi.current
     val scope = rememberCoroutineScope()
     val settings by ServiceLocator.settings.settings.collectAsState(initial = com.drone.quiz.data.settings.AppSettings())
-    val wrongList by ServiceLocator.repo.activeWrong().collectAsState(initial = emptyList())
+    val wrongList by remember(settings.currentBank) {
+        ServiceLocator.repo.activeWrong(settings.currentBank)
+    }.collectAsState(initial = emptyList())
     val bounce = rememberBounceState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    // ---- 筛选：题型 + 分类 ----
-    var typeFilter by remember { mutableStateOf("all") }   // all | single | judge
+    // ---- 筛选：题型 + 分类（v2.8.0：题型自适应；单分类不再重复展示；特训按筛选刷） ----
+    var typeFilter by remember { mutableStateOf("all") }   // all | single | multi | blank | judge | short
     var catFilter by remember { mutableStateOf("all") }
     val catsInBook = wrongList.map { it.category }.distinct()
+    val typesInBook = QuestionTypes.canonicalOrder.filter { t -> wrongList.any { it.type == t } }
     val filtered = wrongList.filter { w ->
-        (typeFilter == "all" || (typeFilter == "judge") == (w.type == "judge")) &&
+        (typeFilter == "all" || w.type == typeFilter) &&
             (catFilter == "all" || w.category == catFilter)
     }
 
@@ -113,7 +117,7 @@ fun WrongBookScreen(
             }
             if (filtered.isNotEmpty()) {
                 GlassButton(
-                    onClick = onPractice,
+                    onClick = { onPractice(typeFilter, catFilter) },
                     backdrop = backdrop,
                     surfaceColor = ui.ink,
                     heightDp = 40.dp
@@ -165,8 +169,7 @@ fun WrongBookScreen(
                 }
             }
         } else {
-            // ---- 固定筛选行：题型 + 分类 chips ----
-            // bottom 12dp：列表卡片滚动到顶时与胶囊之间保留固定空隙（此前贴边擦蹭）
+            // ---- 固定筛选行：题型 chips（自适应）+ 分类（仅多分类时展示，避免与「全部」重复） ----
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -177,15 +180,16 @@ fun WrongBookScreen(
                 FilterChip("全部", typeFilter == "all" && catFilter == "all") {
                     typeFilter = "all"; catFilter = "all"
                 }
-                FilterChip("单选", typeFilter == "single") {
-                    typeFilter = if (typeFilter == "single") "all" else "single"
+                typesInBook.forEach { t ->
+                    FilterChip(QuestionTypes.label(t), typeFilter == t) {
+                        typeFilter = if (typeFilter == t) "all" else t
+                    }
                 }
-                FilterChip("判断", typeFilter == "judge") {
-                    typeFilter = if (typeFilter == "judge") "all" else "judge"
-                }
-                catsInBook.forEach { cat ->
-                    FilterChip(cat, catFilter == cat) {
-                        catFilter = if (catFilter == cat) "all" else cat
+                if (catsInBook.size >= 2) {
+                    catsInBook.forEach { cat ->
+                        FilterChip(cat, catFilter == cat) {
+                            catFilter = if (catFilter == cat) "all" else cat
+                        }
                     }
                 }
             }
@@ -425,7 +429,7 @@ private fun WrongItem(
                 // 类目标签降调：中性色即可，无需标红（红色留给错误语义）
                 TagChip(item.category)
                 Spacer(Modifier.width(6.dp))
-                TagChip(if (item.type == "judge") "判断" else "单选")
+                TagChip(QuestionTypes.label(item.type))
                 Spacer(Modifier.weight(1f))
                 Text(
                     SimpleDateFormat("MM/dd", Locale.CHINA).format(Date(item.addedAt)),
@@ -485,40 +489,92 @@ private fun WrongItem(
                 exit = shrinkVertically() + fadeOut()
             ) {
                 Column(Modifier.padding(top = 12.dp)) {
-                    if (item.type != "judge") {
-                        val opts = runCatching {
-                            kotlinx.serialization.json.Json.decodeFromString<List<String>>(item.options)
-                        }.getOrDefault(emptyList())
-                        opts.forEachIndexed { i, opt ->
-                            val isAnswer = i == item.answer
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "${('A' + i)}",
-                                    color = if (isAnswer) ui.correct else ui.textSub,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    opt,
-                                    color = if (isAnswer) ui.correct else ui.text,
-                                    fontSize = 13.sp,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.padding(start = 8.dp)
-                                )
+                    when (item.type) {
+                        "judge" -> {
+                            Text(
+                                "正确答案：${if (item.answer == 0) "正确" else "错误"}",
+                                color = ui.correct,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        "multi" -> {
+                            val opts = runCatching {
+                                kotlinx.serialization.json.Json.decodeFromString<List<String>>(item.options)
+                            }.getOrDefault(emptyList())
+                            val mask = item.answer
+                            opts.forEachIndexed { i, opt ->
+                                val isAnswer = mask and (1 shl i) != 0
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${('A' + i)}",
+                                        color = if (isAnswer) ui.correct else ui.textSub,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        opt,
+                                        color = if (isAnswer) ui.correct else ui.text,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    )
+                                }
                             }
                         }
-                    } else {
-                        Text(
-                            "正确答案：${if (item.answer == 0) "正确" else "错误"}",
-                            color = ui.correct,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        "blank" -> {
+                            Text(
+                                "正确答案：${
+                                    item.answerText.split("||").joinToString("；") { vs ->
+                                        vs.split("|").joinToString(" / ")
+                                    }
+                                }",
+                                color = ui.correct,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        "short" -> {
+                            Text(
+                                "参考答案：${item.answerText}",
+                                color = ui.correct,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        else -> {
+                            val opts = runCatching {
+                                kotlinx.serialization.json.Json.decodeFromString<List<String>>(item.options)
+                            }.getOrDefault(emptyList())
+                            opts.forEachIndexed { i, opt ->
+                                val isAnswer = i == item.answer
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${('A' + i)}",
+                                        color = if (isAnswer) ui.correct else ui.textSub,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        opt,
+                                        color = if (isAnswer) ui.correct else ui.text,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                     if (item.explanation.isNotBlank()) {
                         Text(

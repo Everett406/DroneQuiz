@@ -3,6 +3,7 @@ package com.drone.quiz.data.repo
 import android.content.Context
 import androidx.room.withTransaction
 import com.drone.quiz.data.db.AppDatabase
+import com.drone.quiz.data.db.BankEntity
 import com.drone.quiz.data.db.CatCount
 import com.drone.quiz.data.db.ExamAnswerEntity
 import com.drone.quiz.data.db.ExamRecordEntity
@@ -10,68 +11,98 @@ import com.drone.quiz.data.db.PracticeRecordEntity
 import com.drone.quiz.data.db.QuestionEntity
 import com.drone.quiz.data.db.QuestionStatsEntity
 import com.drone.quiz.data.db.StreakLogEntity
+import com.drone.quiz.data.db.TypeCount
 import com.drone.quiz.data.db.WrongBookEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@Serializable
-data class ImportQuestion(
-    val id: Long? = null,
-    val category: String = "未分类",
-    val type: String = "single",
-    val question: String,
-    val options: List<String> = emptyList(),
-    val answer: Int,
-    val explanation: String = ""
-)
-
-@Serializable
-data class ImportBank(
-    val version: Int = 1,
-    val questions: List<ImportQuestion>
-)
+private val json = Json { ignoreUnknownKeys = true }
 
 data class Question(
     val id: Long,
+    val bankId: String,
     val category: String,
-    val isJudge: Boolean,
+    val type: String,          // single | judge | multi | blank | short
     val text: String,
     val options: List<String>,
-    val answer: Int,
+    val answer: Int,           // single/judge：下标；multi：位掩码
+    val answerText: String,    // blank：各空答案（|| 分空、| 分变体）；short：参考答案
     val explanation: String
 ) {
+    val isJudge: Boolean get() = type == QuestionTypes.JUDGE
+
+    /** 判断题选项归一（旧数据无 options JSON，也统一给出正确/错误） */
     val optionsOrJudge: List<String>
         get() = if (isJudge) listOf("正确", "错误") else options
-}
 
-private val json = Json { ignoreUnknownKeys = true }
+    /** multi 正确项下标集合（answer 为位掩码） */
+    val multiAnswerSet: Set<Int>
+        get() = (0 until options.size.coerceAtLeast(31)).filter { answer and (1 shl it) != 0 }.toSet()
+
+    /** blank 各空可接受答案（外层=空，内层=该空可接受变体；精确匹配） */
+    val blankAnswers: List<List<String>>
+        get() = answerText.split("||").map { b -> b.split("|") }
+
+    /** 题干中的空位数（连续 3 个以上下划线记一空） */
+    val blankCount: Int
+        get() = Regex("_{3,}").findAll(text).count()
+
+    /** 正确答案的可读文本（成绩页 / 解析） */
+    fun correctAnswerText(): String = when (type) {
+        QuestionTypes.JUDGE -> if (answer == 0) "正确" else "错误"
+        QuestionTypes.SINGLE -> {
+            val label = optionLabel(answer, false)
+            val opt = options.getOrNull(answer).orEmpty()
+            "$label·$opt"
+        }
+        QuestionTypes.MULTI -> multiAnswerSet.sorted().joinToString("、") { optionLabel(it, false) }
+        QuestionTypes.BLANK -> blankAnswers.joinToString("；") { vs ->
+            if (vs.size == 1) vs[0] else vs.joinToString(" / ")
+        }
+        QuestionTypes.SHORT -> answerText
+        else -> ""
+    }
+}
 
 class Repo(private val db: AppDatabase) {
 
     private val qDao = db.questionDao()
+    private val bDao = db.bankDao()
     private val rDao = db.recordDao()
     private val eDao = db.examDao()
     private val wDao = db.wrongDao()
 
     // ---------- 题库 ----------
 
-    fun countFlow(): Flow<Int> = qDao.countFlow()
+    fun banksFlow(): Flow<List<BankEntity>> = bDao.allFlow()
+
+    suspend fun bankListWithCounts(): List<Pair<BankEntity, Int>> = withContext(Dispatchers.IO) {
+        bDao.all().map { it to qDao.countByBank(it.id) }
+    }
+
+    suspend fun typesInBank(bankId: String): List<String> = withContext(Dispatchers.IO) {
+        // 输出按规范顺序（单选→多选→填空→判断→简答），只保留题库中真实存在的题型
+        val present = qDao.typeCounts(bankId).map { it.type }.toSet()
+        QuestionTypes.canonicalOrder.filter { it in present }
+    }
+
+    /** 题库内各题型题目数（模考配置自适应用） */
+    suspend fun bankTypeCounts(bankId: String): Map<String, Int> = withContext(Dispatchers.IO) {
+        qDao.typeCounts(bankId).associate { it.type to it.cnt }
+    }
+
+    suspend fun categoriesOf(bankId: String): List<CatCount> = qDao.catCounts(bankId)
+
+    fun countByBankFlow(bankId: String): Flow<Int> = qDao.countByBankFlow(bankId)
 
     /**
-     * 启动时保证题库就绪并处理版本升级（全流程原子化，避免"版本已写入但库为空"死锁）：
-     * - 库空 → 导入内置题库
-     * - 已记录题库版本 ≠ 内置题库版本 → 同一事务内清空全部学习数据后重新导入
-     * - 解析/校验先行，失败不碰数据库；只有导入完全成功才返回新版本号
-     *   （失败返回 -1，调用方不持久化版本 → 下次启动自动重试）
-     *
-     * @param storedBankVersion DataStore 中记录的已加载题库版本（0 = 从未记录）
-     * @return 实际加载生效的题库版本；未发生任何导入时返回 -1
+     * 启动播种（v2.8.0 多题库版）：保证内置无人机题库就绪 + 版本升级重置。
+     * 返回实际加载生效的题库版本；未发生导入返回 -1（语义与旧版一致）。
      */
     suspend fun ensureBankLoaded(context: Context, storedBankVersion: Int): Int = withContext(Dispatchers.IO) {
         val assetsVersion = runCatching {
@@ -80,7 +111,11 @@ class Repo(private val db: AppDatabase) {
             }
         }.getOrNull() ?: return@withContext -1
 
-        val needsImport = qDao.count() == 0 || storedBankVersion != assetsVersion
+        bDao.byId(BANK_DRONE) ?: db.withTransaction {
+            bDao.upsert(BankEntity(BANK_DRONE, "无人机装调题库", "builtin", System.currentTimeMillis()))
+        }
+
+        val needsImport = qDao.countByBank(BANK_DRONE) == 0 || storedBankVersion != assetsVersion
         if (!needsImport) return@withContext -1
 
         val bytes = runCatching {
@@ -88,39 +123,73 @@ class Repo(private val db: AppDatabase) {
         }.getOrNull() ?: return@withContext -1
 
         // 先在内存中解析并校验全部题目；任何一题不合法都直接失败，不触碰数据库
-        val entities = runCatching { buildEntities(bytes) }.getOrNull() ?: return@withContext -1
+        val entities = runCatching { buildBuiltinEntities(bytes) }.getOrNull() ?: return@withContext -1
 
         // 单事务完成：升级时清理学习数据 + 清空旧题 + 写入新题（原子）
         db.withTransaction {
-            if (storedBankVersion != 0 && qDao.count() > 0) {
+            if (storedBankVersion != 0 && qDao.countByBank(BANK_DRONE) > 0) {
                 // 题库升级：旧学习数据的 qid 与新题库必然失配，整体重置最干净
                 rDao.clearRecords(); rDao.clearStats(); rDao.clearStreaks()
                 eDao.clearExams(); eDao.clearExamAnswers()
                 wDao.clear()
             }
-            qDao.clear()
+            qDao.deleteByBank(BANK_DRONE)
             entities.chunked(400).forEach { qDao.insertAll(it) }
+            bDao.upsert(BankEntity(BANK_DRONE, "无人机装调题库", "builtin", System.currentTimeMillis()))
         }
         assetsVersion
     }
 
-    private fun buildEntities(bytes: ByteArray): List<QuestionEntity> {
+    /** 内置示例题库播种：从未播种（且未被删除）时写入，演示多选/填空/简答新题型。 */
+    suspend fun ensureSampleLoaded(context: Context, deletedBanks: List<String>): Boolean =
+        withContext(Dispatchers.IO) {
+            val tombstoned = BANK_SAMPLE in deletedBanks
+            val exists = bDao.byId(BANK_SAMPLE) != null && qDao.countByBank(BANK_SAMPLE) > 0
+            if (tombstoned || exists) return@withContext false
+            val bytes = runCatching {
+                context.assets.open("questions_sample.json").use { it.readBytes() }
+            }.getOrNull() ?: return@withContext false
+            val entities = runCatching { buildBuiltinEntities(bytes, BANK_SAMPLE, "生活常识示例题库") }
+                .getOrNull() ?: return@withContext false
+            db.withTransaction {
+                qDao.deleteByBank(BANK_SAMPLE)
+                entities.chunked(400).forEach { qDao.insertAll(it) }
+                bDao.upsert(BankEntity(BANK_SAMPLE, "生活常识示例题库", "builtin", System.currentTimeMillis()))
+            }
+            true
+        }
+
+    private fun buildBuiltinEntities(
+        bytes: ByteArray,
+        bankId: String = BANK_DRONE,
+        defaultCategory: String = "无人机装调"
+    ): List<QuestionEntity> {
         val bank = json.decodeFromString<ImportBank>(bytes.decodeToString())
         require(bank.questions.isNotEmpty()) { "题库为空" }
         return bank.questions.map { q ->
-            val isJudge = q.type == "judge"
-            val opts = if (isJudge) listOf("正确", "错误") else q.options
-            require(opts.size >= 2) { "第 ${q.id ?: 0} 题选项不足" }
-            require(q.answer in opts.indices) { "第 ${q.id ?: 0} 题答案越界" }
-            val id = q.id ?: stableHash(q.question)
-            QuestionEntity(
-                id = id,
-                category = q.category.ifBlank { "未分类" },
-                type = if (isJudge) "judge" else "single",
+            val type = QuestionTypes.normalizeType(q.type) ?: QuestionTypes.SINGLE
+            val opts = if (type == QuestionTypes.JUDGE) listOf("正确", "错误") else q.options
+            val parsed = ParsedQuestion(
+                id = q.id,
+                category = q.category.ifBlank { defaultCategory },
+                type = type,
                 question = q.question,
-                options = json.encodeToString(opts),
-                answer = q.answer,
+                options = opts,
+                answer = q.answer ?: 0,
+                answerText = q.answerText ?: "",
                 explanation = q.explanation
+            )
+            validateParsed(parsed)
+            QuestionEntity(
+                id = q.id ?: stableHash(q.question),
+                category = parsed.category,
+                type = type,
+                question = parsed.question,
+                options = json.encodeToString(opts),
+                answer = parsed.answer,
+                explanation = parsed.explanation,
+                bankId = bankId,
+                answerText = parsed.answerText
             )
         }.distinctBy { it.id }.let { list ->
             // 保证 id 唯一：冲突时重新生成
@@ -131,48 +200,84 @@ class Repo(private val db: AppDatabase) {
         }
     }
 
-    suspend fun importBank(bytes: ByteArray): ImportResult = withContext(Dispatchers.IO) {
-        val entities = buildEntities(bytes)
-        db.withTransaction {
-            qDao.clear()
-            entities.chunked(400).forEach { qDao.insertAll(it) }
+    private fun validateParsed(p: ParsedQuestion) {
+        when (p.type) {
+            QuestionTypes.SINGLE, QuestionTypes.JUDGE ->
+                require(p.options.size >= 2 && p.answer in p.options.indices) { "答案越界：${p.question.take(12)}" }
+            QuestionTypes.MULTI ->
+                require(p.multiAnswerCount() >= 2) { "多选题至少两个正确项：${p.question.take(12)}" }
+            QuestionTypes.BLANK -> require(p.answerText.isNotBlank()) { "填空题缺少答案" }
+            QuestionTypes.SHORT -> require(p.answerText.isNotBlank()) { "简答题缺少参考答案" }
         }
-        ImportResult(entities.size, entities.map { it.category }.distinct().sorted())
     }
 
-    data class ImportResult(val count: Int, val categories: List<String>)
+    private fun ParsedQuestion.multiAnswerCount(): Int = (0..31).count { answer and (1 shl it) != 0 }
 
-    private fun stableHash(s: String): Long = 1125899906842597L.let { h ->
-        s.fold(h) { acc, c -> 31 * acc + c.code }.let { if (it < 0) -it else it }
+    /** 导入为独立题库（不替换现有题库）；题 id 从全库最大值之后顺序分配，保证全局唯一。 */
+    suspend fun importParsedBank(name: String, preview: ImportPreview): String = withContext(Dispatchers.IO) {
+        require(preview.ok.isNotEmpty()) { "没有可导入的题目" }
+        val bankId = "imp_${System.currentTimeMillis()}"
+        var next = (qDao.maxId() ?: 800L) + 1
+        val entities = preview.ok.map { p ->
+            QuestionEntity(
+                id = next++,
+                category = p.category.ifBlank { "未分类" },
+                type = p.type,
+                question = p.question,
+                options = json.encodeToString(p.options),
+                answer = p.answer,
+                explanation = p.explanation,
+                bankId = bankId,
+                answerText = p.answerText
+            )
+        }
+        db.withTransaction {
+            entities.chunked(400).forEach { qDao.insertAll(it) }
+            bDao.upsert(BankEntity(bankId, name, "imported", System.currentTimeMillis()))
+        }
+        bankId
     }
 
-    suspend fun categories(): List<CatCount> = qDao.catCounts()
+    /** 删除题库（题目 + 关联学习数据一并清理）；墓碑/切库由调用方处理。 */
+    suspend fun deleteBankData(bankId: String) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            wDao.clearOfBank(bankId)
+            rDao.clearRecordsOfBank(bankId)
+            rDao.clearStatsOfBank(bankId)
+            eDao.clearExamAnswersOfBank(bankId)
+            eDao.clearExamsOfBank(bankId)
+            qDao.deleteByBank(bankId)
+            bDao.delete(bankId)
+        }
+    }
 
     // ---------- 刷题 ----------
 
     suspend fun loadPractice(
+        bankId: String,
         category: String?,
         type: String?,
         random: Boolean,
         limit: Int = 800
     ): List<Question> = withContext(Dispatchers.IO) {
         // 空列表直接短路：Room 对 IN () 空集合会生成非法 SQL 导致崩溃
-        val ids = qDao.idsByFilter(category, type)
+        val ids = qDao.idsByFilter(bankId, category, type)
             .let { if (random) it.shuffled() else it }
             .take(limit)
         if (ids.isEmpty()) return@withContext emptyList()
         // 关键：Room 的 IN (:ids) 返回顺序固定按主键升序，会把 shuffled 顺序完全吃掉
-        // （v2.7.2 及之前"随机刷题=顺序刷题"的根因）→ 必须按洗牌后的 ids 保序重排
+        // → 必须按洗牌后的 ids 保序重排（v2.7.3 根因，勿回退）
         val map = qDao.byIds(ids).associateBy { it.id }
         ids.mapNotNull { map[it]?.toQuestion() }
     }
 
-    suspend fun loadWrongPractice(): List<Question> = withContext(Dispatchers.IO) {
-        val ids = wDao.activeWrongIds()
-        // 错题本为空时同样必须短路，否则进"错题特训"必崩（IN () 非法 SQL）
-        if (ids.isEmpty()) return@withContext emptyList()
-        qDao.byIds(ids).map { it.toQuestion() }
-    }
+    /** 错题特训：按当前题库 + 筛选（题型/分类）取错题（v2.8.0 修复"特训不按筛选"） */
+    suspend fun loadWrongPractice(bankId: String, type: String?, cat: String?): List<Question> =
+        withContext(Dispatchers.IO) {
+            val ids = wDao.activeWrongIds(bankId, type, cat)
+            if (ids.isEmpty()) return@withContext emptyList()
+            qDao.byIds(ids).map { it.toQuestion() }
+        }
 
     /** 按会话快照的 id 顺序取题（恢复上次刷题进度时保证与上次完全一致） */
     suspend fun loadPracticeByIds(ids: List<Long>): List<Question> = withContext(Dispatchers.IO) {
@@ -181,19 +286,21 @@ class Repo(private val db: AppDatabase) {
         ids.mapNotNull { map[it]?.toQuestion() }
     }
 
-    /** 题目搜索：题干 / 选项 / 解析 全文 LIKE。 */
-    suspend fun searchQuestions(query: String): List<Question> = withContext(Dispatchers.IO) {
+    /** 题目搜索：限定当前题库（题干 / 选项 / 解析 / 参考答案 全文 LIKE）。 */
+    suspend fun searchQuestions(bankId: String, query: String): List<Question> = withContext(Dispatchers.IO) {
         val q = query.trim()
-        if (q.isEmpty()) emptyList() else qDao.search(q).map { it.toQuestion() }
+        if (q.isEmpty()) emptyList() else qDao.search(bankId, q).map { it.toQuestion() }
     }
 
     private fun QuestionEntity.toQuestion() = Question(
         id = id,
+        bankId = bankId,
         category = category,
-        isJudge = type == "judge",
+        type = type,
         text = question,
-        options = json.decodeFromString(options),
+        options = runCatching { json.decodeFromString<List<String>>(options) }.getOrDefault(emptyList()),
         answer = answer,
+        answerText = answerText,
         explanation = explanation
     )
 
@@ -267,57 +374,99 @@ class Repo(private val db: AppDatabase) {
 
     // ---------- 模考 ----------
 
-    suspend fun startExam(total: Int, judgeRatio: Float, durationSec: Int, random: Boolean): Pair<Long, List<Question>> =
-        withContext(Dispatchers.IO) {
-            val allSingle = qDao.idsByFilter(null, "single")
-            val allJudge = qDao.idsByFilter(null, "judge")
-            val wantJudge = if (allJudge.isEmpty()) 0 else ((total * judgeRatio).toInt()).coerceAtMost(allJudge.size)
-            val wantSingle = (total - wantJudge).coerceAtMost(allSingle.size)
-            val sIds = (if (random) allSingle.shuffled() else allSingle).take(wantSingle)
-            val jIds = (if (random) allJudge.shuffled() else allJudge).take(wantJudge)
-            // 题库为空时防御性短路：不建卷、不写 exam_records，返回空列表由 UI 提示
-            if (sIds.isEmpty() && jIds.isEmpty()) return@withContext 0L to emptyList()
-            val qs = qDao.byIds(sIds + jIds).map { it.toQuestion() }
-                .let { if (random) it.shuffled() else it.sortedWith(compareBy({ it.isJudge }, { it.id })) }
-            val examId = db.withTransaction {
-                val id = eDao.insertExam(
-                    ExamRecordEntity(
-                        startedAt = System.currentTimeMillis(),
-                        total = qs.size,
-                        singleCount = qs.count { !it.isJudge },
-                        judgeCount = qs.count { it.isJudge },
-                        durationSec = durationSec
+    /**
+     * 组卷（v2.8.0）：按题型分别抽题、按题型顺序拼卷（修复选择/判断混排）。
+     * @param counts 题型→题数（UI 依据题库实际拥有的题型自适应生成）
+     * @param typeOrder 题型顺序；空 = 默认 单选→多选→填空→判断→简答
+     */
+    suspend fun startExam(
+        bankId: String,
+        counts: Map<String, Int>,
+        durationSec: Int,
+        typeOrder: List<String>
+    ): Pair<Long, List<Question>> = withContext(Dispatchers.IO) {
+        val order = typeOrder.filter { it in QuestionTypes.canonicalOrder }
+            .ifEmpty { QuestionTypes.canonicalOrder }
+        val pickedIds = ArrayList<Long>()
+        order.forEach { type ->
+            val want = counts[type] ?: 0
+            if (want > 0) {
+                val ids = qDao.idsByFilter(bankId, null, type)
+                if (ids.isNotEmpty()) pickedIds += ids.shuffled().take(want)
+            }
+        }
+        // 题库为空时防御性短路：不建卷、不写 exam_records，返回空列表由 UI 提示
+        if (pickedIds.isEmpty()) return@withContext 0L to emptyList()
+        val byId = qDao.byIds(pickedIds).associateBy { it.id }
+        val typeRank = order.withIndex().associate { (i, t) -> t to i }
+        val qs = pickedIds.mapNotNull { byId[it]?.toQuestion() }
+            .sortedWith(compareBy({ typeRank[it.type] ?: 99 }, { it.id }))
+        val examId = db.withTransaction {
+            val id = eDao.insertExam(
+                ExamRecordEntity(
+                    startedAt = System.currentTimeMillis(),
+                    total = qs.size,
+                    singleCount = qs.count { it.type == QuestionTypes.SINGLE },
+                    judgeCount = qs.count { it.type == QuestionTypes.JUDGE },
+                    durationSec = durationSec,
+                    bankId = bankId,
+                    extraCounts = json.encodeToString(
+                        mapOf(
+                            QuestionTypes.MULTI to qs.count { it.type == QuestionTypes.MULTI },
+                            QuestionTypes.BLANK to qs.count { it.type == QuestionTypes.BLANK },
+                            QuestionTypes.SHORT to qs.count { it.type == QuestionTypes.SHORT }
+                        ).filterValues { it > 0 }
                     )
                 )
-                eDao.insertAnswers(qs.map { ExamAnswerEntity(examId = id, qid = it.id, picked = null, isCorrect = null) })
+            )
+            eDao.insertAnswers(qs.map { ExamAnswerEntity(examId = id, qid = it.id) })
                 id
             }
             examId to qs
         }
 
-    suspend fun saveExamAnswer(examId: Long, qid: Long, picked: Int, correct: Boolean) =
-        withContext(Dispatchers.IO) { eDao.updateAnswer(examId, qid, picked, correct) }
+    suspend fun saveExamAnswer(examId: Long, qid: Long, ua: UserAnswer, correct: Boolean) =
+        withContext(Dispatchers.IO) {
+            // picked 编码：single/judge 下标；multi 位掩码；blank/short 1=已提交
+            val pickedEncoded = when {
+                ua.picked != null -> ua.picked!!
+                ua.texts.isNotEmpty() || ua.text.isNotBlank() -> 1
+                else -> return@withContext
+            }
+            eDao.updateAnswer(
+                examId, qid, pickedEncoded, correct,
+                json.encodeToString(ua)
+            )
+        }
+
+    /** 模考进行中的简答自评（交卷前可反复改判）。 */
+    suspend fun gradeShortAnswer(examId: Long, qid: Long, ua: UserAnswer, correct: Boolean) =
+        saveExamAnswer(examId, qid, ua, correct)
 
     /**
-     * 交卷：计分、写错题本（addedAt 显式赋值，修复崩溃）、更新打卡。
+     * 交卷：计分（多选全对才对 / 填空精确匹配 / 简答按自评，未自评计错）、写错题本、更新打卡。
      */
     suspend fun submitExam(
         examId: Long,
         questions: List<Question>,
-        picked: Map<Long, Int>,
+        answers: Map<Long, UserAnswer>,
         durationSec: Int,
         passScore: Int,
         removeThreshold: Int
     ): ExamOutcome = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val correctIds = questions.filter { picked[it.id] == it.answer }.map { it.id }
+        val judged = questions.associate { it.id to (judgeAnswer(it, answers[it.id]) == true) }
+        val correctIds = questions.filter { judged[it.id] == true }.map { it.id }
         val score = if (questions.isEmpty()) 0f else correctIds.size * 100f / questions.size
         val passed = score >= passScore
         db.withTransaction {
             eDao.finishExam(examId, now, score, passed)
             questions.forEach { q ->
-                val p = picked[q.id]
-                val ok = p == q.answer
+                val ua = answers[q.id]
+                val ok = judged[q.id] == true
+                if (ua != null) {
+                    saveExamAnswer(examId, q.id, ua, ok)
+                }
                 rDao.insertRecord(
                     PracticeRecordEntity(qid = q.id, isCorrect = ok, mode = "exam", ts = now)
                 )
@@ -361,7 +510,8 @@ class Repo(private val db: AppDatabase) {
             passed = passed,
             correct = correctIds.size,
             total = questions.size,
-            wrongQuestions = questions.filter { picked[it.id] != it.answer }
+            wrongQuestions = questions.filter { judged[it.id] != true },
+            userAnswers = questions.associate { it.id to displayUserAnswer(it, answers[it.id]) }
         )
     }
 
@@ -370,15 +520,15 @@ class Repo(private val db: AppDatabase) {
         val passed: Boolean,
         val correct: Int,
         val total: Int,
-        val wrongQuestions: List<Question>
+        val wrongQuestions: List<Question>,
+        val userAnswers: Map<Long, String> = emptyMap()
     )
 
-    fun recentExams(): Flow<List<ExamRecordEntity>> = eDao.recentExams(20)
+    fun recentExams(bankId: String): Flow<List<ExamRecordEntity>> = eDao.recentExams(bankId, 20)
 
     /**
      * 从数据库重建历史模考成绩（供"最近模考"记录点击进入成绩页使用）。
-     * 每题作答在 saveExamAnswer 时已落库（picked + isCorrect），
-     * 故任意已交卷记录均可精确重建得分与错题列表；未交卷/不存在 → null。
+     * 未交卷/不存在 → null。
      */
     suspend fun loadExamOutcome(examId: Long): ExamOutcome? = withContext(Dispatchers.IO) {
         if (examId <= 0) return@withContext null
@@ -386,6 +536,13 @@ class Repo(private val db: AppDatabase) {
         val score = rec.score ?: return@withContext null
         val answers = eDao.answersFor(examId)
         val map = qDao.byIds(answers.map { it.qid }).associateBy { it.id }
+        val qs = answers.mapNotNull { map[it.qid]?.toQuestion() }
+        val uaById = answers.associate { answer ->
+            val ua = answer.detail?.let { raw ->
+                runCatching { json.decodeFromString<UserAnswer>(raw) }.getOrNull()
+            }
+            answer.qid to ua
+        }
         ExamOutcome(
             score = score,
             passed = rec.passed ?: false,
@@ -393,11 +550,12 @@ class Repo(private val db: AppDatabase) {
             total = rec.total,
             wrongQuestions = answers
                 .filter { it.isCorrect == false }
-                .mapNotNull { map[it.qid]?.toQuestion() }
+                .mapNotNull { map[it.qid]?.toQuestion() },
+            userAnswers = qs.associate { it.id to displayUserAnswer(it, uaById[it.id]) }
         )
     }
 
-    /** 放弃考试：删除该次模考的记录与作答（不再残留"进行中"幽灵记录）；也用于用户主动删除已完成记录 */
+    /** 放弃考试：删除该次模考的记录与作答（不再残留"进行中"幽灵记录）；也用于删除已完成记录 */
     suspend fun abandonExam(examId: Long) = withContext(Dispatchers.IO) {
         if (examId <= 0) return@withContext
         db.withTransaction {
@@ -412,7 +570,7 @@ class Repo(private val db: AppDatabase) {
      */
     suspend fun resumeExam(
         examId: Long
-    ): Triple<ExamRecordEntity, List<Question>, Map<Long, Int>>? =
+    ): Triple<ExamRecordEntity, List<Question>, Map<Long, UserAnswer>>? =
         withContext(Dispatchers.IO) {
             if (examId <= 0) return@withContext null
             val exam = eDao.examById(examId) ?: return@withContext null
@@ -424,24 +582,32 @@ class Repo(private val db: AppDatabase) {
             Triple(
                 exam,
                 qs,
-                answers.filter { it.picked != null && it.qid in qidSet }
-                    .associate { it.qid to it.picked!! }
+                answers.filter { (it.picked != null || it.detail != null) && it.qid in qidSet }
+                    .associate { answer ->
+                        val ua = answer.detail?.let { raw ->
+                            runCatching { json.decodeFromString<UserAnswer>(raw) }.getOrNull()
+                        } ?: UserAnswer(picked = answer.picked)
+                        answer.qid to ua
+                    }
             )
         }
 
     // ---------- 错题本 ----------
 
-    fun activeWrong(): Flow<List<com.drone.quiz.data.db.WrongWithQuestion>> = wDao.activeWrongWithQuestions()
-
-    fun wrongCountFlow(): Flow<Int> = wDao.wrongCountFlow()
+    fun activeWrong(bankId: String): Flow<List<com.drone.quiz.data.db.WrongWithQuestion>> =
+        wDao.activeWrongWithQuestions(bankId)
 
     suspend fun removeWrongForever(qid: Long) = withContext(Dispatchers.IO) { wDao.markRemoved(qid) }
 
-    // ---------- 首页统计 ----------
+    // ---------- 首页统计（按题库隔离；打卡/今日为全局习惯数据） ----------
 
     fun totalAnsweredFlow(): Flow<Int> = rDao.totalAnsweredFlow()
-    fun answeredDistinctFlow(): Flow<Int> = rDao.answeredDistinctFlow()
-    fun wrongCount(): Flow<Int> = wDao.wrongCountFlow()
+
+    fun answeredDistinctFlow(bankId: String): Flow<Int> = rDao.answeredDistinctByBankFlow(bankId)
+
+    suspend fun wrongCount(bankId: String): Int = withContext(Dispatchers.IO) {
+        wDao.activeWrongIds(bankId, null, null).size
+    }
 
     suspend fun last7Days(): List<DayStat> = withContext(Dispatchers.IO) {
         val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
@@ -463,9 +629,9 @@ class Repo(private val db: AppDatabase) {
         }
     }
 
-    suspend fun accuracy(): Float = withContext(Dispatchers.IO) {
-        val a = rDao.totalAttempts()
-        val c = rDao.totalCorrect()
+    suspend fun accuracy(bankId: String): Float = withContext(Dispatchers.IO) {
+        val a = rDao.totalAttemptsByBank(bankId)
+        val c = rDao.totalCorrectByBank(bankId)
         if (a == 0) 0f else c.toFloat() / a
     }
 
@@ -488,11 +654,15 @@ class Repo(private val db: AppDatabase) {
         count
     }
 
+    /** 清空全部学习数据（内置题库由调用方随后重新播种）。 */
     suspend fun clearAllRecords() = withContext(Dispatchers.IO) {
         db.withTransaction {
             rDao.clearRecords(); rDao.clearStats(); rDao.clearStreaks(); wDao.clear()
             // 最近模考也属于做题记录：一并清空（含未完成的"进行中"残留）
             eDao.clearExamAnswers(); eDao.clearExams()
+            // 清空记录 = 出厂：题库与墓碑一并重置，内置题库将重新播种
+            qDao.clear()
+            bDao.all().forEach { bDao.delete(it.id) }
         }
     }
 
@@ -516,5 +686,10 @@ class Repo(private val db: AppDatabase) {
     suspend fun todayAnsweredCount(): Int = withContext(Dispatchers.IO) {
         val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
         rDao.streakFor(fmt.format(java.util.Date()))?.answered ?: 0
+    }
+
+    companion object {
+        const val BANK_DRONE = "drone"
+        const val BANK_SAMPLE = "sample"
     }
 }

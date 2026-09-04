@@ -24,11 +24,13 @@ private val Context.dataStore by preferencesDataStore(name = "settings")
 @Serializable
 data class PracticeSession(
     val src: String = "all",              // all | wrong
-    val type: String = "all",             // all | single | judge
+    val type: String = "all",             // all | single | judge | multi | blank | short
     val cat: String = "all",
     val ids: List<Long> = emptyList(),    // 题目顺序快照
-    val answers: Map<String, Int> = emptyMap(), // qid -> 选项
+    val answers: Map<String, Int> = emptyMap(), // qid -> picked（multi 为位掩码，blank/short 为 1 已答标记）
+    val details: Map<String, String> = emptyMap(), // qid -> UserAnswer JSON（填空文本/简答草稿与自评）
     val index: Int = 0,                   // 当前进度（0-based）
+    val bankId: String = "",             // 所属题库（恢复时校验，切库后旧会话作废）
     val savedAt: Long = 0
 )
 
@@ -50,7 +52,10 @@ data class AppSettings(
     val searchHistory: List<String> = emptyList(), // 搜索历史（最新在前，最多 8 条）
     val usageMs: Long = 0L,      // 累计前台使用毫秒（打赏弹窗门槛）
     val supportPrompted: Boolean = false, // 打赏弹窗已自动弹过（只弹一次）
-    val supportRefused: Boolean = false  // 用户拒绝支持：永不再弹
+    val supportRefused: Boolean = false, // 用户拒绝支持：永不再弹
+    val currentBank: String = "drone",   // 当前使用题库
+    val examIncludeShort: Boolean = false, // 模考高级选项：含简答题（默认关）
+    val examTypeOrder: List<String> = emptyList() // 模考题型顺序（空 = 单选→多选→填空→判断→简答）
 )
 
 class SettingsStore(private val context: Context) {
@@ -81,6 +86,12 @@ class SettingsStore(private val context: Context) {
         // 模考记录删除限额（每周 2 次）
         val examDelWeek = stringPreferencesKey("exam_del_week")
         val examDelCount = intPreferencesKey("exam_del_count")
+        // 多题库（v2.8.0）
+        val currentBank = stringPreferencesKey("current_bank")
+        val deletedBanks = stringPreferencesKey("deleted_banks") // JSON 数组：被删除的内置题库墓碑，清空记录后重生
+        // 模考高级选项
+        val examIncludeShort = booleanPreferencesKey("exam_include_short")
+        val examTypeOrder = stringPreferencesKey("exam_type_order")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -106,7 +117,12 @@ class SettingsStore(private val context: Context) {
             } ?: emptyList(),
             usageMs = p[K.usageMs] ?: 0L,
             supportPrompted = p[K.supportPrompted] ?: false,
-            supportRefused = p[K.supportRefused] ?: false
+            supportRefused = p[K.supportRefused] ?: false,
+            currentBank = p[K.currentBank] ?: "drone",
+            examIncludeShort = p[K.examIncludeShort] ?: false,
+            examTypeOrder = p[K.examTypeOrder]?.let { raw ->
+                runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
+            } ?: emptyList()
         )
     }
 
@@ -169,6 +185,38 @@ class SettingsStore(private val context: Context) {
             val used = if (p[K.examDelWeek] == wk) p[K.examDelCount] ?: 0 else 0
             p[K.examDelWeek] = wk
             p[K.examDelCount] = used + 1
+        }
+    }
+
+    // ---- 多题库（v2.8.0） ----
+
+    suspend fun setCurrentBank(id: String) = context.dataStore.edit { it[K.currentBank] = id }
+
+    /** 删除内置题库时记墓碑（避免下次启动被重新播种）；清空全部数据时清空墓碑即可恢复内置题库。 */
+    suspend fun addDeletedBank(id: String) {
+        context.dataStore.edit { p ->
+            val cur = p[K.deletedBanks]?.let { raw ->
+                runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
+            } ?: emptyList()
+            if (id !in cur) p[K.deletedBanks] = json.encodeToString(cur + id)
+        }
+    }
+
+    suspend fun clearDeletedBanks() = context.dataStore.edit { it.remove(K.deletedBanks) }
+
+    suspend fun deletedBanks(): List<String> {
+        val p = context.dataStore.data.first()
+        return p[K.deletedBanks]?.let { raw ->
+            runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
+        } ?: emptyList()
+    }
+
+    suspend fun setExamIncludeShort(v: Boolean) = context.dataStore.edit { it[K.examIncludeShort] = v }
+
+    suspend fun setExamTypeOrder(list: List<String>) {
+        context.dataStore.edit { p ->
+            if (list.isEmpty()) p.remove(K.examTypeOrder)
+            else p[K.examTypeOrder] = json.encodeToString(list)
         }
     }
 
