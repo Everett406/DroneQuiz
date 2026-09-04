@@ -89,6 +89,7 @@ import com.drone.quiz.ui.glass.GlassSlider
 import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.GlassToggle
+import com.kyant.shapes.Capsule
 import com.drone.quiz.ui.glass.rememberBounceState
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.theme.LocalUi
@@ -165,11 +166,22 @@ fun ExamConfigScreen(
 
     // 组卷题数（自适应两种模式）：
     // - 只有单选/判断的题库（内置无人机题库）：沿用「题目数量 + 判断占比」滑杆
-    // - 含新题型的题库：总题数外置，各型按 自动占比/手动比例 分配（v2.8.3，用户口径）
+    // - 含新题型的题库：总题数外置，各按 自动占比/手动比例 分配（v2.8.3，用户口径）
     val classicMode = bankTypes.isNotEmpty() && bankTypes.all { it == "single" || it == "judge" }
-    val activeTypes = typeOrder
-        .ifEmpty { QuestionTypes.canonicalOrder }
-        .filter { it in bankTypes && (it != "short" || includeShort) }
+    // v2.8.4 关键修复：examTypeOrder 是全局持久化的「排序提示」，不是白名单——
+    // 此前 typeOrder.filter { it in bankTypes } 会把在别的题库（如无人机库只有单选+判断）
+    // 保存的顺序带到新题库，把示例库的多选/填空/简答整体过滤掉：
+    // 表现为「20 题的库无论怎么调只出 4 题」「题型构成里只有判断和单选」「题型顺序奇怪」。
+    // 正确口径：先按已存顺序列出的题型，再把题库里其余题型按规范序追加，永不丢题型。
+    val orderHint = typeOrder.ifEmpty { QuestionTypes.canonicalOrder }
+    val activeTypes = buildList {
+        orderHint.forEach { t ->
+            if (t in bankTypes && t !in this && (t != "short" || includeShort)) add(t)
+        }
+        bankTypes.forEach { t ->
+            if (t !in this && (t != "short" || includeShort)) add(t)
+        }
+    }
     val plannedCounts: Map<String, Int> = if (classicMode) {
         val judgeAvail = bankTypeCounts["judge"] ?: 0
         val wantJudge = if (judgeAvail == 0) 0 else (count * judgeRatio).toInt().coerceAtMost(judgeAvail)
@@ -363,22 +375,45 @@ fun ExamConfigScreen(
                             backdrop = backdrop
                         )
                     }
-                    Spacer(Modifier.weight(1f))
+                    // v2.8.4：补齐第 4 卡（此前 3 卡不对称）——题型构成摘要 + 分布预览条，
+                    // 点击展开高级选项（与卡内标题行同一状态）
+                    ExamSettingCell(
+                        backdrop = backdrop,
+                        label = "题型构成",
+                        value = if (autoMix) "自动配比" else "手动配比",
+                        modifier = Modifier.weight(1f),
+                        onClick = { showAdvanced = true }
+                    ) {
+                        MixPreviewBar(
+                            types = activeTypes,
+                            shares = plannedCounts.ifEmpty { bankTypeCounts }
+                        )
+                    }
                 }
             }
 
             // ---- 高级选项（默认折叠）：题型构成（自动/手动配比）+ 含简答题 + 题型顺序拖拽 ----
+            // v2.8.4 修复「点开关/变动后面板自动收起」：onClick 不能挂整卡——卡内 GlassToggle
+            // 的拖拽手势不消费 down/up，点开关会同时触发整卡 onClick 翻转 showAdvanced。
+            // 改为仅标题行可点击展开/收起，卡内控件不再影响面板状态。
             if (bankTypes.size > 1) {
                 GlassCard(
                     backdrop = backdrop,
                     Modifier
                         .fillMaxWidth()
                         .padding(top = 14.dp),
-                    cornerRadius = 22.dp,
-                    onClick = { showAdvanced = !showAdvanced }
+                    cornerRadius = 22.dp
                 ) {
                     Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = null,
+                                    indication = null
+                                ) { showAdvanced = !showAdvanced },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
                                 "高级选项",
                                 color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.Bold,
@@ -476,7 +511,9 @@ fun ExamConfigScreen(
                                                     }
                                                     if (avail > 0) {
                                                         GlassSlider(
-                                                            value = { r.toFloat() },
+                                                            // v2.8.4：读委托状态而非局部快照——拖动一处后，
+                                                            // 其余被联动的滑杆位置实时跟随（此前只变数值）
+                                                            value = { (ratios[t] ?: 0).toFloat() },
                                                             onValueChange = { v ->
                                                                 setRatio(t, v.roundToInt().coerceIn(0, 100))
                                                             },
@@ -662,6 +699,46 @@ fun ExamConfigScreen(
     }
 }
 
+/**
+ * 题型占比分段预览条（v2.8.4 第 4 卡内容）：按各题型题量占比水平分段，
+ * 同色系递减透明度区分段；空库时整条灰轨。
+ */
+@Composable
+private fun MixPreviewBar(types: List<String>, shares: Map<String, Int>) {
+    val ui = LocalUi.current
+    val total = types.sumOf { shares[it] ?: 0 }.coerceAtLeast(1)
+    val alphas = listOf(0.85f, 0.55f, 0.35f, 0.22f, 0.14f)
+    Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.CenterStart) {
+        if (total <= 1 && types.sumOf { shares[it] ?: 0 } == 0) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(Capsule())
+                    .background(ui.ink.copy(alpha = 0.10f))
+            )
+        } else {
+            Row(
+                Modifier.fillMaxWidth().height(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                types.forEachIndexed { i, t ->
+                    val w = (shares[t] ?: 0).toFloat() / total
+                    if (w > 0f) {
+                        Box(
+                            Modifier
+                                .weight(w.coerceAtLeast(0.04f))
+                                .height(6.dp)
+                                .clip(Capsule())
+                                .background(ui.ink.copy(alpha = alphas[i % alphas.size]))
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** 模考配置：按题库各题型可用量占比折成百分比（和≈100，四舍五入误差可忽略）。 */
 private fun autoRatios(types: List<String>, counts: Map<String, Int>): Map<String, Int> {
     val sum = types.sumOf { counts[it] ?: 0 }
@@ -692,10 +769,18 @@ private fun ExamSettingCell(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
     slider: @Composable () -> Unit
 ) {
     val ui = LocalUi.current
-    GlassCard(backdrop = backdrop, modifier = modifier, cornerRadius = 20.dp) {
+    GlassCard(
+        backdrop = backdrop,
+        modifier = modifier.then(
+            if (onClick != null) Modifier.clickable(interactionSource = null, indication = null, onClick = onClick)
+            else Modifier
+        ),
+        cornerRadius = 20.dp
+    ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(label, color = ui.textSub, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             Text(
@@ -1217,14 +1302,18 @@ private fun ExamQuestionCard(
                 Spacer(Modifier.weight(1f))
                 Text("第 $index 题", color = ui.textSub, fontSize = 11.sp)
             }
-            Text(
-                q.text,
-                color = ui.text,
-                fontSize = 16.sp,
-                lineHeight = 25.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 12.dp)
-            )
+            // v2.8.4：填空题题干由 BlankInlineFields 按占位符拆段内嵌渲染，
+            // 这里不再重复展示整段题干（用户反馈「题目重复两份」）
+            if (q.type != QuestionTypes.BLANK) {
+                Text(
+                    q.text,
+                    color = ui.text,
+                    fontSize = 16.sp,
+                    lineHeight = 25.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
             when (q.type) {
                 QuestionTypes.MULTI -> ExamMultiSection(q, ua, onAnswer)
                 QuestionTypes.BLANK -> ExamBlankSection(q, ua, onAnswer)

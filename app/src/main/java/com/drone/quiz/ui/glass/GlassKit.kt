@@ -27,6 +27,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -428,8 +429,13 @@ fun GlassSlider(
                 onDrag = { _, _ -> }
             )
         }
+        // v2.8.4 修复：LaunchedEffect(key=动画器) 闭包捕获的是首帧的 value lambda——
+        // 若调用方传捕获局部 val 的 lambda（如题型配比 { r.toFloat() }），外部改值后
+        // snapshotFlow 永远读旧值 → 联动滑杆只变数值不动位置（用户反馈）。
+        // rememberUpdatedState 让同步循环每次都读到最新 lambda。
+        val currentValue by rememberUpdatedState(value)
         androidx.compose.runtime.LaunchedEffect(dampedDragAnimation) {
-            snapshotFlow { value() }
+            snapshotFlow { currentValue() }
                 .collectLatest { v ->
                     if (!isDragging && abs(dampedDragAnimation.targetValue - v) > 0.001f) {
                         dampedDragAnimation.updateValue(v)

@@ -113,6 +113,7 @@ stale = [
     ("ExistingPeriodicWorkPolicy", "Notify.kt 已移除的策略残留"),
     ("PageInfo", "历史 CI 陷阱 PageInfo.page 残留"),
     ("calculateTargetValue", "新版 Compose 已移除的 API"),
+    ("widthIn(min = 110.dp", "填空输入框旧固宽残留(v2.8.4 已改自适应 60-170dp)"),
 ]
 for pat, desc in stale:
     hits = grep_hits(pat)
@@ -148,6 +149,13 @@ must = [
     ("OverlayBlur.push", "弹窗模糊引用计数(修叠层丢模糊)"),
     ("rawDragY", "把手下滑关闭+上拉 rubber-band 过冲"),
     ("formatUsage", "打赏弹窗累计时长动态文案"),
+    ("rememberUpdatedState", "GlassSlider 外部值同步读最新 lambda(修联动滑块只变数值 v2.8.4)"),
+    ("idsByFilterTypes", "题型多选 DAO IN 查询(v2.8.4)"),
+    ("splitTypeFilter", "题型筛选逗号串解析(v2.8.4)"),
+    ("LocalWallpaperLuminance", "壁纸亮度 CompositionLocal(自适应对比 v2.8.4)"),
+    ("backdropIsDark", "提交按钮背景明暗自适应(v2.8.4)"),
+    ("MixPreviewBar", "模考题型构成第4卡分布预览条(v2.8.4)"),
+    ("val activeTypes = buildList", "activeTypes 排序提示非白名单(修 20 题只出 4 题 v2.8.4)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):

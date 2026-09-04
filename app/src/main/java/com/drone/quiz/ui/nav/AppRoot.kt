@@ -159,9 +159,33 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
         label = "overlayBgBlur"
     )
 
+    // v2.8.4：壁纸平均亮度（提交按钮等前景自适应对比用），随壁纸变化在 IO 线程重算
+    var wallLuminance by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(settings.wallpaper) {
+        wallLuminance = if (settings.wallpaper.isBlank()) null
+        else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val raw = android.graphics.BitmapFactory.decodeFile(settings.wallpaper)
+                    ?: return@runCatching null
+                // 降采样 12x12 后取平均亮度（Rec.709 加权），避免全图逐像素开销
+                val small = android.graphics.Bitmap.createScaledBitmap(raw, 12, 12, true)
+                var acc = 0.0
+                val n = small.width * small.height
+                for (x in 0 until small.width) for (y in 0 until small.height) {
+                    val c = small.getPixel(x, y)
+                    acc += (0.2126 * android.graphics.Color.red(c) +
+                            0.7152 * android.graphics.Color.green(c) +
+                            0.0722 * android.graphics.Color.blue(c)) / 255.0
+                }
+                (acc / n).toFloat()
+            }.getOrNull()
+        }
+    }
+
     CompositionLocalProvider(
         LocalBgBackdrop provides bgBackdrop,
-        LocalContentBackdrop provides contentBackdrop
+        LocalContentBackdrop provides contentBackdrop,
+        com.drone.quiz.ui.theme.LocalWallpaperLuminance provides wallLuminance
     ) {
         Box(Modifier.fillMaxSize()) {
         // 层 1：背景（默认渐变 / 可选全局壁纸作"纹路"，可模糊）
@@ -258,8 +282,10 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                         },
                         onStart = { src2, type, cat, resume ->
                             val catEnc = android.net.Uri.encode(cat)
+                            // v2.8.4：type 可能是多选题型逗号串（"single,judge"），统一 URL 编码更稳
+                            val typeEnc = android.net.Uri.encode(type)
                             navController.navigate(
-                                "practiceRun?src=$src2&type=$type&cat=$catEnc&resume=$resume"
+                                "practiceRun?src=$src2&type=$typeEnc&cat=$catEnc&resume=$resume"
                             ) { launchSingleTop = true }
                         }
                     )
@@ -348,8 +374,9 @@ fun AppRoot(settings: com.drone.quiz.data.settings.AppSettings) {
                         // 特训按当前筛选刷（v2.8.0 修复：此前无论筛选什么都刷全部错题）
                         onPractice = { type, cat ->
                             val catEnc = android.net.Uri.encode(cat)
+                            val typeEnc = android.net.Uri.encode(type)
                             navController.navigate(
-                                "practiceRun?src=wrong&type=$type&cat=$catEnc&resume=false"
+                                "practiceRun?src=wrong&type=$typeEnc&cat=$catEnc&resume=false"
                             ) { launchSingleTop = true }
                         }
                     )

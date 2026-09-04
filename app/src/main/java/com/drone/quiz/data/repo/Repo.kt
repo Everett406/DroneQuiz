@@ -277,10 +277,13 @@ class Repo(private val db: AppDatabase) {
         category: String?,
         type: String?,
         random: Boolean,
-        limit: Int = 800
+        limit: Int = 800,
+        // v2.8.4 题型多选：types 非空且 size>1 时优先走 IN 查询（type 参数被忽略）
+        types: List<String>? = null
     ): List<Question> = withContext(Dispatchers.IO) {
         // 空列表直接短路：Room 对 IN () 空集合会生成非法 SQL 导致崩溃
-        val ids = qDao.idsByFilter(bankId, category, type)
+        val ids = (if (types != null && types.size > 1) qDao.idsByFilterTypes(bankId, category, types)
+                   else qDao.idsByFilter(bankId, category, type))
             .let { if (random) it.shuffled() else it }
             .take(limit)
         if (ids.isEmpty()) return@withContext emptyList()

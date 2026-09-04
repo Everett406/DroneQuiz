@@ -202,3 +202,24 @@ object Dim {
     val barHeight = 64.dp
     val screenPadding = 18.dp
 }
+
+// ==================== 背景亮度自适应（v2.8.4） ====================
+
+/** 自定义壁纸的平均亮度（0..1，Rec.709 加权）；null = 未设置壁纸（默认渐变与主题同向）。 */
+val LocalWallpaperLuminance = staticCompositionLocalOf<Float?> { null }
+
+/**
+ * 实际背景（壁纸 × 主题纱合成后）是否偏暗——按钮等前景元素据此自适应配色。
+ * 无壁纸 → 与主题同向（isDark）；有壁纸 → 壁纸原始亮度按主题纱 alpha 合成估算
+ * （纱参数与 AppRoot 的 wallScrim 一致：浅色主题米白纱≈0.93 亮度、深色主题墨纱≈0.08，
+ * alpha 取模糊开/关档位的中位）。用于修复：亮色主题 + 深色壁纸时墨色按钮融进背景（用户反馈）。
+ */
+@Composable
+fun backdropIsDark(): Boolean {
+    val ui = LocalUi.current
+    val wall = LocalWallpaperLuminance.current ?: return ui.isDark
+    val scrimAlpha = if (ui.isDark) 0.45f else 0.42f
+    val scrimLuminance = if (ui.isDark) 0.08f else 0.93f
+    val effective = wall * (1f - scrimAlpha) + scrimLuminance * scrimAlpha
+    return effective < 0.5f
+}

@@ -47,6 +47,7 @@ import com.drone.quiz.ui.glass.AppIcons
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.theme.LocalReadingFont
 import com.drone.quiz.ui.theme.LocalUi
+import com.drone.quiz.ui.theme.backdropIsDark
 import com.kyant.backdrop.Backdrop
 
 /**
@@ -308,8 +309,9 @@ fun BlankInlineFields(
 
     FlowRow(
         Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+        // v2.8.4：空位变紧凑后同步收紧流式排布间距
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         segments.forEachIndexed { si, seg ->
             if (seg.isNotEmpty()) {
@@ -348,6 +350,12 @@ fun BlankInlineFields(
     }
 }
 
+/**
+ * 原位空位输入框（v2.8.4 重设计，用户反馈「空太大太宽」）：
+ * - 宽度自适应内容：空态最小 60dp 随输入增长，上限 170dp（原 110–220dp 固定宽）；
+ * - 高度紧凑：字号 15→14sp、内边距收窄，与正文行高衔接；
+ * - 占位「第N空」缩小居中，提交后逐空红绿胶囊不变。
+ */
 @Composable
 private fun InlineBlankField(
     index: Int,
@@ -375,7 +383,7 @@ private fun InlineBlankField(
         singleLine = true,
         textStyle = TextStyle(
             color = ui.text,
-            fontSize = 15.sp,
+            fontSize = 14.sp,
             fontFamily = LocalReadingFont.current,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.SemiBold
@@ -383,18 +391,18 @@ private fun InlineBlankField(
         cursorBrush = SolidColor(ui.ink),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         modifier = Modifier
-            .widthIn(min = 110.dp, max = 220.dp)
+            .widthIn(min = 60.dp, max = 170.dp)
             .padding(vertical = 6.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(9.dp))
             .background(bg)
-            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .border(1.dp, borderColor, RoundedCornerShape(9.dp))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
         decorationBox = { inner ->
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.widthIn(min = 90.dp)) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.widthIn(min = 42.dp)) {
                 if (value.isEmpty()) {
                     Text(
                         "第${index + 1}空",
-                        color = ui.textSub.copy(alpha = 0.55f), fontSize = 12.sp
+                        color = ui.textSub.copy(alpha = 0.45f), fontSize = 10.sp
                     )
                 }
                 inner()
@@ -527,7 +535,9 @@ fun ShortReferenceCard(
 
 /**
  * 通用提交按钮。
- * 禁用态：更浅的底 + 次级文字（v2.8.3 调对比度——原 0.25 透明度底上叠灰字看不清，用户反馈）。
+ * v2.8.4 自适应对比：按实际背景（壁纸×主题纱）明暗选择墨色/奶色底——
+ * 修复自定义壁纸（如亮色主题+深色壁纸）下墨色按钮融进背景看不见。
+ * 禁用态保持 v2.8.3 口径（更浅底+次级字），仅把文字换成与背景同向的高对比色。
  */
 @Composable
 fun SubmitAnswerButton(
@@ -537,10 +547,14 @@ fun SubmitAnswerButton(
     onClick: () -> Unit
 ) {
     val ui = LocalUi.current
+    val bgDark = backdropIsDark()
+    val mismatch = bgDark != ui.isDark   // 背景明暗与主题相反 → 底/字反色
+    val surface = if (mismatch) ui.onInk else ui.ink
+    val onSurface = if (mismatch) ui.ink else ui.onInk
     GlassButton(
         onClick = onClick,
         backdrop = backdrop,
-        surfaceColor = if (enabled) ui.ink else ui.ink.copy(alpha = 0.12f),
+        surfaceColor = if (enabled) surface else surface.copy(alpha = 0.14f),
         heightDp = 46.dp,
         modifier = Modifier
             .fillMaxWidth()
@@ -549,7 +563,11 @@ fun SubmitAnswerButton(
     ) {
         Text(
             hint,
-            color = if (enabled) ui.onInk else ui.textSub,
+            color = when {
+                enabled -> onSurface
+                bgDark -> ui.onInk.copy(alpha = 0.55f)   // 深背景 → 亮灰字（暗底不可用 textSub）
+                else -> ui.textSub                        // 浅背景 → 次级灰（v2.8.3 口径）
+            },
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold
         )

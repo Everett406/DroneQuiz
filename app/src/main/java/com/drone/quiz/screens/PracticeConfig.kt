@@ -77,7 +77,9 @@ fun PracticeConfigScreen(
         .collectAsState(initial = AppSettings())
 
     // 题型筛选（v2.8.0 自适应：题型选项 = 当前题库实际拥有的题型）
-    var typeFilter by remember { mutableStateOf("all") }   // all | single | multi | blank | judge | short
+    // v2.8.4 改多选（用户口径：保留「全部」，其余可任意组合，不再单选）：
+    // 空集 = 全部；开始刷题时按规范序编码为逗号串（"single,judge"），下游 splitTypeFilter 解析
+    var selectedTypes by remember { mutableStateOf<Set<String>>(emptySet()) }
     var types by remember { mutableStateOf<List<String>>(emptyList()) }
     // 当前模式的会话快照（双槽：顺序/随机各存各的进度），响应式——切换模式提示即随之切换；
     // 也用于“重新开始”按钮与二次确认（v2.7.4）
@@ -171,13 +173,16 @@ fun PracticeConfigScreen(
             GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
                     Text(
-                        when (typeFilter) {
-                            "all" -> "全部题型"
-                            else -> "只刷${QuestionTypes.label(typeFilter)}题"
+                        when {
+                            selectedTypes.isEmpty() -> "全部题型"
+                            else -> "只刷" + QuestionTypes.canonicalOrder
+                                .filter { it in selectedTypes }
+                                .joinToString("、") { QuestionTypes.label(it) } + "题"
                         },
                         color = ui.text, fontSize = 17.sp, fontWeight = FontWeight.Bold
                     )
                     // v2.8.3：横向滚动 → FlowRow 自动换行（题型凑满时不用左右滑，用户反馈）
+                    // v2.8.4：单选 → 多选；全选时自动归位到「全部」
                     FlowRow(
                         Modifier
                             .fillMaxWidth()
@@ -185,13 +190,18 @@ fun PracticeConfigScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        ConfigChip("全部", typeFilter == "all") { typeFilter = "all" }
+                        ConfigChip("全部", selectedTypes.isEmpty()) { selectedTypes = emptySet() }
                         types.forEach { t ->
                             ConfigChip(
                                 QuestionTypes.label(t),
-                                typeFilter == t
+                                t in selectedTypes
                             ) {
-                                typeFilter = if (typeFilter == t) "all" else t
+                                val next =
+                                    if (t in selectedTypes) selectedTypes - t
+                                    else selectedTypes + t
+                                selectedTypes =
+                                    if (types.isNotEmpty() && next.size == types.size) emptySet()
+                                    else next
                             }
                         }
                     }
@@ -219,7 +229,14 @@ fun PracticeConfigScreen(
 
             // ---- 开始刷题 ----
             GlassButton(
-                onClick = { onStart("all", typeFilter, "all", false) },
+                onClick = {
+                    // 多选编码为逗号串：空集 = "all"；规范序保证快照匹配稳定（v2.8.4）
+                    val typeArg = QuestionTypes.canonicalOrder
+                        .filter { it in selectedTypes }
+                        .joinToString(",")
+                        .ifEmpty { "all" }
+                    onStart("all", typeArg, "all", false)
+                },
                 backdrop = backdrop,
                 surfaceColor = ui.ink,
                 heightDp = 54.dp,
@@ -238,8 +255,10 @@ fun PracticeConfigScreen(
 
             // ---- 续刷提示：当前模式下有未完成进度时展示；"重新开始"胶囊按钮 + 二次确认（v2.7.4） ----
             val snap = lastSession
+            val typeArgNow = QuestionTypes.canonicalOrder
+                .filter { it in selectedTypes }.joinToString(",").ifEmpty { "all" }
             val snapReusable = snap != null && snap.src == "all" &&
-                snap.type == typeFilter && snap.cat == "all" &&
+                snap.type == typeArgNow && snap.cat == "all" &&
                 !sessionComplete(snap) && (snap.index > 0 || snap.answers.isNotEmpty())
             if (snapReusable && snap != null) {
                 Row(

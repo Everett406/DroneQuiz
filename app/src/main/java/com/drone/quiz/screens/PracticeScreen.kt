@@ -500,27 +500,47 @@ fun PracticeRunScreen(
     }
 }
 
+/**
+ * 题型筛选参数解析（v2.8.4 题型多选）：
+ * "all"/空 → null（不限题型）；逗号分隔 → 多题型列表；单个 → 单元素列表。
+ * 会话快照 type 字段存同样的逗号串，恢复时按字符串相等比对，无需迁移。
+ */
+internal fun splitTypeFilter(type: String): List<String>? = when {
+    type.isBlank() || type == "all" -> null
+    "," in type -> type.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    else -> listOf(type)
+}
+
 private suspend fun loadByFilter(
     bank: String,
     src: String,
     type: String,
     cat: String,
     random: Boolean
-): List<Question> =
-    if (src == "wrong") {
-        ServiceLocator.repo.loadWrongPractice(
-            bank,
-            type.takeIf { it != "all" },
-            cat.takeIf { it != "all" }
-        )
+): List<Question> {
+    val types = splitTypeFilter(type)
+    return if (src == "wrong") {
+        if (types != null && types.size > 1) {
+            // 错题特训无多题型 DAO 查询：先按不限题型取活跃错题，再内存过滤（错题量级小）
+            ServiceLocator.repo.loadWrongPractice(bank, null, cat.takeIf { it != "all" })
+                .filter { it.type in types }
+        } else {
+            ServiceLocator.repo.loadWrongPractice(
+                bank,
+                types?.firstOrNull(),
+                cat.takeIf { it != "all" }
+            )
+        }
     } else {
         ServiceLocator.repo.loadPractice(
             bankId = bank,
             category = if (cat == "all") null else cat,
-            type = if (type == "all") null else type,
+            type = types?.singleOrNull(),
+            types = types?.takeIf { it.size > 1 },
             random = random
         )
     }
+}
 
 /** 会话是否已全部刷完（刷完的会话不再接续，下次进入自动开新一轮） */
 internal fun sessionComplete(s: PracticeSession): Boolean {
@@ -609,14 +629,17 @@ internal fun QuestionCard(
                 Spacer(Modifier.weight(1f))
                 Text("第 $index 题", color = LocalUi.current.textSub, fontSize = 11.sp)
             }
-            Text(
-                q.text,
-                color = LocalUi.current.text,
-                fontSize = 16.sp,
-                lineHeight = 25.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 12.dp)
-            )
+            // v2.8.4：填空题题干由 BlankInlineFields 拆段内嵌渲染，不再重复展示（题目重复 bug）
+            if (q.type != QuestionTypes.BLANK) {
+                Text(
+                    q.text,
+                    color = LocalUi.current.text,
+                    fontSize = 16.sp,
+                    lineHeight = 25.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
             when (q.type) {
                 QuestionTypes.MULTI -> MultiSection(q, ua, backdrop, onCommit)
                 QuestionTypes.BLANK -> BlankSection(q, ua, backdrop, onCommit)

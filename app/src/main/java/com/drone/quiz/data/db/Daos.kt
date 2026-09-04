@@ -62,6 +62,14 @@ interface QuestionDao {
     )
     suspend fun idsByFilter(bankId: String, cat: String?, type: String?): List<Long>
 
+    // v2.8.4 题型多选：刷题配置页可同时勾选多种题型，IN 查询一次取齐
+    @Query(
+        "SELECT id FROM questions WHERE bankId = :bankId " +
+            "AND (:cat IS NULL OR category = :cat) " +
+            "AND type IN (:types)"
+    )
+    suspend fun idsByFilterTypes(bankId: String, cat: String?, types: List<String>): List<Long>
+
     @Query("SELECT DISTINCT category FROM questions WHERE bankId = :bankId ORDER BY category")
     suspend fun categories(bankId: String): List<String>
 
