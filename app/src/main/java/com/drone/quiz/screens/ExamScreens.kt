@@ -83,6 +83,7 @@ import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.screens.common.softVerticalEdges
 import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.onboarding.onboardingAnchor
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.GlassIconButton
@@ -605,6 +606,7 @@ fun ExamConfigScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 18.dp)
+                    .onboardingAnchor("exam_start")
             ) {
                 Icon(AppIcons.Play, null, tint = ui.onInk, modifier = Modifier.size(18.dp))
                 Text(

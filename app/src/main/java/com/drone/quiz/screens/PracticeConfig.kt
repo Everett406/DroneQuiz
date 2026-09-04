@@ -48,6 +48,7 @@ import com.drone.quiz.screens.common.heroSearchField
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.onboarding.onboardingAnchor
 import com.drone.quiz.ui.glass.BounceContainer
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -127,7 +128,8 @@ fun PracticeConfigScreen(
                 Modifier
                     .fillMaxWidth()
                     .padding(bottom = 4.dp)
-                    .heroSearchField(),
+                    .heroSearchField()
+                    .onboardingAnchor("practice_search"),
                 cornerRadius = 22.dp,
                 onClick = onSearch
             ) {
@@ -244,6 +246,7 @@ fun PracticeConfigScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 18.dp)
+                    .onboardingAnchor("practice_start")
             ) {
                 Icon(AppIcons.Cards, null, tint = ui.onInk, modifier = Modifier.size(18.dp))
                 Text(

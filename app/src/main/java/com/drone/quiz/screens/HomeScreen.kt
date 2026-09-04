@@ -56,6 +56,7 @@ import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.onboarding.onboardingAnchor
 import com.drone.quiz.ui.glass.GlassAnchorMenu
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
@@ -210,6 +211,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .padding(start = 20.dp, end = 20.dp, top = 6.dp)
                     .fillMaxWidth()
+                    .onboardingAnchor("home_overview")
             ) {
                 Row(
                     Modifier

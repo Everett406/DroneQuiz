@@ -63,6 +63,7 @@ import com.drone.quiz.screens.common.TagChip
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
+import com.drone.quiz.ui.onboarding.onboardingAnchor
 import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassCard
 import com.drone.quiz.ui.glass.rememberBounceState
@@ -111,7 +112,8 @@ fun WrongBookScreen(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .onboardingAnchor("wrong_title"),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 错题特训入口保留列表顶部"图案+字"按钮一个（此前右上角还有一个纯图标重复入口）

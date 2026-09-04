@@ -75,6 +75,8 @@ import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.glass.GlassInputDialog
 import com.drone.quiz.ui.glass.BounceContainer
+import com.drone.quiz.ui.onboarding.OnboardingBus
+import com.drone.quiz.ui.onboarding.onboardingAnchor
 import com.drone.quiz.ui.theme.LocalReadingFont
 import com.drone.quiz.ui.theme.LocalUi
 import com.drone.quiz.ui.theme.ReadingFontOptions
@@ -228,7 +230,7 @@ fun SettingsScreen(backdrop: Backdrop) {
 
         // ---- 外观 ----
         SectionLabel("外观")
-        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth().onboardingAnchor("settings_look"), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
                 // ---- 昵称（首页问候语用；默认不取名，只按时间问候；可自定义≤5字，确认生效） ----
                 Row(
@@ -702,7 +704,7 @@ fun SettingsScreen(backdrop: Backdrop) {
 
         // ---- 题库管理（v2.8.0 多题库） ----
         SectionLabel("题库管理", Modifier.padding(top = 16.dp))
-        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth().onboardingAnchor("settings_banks"), cornerRadius = 22.dp) {
             Column(Modifier.padding(18.dp)) {
                 banksState.forEachIndexed { idx, (bank, cnt) ->
                     val isCurrent = bank.id == settings.currentBank
@@ -810,6 +812,37 @@ fun SettingsScreen(backdrop: Backdrop) {
                         Text("清空记录", color = ui.wrong, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
+
+        // ---- 使用引导（v2.9.0：随时重走功能导览；首启未看完也会自动弹出，可跳过） ----
+        SectionLabel("使用引导", Modifier.padding(top = 16.dp))
+        GlassCard(backdrop = backdrop, Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = null,
+                        indication = null
+                    ) {
+                        OnboardingBus.start(replay = true)
+                    }
+                    .padding(horizontal = 18.dp, vertical = 13.dp)
+            ) {
+                Icon(AppIcons.Grid, null, tint = ui.accent, modifier = Modifier.size(18.dp))
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .padding(horizontal = 10.dp)
+                ) {
+                    Text("使用引导", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "重新走一遍功能导览，可随时跳过",
+                        color = ui.textSub, fontSize = 11.sp
+                    )
+                }
+                Icon(AppIcons.ChevronRight, null, tint = ui.textSub, modifier = Modifier.size(16.dp))
             }
         }
 

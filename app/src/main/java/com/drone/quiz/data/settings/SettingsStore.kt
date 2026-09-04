@@ -62,7 +62,8 @@ data class AppSettings(
     val examIncludeShort: Boolean = false, // 模考高级选项：含简答题（默认关）
     val examTypeOrder: List<String> = emptyList(), // 模考题型顺序（空 = 单选→多选→填空→判断→简答）
     val examAutoMix: Boolean = true, // 模考题型构成：自动按题库各题型占比配比（关 = 手动拖比例，v2.8.3）
-    val eyeCareReminder: Boolean = false // v2.8.6 护眼提醒：连续刷题 20 分钟弹窗提醒休息（考试不受影响）
+    val eyeCareReminder: Boolean = false, // v2.8.6 护眼提醒：连续刷题 20 分钟弹窗提醒休息（考试不受影响）
+    val onboardingDone: Boolean = false // v2.9.0 首启功能引导已完成/已跳过（跳过即不再自动弹）
 )
 
 class SettingsStore(private val context: Context) {
@@ -102,6 +103,8 @@ class SettingsStore(private val context: Context) {
         val examAutoMix = booleanPreferencesKey("exam_auto_mix")
         // v2.8.6 护眼提醒
         val eyeCareReminder = booleanPreferencesKey("eye_care_reminder")
+        // v2.9.0 首启功能引导
+        val onboardingDone = booleanPreferencesKey("onboarding_done")
 
         /** currentBank 缺省值（与 AppSettings.currentBank 默认一致） */
         const val BANK_DEFAULT = "drone"
@@ -137,7 +140,8 @@ class SettingsStore(private val context: Context) {
                 runCatching { json.decodeFromString<List<String>>(raw) }.getOrNull()
             } ?: emptyList(),
             examAutoMix = p[K.examAutoMix] ?: true,
-            eyeCareReminder = p[K.eyeCareReminder] ?: false
+            eyeCareReminder = p[K.eyeCareReminder] ?: false,
+            onboardingDone = p[K.onboardingDone] ?: false
         )
     }
 
@@ -180,6 +184,9 @@ class SettingsStore(private val context: Context) {
         p[K.supportPrompted] = true
         p[K.supportRefused] = true
     }
+
+    /** v2.9.0 首启引导完成/跳过：跳过即不再自动弹（设置页重看不受影响）。 */
+    suspend fun completeOnboarding() = context.dataStore.edit { it[K.onboardingDone] = true }
 
     /** 本周（ISO 周，周一为一周开始）键，如 "2026-W36" */
     private fun currentWeekKey(): String {

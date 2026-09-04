@@ -66,7 +66,9 @@ import androidx.navigation.compose.rememberNavController
 import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.settings.RootSettings
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.drone.quiz.screens.ExamConfigScreen
 import com.drone.quiz.screens.ExamResultScreen
@@ -88,6 +90,8 @@ import com.drone.quiz.ui.glass.LocalBgBackdrop
 import com.drone.quiz.ui.glass.LocalContentBackdrop
 import com.drone.quiz.ui.glass.OverlayBlur
 import com.drone.quiz.ui.glass.TabIconSlot
+import com.drone.quiz.ui.onboarding.OnboardingBus
+import com.drone.quiz.ui.onboarding.TourHost
 import com.drone.quiz.ui.theme.LocalUi
 import com.drone.quiz.util.GallerySave
 import com.kyant.backdrop.Backdrop
@@ -447,6 +451,27 @@ fun AppRoot(settings: RootSettings) {
         // 层 5：支持作者弹窗（累计使用 2h 触发一次；考试中不弹，出考试再弹）
         // v2.8.8：不再从根级传 RootSettings（usageMs 每分钟变化会拖动全根重组）
         SupportPromptHost(backdrop = bgBackdrop, currentRoute = route)
+
+        // 层 6：首启功能引导（v2.9.0，用户口径：页面高亮气泡带着逛一圈）。
+        // 首启（onboarding_done=false）自动开演，跳过/翻完即落标记不再弹；
+        // 设置页「使用引导」入口随时重看（OnboardingBus.start(replay=true)）。
+        LaunchedEffect(Unit) {
+            val done = runCatching {
+                ServiceLocator.settings.settings.first().onboardingDone
+            }.getOrDefault(true)
+            if (!done) {
+                delay(900) // 等首帧、壁纸、底栏动画稳定后再开演
+                OnboardingBus.start(replay = false)
+            }
+        }
+        TourHost(
+            backdrop = bgBackdrop,
+            currentTab = tabIndex.coerceAtLeast(0),
+            onNavigateTab = { navigateTab(it) },
+            onFinish = {
+                appScope.launch { runCatching { ServiceLocator.settings.completeOnboarding() } }
+            }
+        )
     }
     }
 }
