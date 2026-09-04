@@ -27,7 +27,8 @@ object ServiceLocator {
 
     fun init(app: Application) {
         db = AppDatabase.get(app)
-        repo = Repo(db)
+        // v2.8.5：Repo 需要 appContext 落盘/清理题目图片（bank_images/<bankId>/）
+        repo = Repo(db, app)
         settings = SettingsStore(app)
     }
 }

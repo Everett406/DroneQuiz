@@ -1,7 +1,6 @@
 package com.drone.quiz.data.repo
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 /** 题型常量与展示名（v2.8.0 新题型：multi/blank/short） */
 object QuestionTypes {
@@ -80,9 +79,7 @@ fun displayUserAnswer(q: Question, ua: UserAnswer?): String {
 internal fun optionLabel(i: Int, isJudge: Boolean): String =
     if (isJudge) listOf("√", "×")[i.coerceIn(0, 1)] else ('A' + i).toString()
 
-// ==================== 导入（JSON / CSV） ====================
-
-private val importJson = Json { ignoreUnknownKeys = true }
+// ==================== 导入（CSV / ZIP） ====================
 
 @Serializable
 data class ImportQuestion(
@@ -120,32 +117,96 @@ data class ParsedQuestion(
     val answer: Int,          // single/judge 下标；multi 位掩码
     val answerText: String,   // blank / short
     val explanation: String,
-    val id: Long? = null      // JSON 内置题库可指定稳定 id
+    val id: Long? = null,     // JSON 内置题库可指定稳定 id
+    val images: List<String> = emptyList() // v2.8.5：题目图片（ZIP 内的规范文件名，按引用顺序）
+)
+
+/** ZIP 导入结果：题目预览 + 图片字节表（key = 文件名小写）+ 唯一 CSV 名。 */
+data class ZipImportResult(
+    val preview: ImportPreview,
+    val csvName: String,
+    val images: Map<String, ByteArray>
 )
 
 object BankImport {
 
-    /** 统一入口：JSON 或 CSV 自动识别（BOM 容忍）。 */
+    /**
+     * 统一入口（v2.8.5 起 UI 只保留 CSV / ZIP，JSON 不再作为导入格式）。
+     * 兼容性提示：ZIP 请走 [parseZip]；BOM 容忍。
+     */
     fun parse(bytes: ByteArray): ImportPreview {
+        if (bytes.size >= 2 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
+            error("这是 ZIP 压缩包，请用「ZIP 压缩包」入口导入")
+        }
         var text = bytes.decodeToString()
         if (text.startsWith("\uFEFF")) text = text.removePrefix("\uFEFF")
         val head = text.trimStart().firstOrNull() ?: error("文件为空")
-        val preview = if (head == '{' || head == '[') parseJson(text) else parseCsvText(text)
+        if (head == '{' || head == '[') {
+            error("JSON 导入已下线：可让 Agent 把旧 JSON 转成 CSV 后再导入")
+        }
+        val preview = parseCsvText(text)
         require(preview.ok.isNotEmpty() || preview.errors.isNotEmpty()) { "没有解析到任何题目" }
         return preview
     }
 
-    // ---------- JSON ----------
+    // ---------- ZIP（CSV + 图片文件夹） ----------
 
-    fun parseJson(text: String): ImportPreview {
-        val errors = mutableListOf<String>()
-        val ok = mutableListOf<ParsedQuestion>()
-        val root = importJson.decodeFromString<ImportBank>(text)
-        root.questions.forEachIndexed { idx, q ->
-            handleParsed(idx + 1, q.category, q.type, q.question, q.options, q.answer, q.answers, q.answerText, q.explanation, ok, errors)
+    /**
+     * v2.8.5：ZIP 导入。约定结构（兼容单 CSV 打包）：
+     * ```
+     * 题库.zip
+     * ├─ 题目.csv          ← 有且仅有一个 CSV（任意层级）
+     * └─ images/           ← 图片文件夹可选；图片也允许在任意层级
+     *     └─ 1.png ...
+     * ```
+     * CSV 新增「图片」列填文件名（忽略大小写匹配），多图用 | 分隔。
+     * 仅被题目引用到的图片会随题库落盘；其余文件（说明等）忽略。
+     */
+    fun parseZip(zipBytes: ByteArray): ZipImportResult {
+        val csvEntries = mutableListOf<Pair<String, ByteArray>>()
+        val imageBytes = LinkedHashMap<String, ByteArray>()   // key = 文件名小写
+        val imageIndex = LinkedHashMap<String, String>()      // key = 文件名小写 → ZIP 内规范文件名
+        java.util.zip.ZipInputStream(java.io.ByteArrayInputStream(zipBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory) {
+                    val name = QuestionImages.sanitize(entry.name)
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    when {
+                        ext == "csv" -> {
+                            val bytes = zis.readBytes()
+                            if (bytes.isNotEmpty()) csvEntries.add(name to bytes)
+                        }
+                        ext in QuestionImages.ALLOWED_EXTS -> {
+                            val bytes = zis.readBytes()
+                            val key = name.lowercase()
+                            if (bytes.isNotEmpty() && !imageBytes.containsKey(key)) {
+                                imageBytes[key] = bytes
+                                imageIndex[key] = name
+                            }
+                        }
+                        // 其他文件（说明.md / .DS_Store / __MACOSX 等）忽略
+                    }
+                }
+                entry = zis.nextEntry
+            }
         }
-        return ImportPreview(ok, errors, ok.map { it.category }.distinct().sorted())
+        require(csvEntries.isNotEmpty()) {
+            "ZIP 中没有找到 CSV 文件（需包含一个题目 CSV；带图片时把 CSV 和图片文件夹一起压缩）"
+        }
+        require(csvEntries.size == 1) {
+            "ZIP 里有 ${csvEntries.size} 个 CSV（${csvEntries.take(3).joinToString("、") { it.first }}），请只保留一个题目 CSV"
+        }
+        val (csvName, csvBytes) = csvEntries.first()
+        var text = csvBytes.decodeToString()
+        if (text.startsWith("\uFEFF")) text = text.removePrefix("\uFEFF")
+        val preview = parseCsvText(text, imageIndex)
+        require(preview.ok.isNotEmpty() || preview.errors.isNotEmpty()) { "没有解析到任何题目" }
+        val used = preview.ok.flatMap { it.images }.map { it.lowercase() }.toSet()
+        return ZipImportResult(preview, csvName, imageBytes.filterKeys { it in used })
     }
+
+    // ---------- JSON（仅内置题库播种用；导入通道已下线，见 parse()） ----------
 
     // ---------- CSV ----------
 
@@ -179,7 +240,13 @@ object BankImport {
 
     private fun normHeader(s: String) = s.trim().replace(" ", "").replace("　", "")
 
-    fun parseCsvText(text: String): ImportPreview {
+    /**
+     * CSV 解析。v2.8.5 新增「图片」列：
+     * - [imageIndex] == null：纯 CSV 导入，「图片」列填了值会报错（带图请打包 ZIP）；
+     * - [imageIndex] != null：ZIP 导入，key = 文件名小写 → value = ZIP 内规范文件名；
+     *   引用不存在的文件名会逐行报错。多图用 | 分隔（也容忍 ；/;）。
+     */
+    fun parseCsvText(text: String, imageIndex: Map<String, String>? = null): ImportPreview {
         val rows = parseCsvRows(text)
         require(rows.isNotEmpty()) { "CSV 为空" }
         val header = rows.first().map(::normHeader)
@@ -193,6 +260,7 @@ object BankImport {
         require(iAns >= 0) { "CSV 缺少「答案」列" }
         val iExpl = colOf(listOf("解析", "答案解析", "Explanation"))
         val iNote = colOf(listOf("备注", "Note"))
+        val iImg = colOf(listOf("图片", "配图", "插图", "image", "images", "picture"))
         // 选项列：选项A…选项H（兼容 A/optionA 写法）
         val optionCols = IntArray(8) { -1 }
         header.forEachIndexed { idx, h ->
@@ -215,29 +283,30 @@ object BankImport {
             if (note.isNotBlank()) expl = (if (expl.isBlank()) "" else "$expl\n") + "备注：$note"
 
             val no = if (iNo >= 0) cell(iNo) else "${rowIdx + 1}"
-            handleParsedRaw(lineNo, no, rawType, stem, opts, ansRaw, expl, ok, errors)
+            // v2.8.5：图片列解析（大小写不敏感匹配 ZIP 内文件；多图用 | 分隔）
+            val imageRefs = if (iImg >= 0) {
+                cell(iImg).split('|', '；', ';').map { it.trim() }.filter { it.isNotEmpty() }
+            } else emptyList()
+            val resolvedImages = if (imageRefs.isEmpty()) {
+                emptyList()
+            } else if (imageIndex == null) {
+                errors.add(
+                    "第 $lineNo 行：填了图片「${imageRefs.first()}」——带图片的题库需打包 ZIP（题目 CSV + 图片）导入；纯 CSV 请把「图片」列留空"
+                )
+                return@forEachIndexed
+            } else {
+                val missing = imageRefs.filter { it.lowercase() !in imageIndex }
+                if (missing.isNotEmpty()) {
+                    errors.add(
+                        "第 $lineNo 行：图片「${missing.first()}」在压缩包中未找到（文件名需与 ZIP 内图片一致，支持 jpg/png/webp/gif/bmp）"
+                    )
+                    return@forEachIndexed
+                }
+                imageRefs.map { imageIndex[it.lowercase()]!! }.distinct()
+            }
+            handleParsedRaw(lineNo, no, rawType, stem, opts, ansRaw, expl, resolvedImages, ok, errors)
         }
         return ImportPreview(ok, errors, ok.map { it.category }.distinct().sorted())
-    }
-
-    /** JSON 通道的类型归一与校验 */
-    private fun handleParsed(
-        lineNo: Int,
-        category: String,
-        rawType: String,
-        stem: String,
-        opts: List<String>,
-        answer: Int?,
-        answers: List<Int>?,
-        answerText: String?,
-        explanation: String,
-        ok: MutableList<ParsedQuestion>,
-        errors: MutableList<String>
-    ) {
-        val type = normalizeType(rawType)
-            ?: run { errors.add("第 $lineNo 题：无法识别题型「$rawType」"); return }
-        buildParsed(lineNo, type, category, stem, opts,
-            { answer }, { answers }, { answerText ?: "" }, explanation, ok, errors)
     }
 
     /** CSV 通道的类型归一与校验 */
@@ -249,6 +318,7 @@ object BankImport {
         opts: List<String>,
         ansRaw: String,
         explanation: String,
+        images: List<String> = emptyList(),
         ok: MutableList<ParsedQuestion>,
         errors: MutableList<String>
     ) {
@@ -262,7 +332,7 @@ object BankImport {
                 if (it.size < 2) errors.add("第 $lineNo 行（题号 $no）：多选题答案需至少两个选项（如 ABD）")
             }
         }
-        buildParsed(lineNo, type, "未分类", stem, opts, ansSupplier, answersSupplier, { ansRaw }, explanation, ok, errors)
+        buildParsed(lineNo, type, "未分类", stem, opts, ansSupplier, answersSupplier, { ansRaw }, explanation, images, ok, errors)
     }
 
     private fun buildParsed(
@@ -275,6 +345,7 @@ object BankImport {
         answers: () -> List<Int>?,
         answerText: () -> String,
         explanation: String,
+        images: List<String> = emptyList(),
         ok: MutableList<ParsedQuestion>,
         errors: MutableList<String>
     ) {
@@ -282,14 +353,14 @@ object BankImport {
             QuestionTypes.SINGLE, QuestionTypes.JUDGE -> {
                 if (opts.size < 2) { errors.add("第 $lineNo 处：${QuestionTypes.label(type)}题至少需要 2 个选项"); return }
                 val a = answer() ?: return // 错误已在 parseAnswerIndex 内记录
-                ok.add(ParsedQuestion(category, type, stem, opts, a, "", explanation))
+                ok.add(ParsedQuestion(category, type, stem, opts, a, "", explanation, images = images))
             }
             QuestionTypes.MULTI -> {
                 if (opts.size < 3) { errors.add("第 $lineNo 处：多选题至少需要 3 个选项"); return }
                 val list = answers() ?: return
                 if (list.size < 2) return // 错误已记录
                 val mask = list.fold(0) { acc, i -> acc or (1 shl i) }
-                ok.add(ParsedQuestion(category, type, stem, opts, mask, "", explanation))
+                ok.add(ParsedQuestion(category, type, stem, opts, mask, "", explanation, images = images))
             }
             QuestionTypes.BLANK -> {
                 val ansText = answerText()
@@ -301,12 +372,12 @@ object BankImport {
                     errors.add("第 $lineNo 处：填空题空位数（$blanksInStem）与答案空数（$blanksInAns）不一致（多空用 || 分隔）")
                     return
                 }
-                ok.add(ParsedQuestion(category, type, stem, emptyList(), 0, ansText, explanation))
+                ok.add(ParsedQuestion(category, type, stem, emptyList(), 0, ansText, explanation, images = images))
             }
             QuestionTypes.SHORT -> {
                 val ansText = answerText()
                 if (ansText.isBlank()) { errors.add("第 $lineNo 处：简答题需要参考答案（自评判分的对照）"); return }
-                ok.add(ParsedQuestion(category, type, stem, emptyList(), 0, ansText, explanation))
+                ok.add(ParsedQuestion(category, type, stem, emptyList(), 0, ansText, explanation, images = images))
             }
         }
     }

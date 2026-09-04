@@ -2,16 +2,19 @@ package com.drone.quiz.screens.common
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,20 +29,28 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.drone.quiz.data.repo.Question
+import com.drone.quiz.data.repo.QuestionImages
 import com.drone.quiz.data.repo.QuestionTypes
 import com.drone.quiz.data.repo.UserAnswer
 import com.drone.quiz.data.repo.displayUserAnswer
@@ -279,6 +290,107 @@ fun ParseBlock(explanation: String) {
             lineHeight = 21.sp,
             modifier = Modifier.padding(top = 4.dp)
         )
+    }
+}
+
+// ---------- 题目图片（v2.8.5，ZIP 导入的带图题库） ----------
+
+/**
+ * 题目图片条：默认每张图显示为限高小图，点按在小图/大图间平滑过渡（Hero 式缩放）。
+ * 图片来自导入 ZIP 里的文件，按题库隔离存放在 bank_images/<bankId>/。
+ * 插入位置：题卡题干之后、作答区之前（填空题图片显示在题干上方，同一插入点）。
+ */
+@Composable
+fun QuestionImageStrip(q: Question) {
+    if (q.images.isEmpty()) return
+    val context = LocalContext.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        q.images.forEach { name ->
+            ExpandableQuestionImage(
+                path = remember(q.bankId, name) { QuestionImages.resolve(context, q.bankId, name) }
+            )
+        }
+    }
+}
+
+/**
+ * 单张可展开题目图片：宽度占满卡内，高度在小图/大图间用 spring 插值——
+ * 图片始终 ContentScale.Fit 填充，缩放过程即所见即所得（类似 Hero 转场）。
+ * 再点一下收起回小图；加载失败降级为占位文案。
+ */
+@Composable
+private fun ExpandableQuestionImage(path: String) {
+    val ui = LocalUi.current
+    var expanded by remember(path) { mutableStateOf(false) }
+    var bitmap by remember(path) { mutableStateOf<ImageBitmap?>(null) }
+    var failed by remember(path) { mutableStateOf(false) }
+    LaunchedEffect(path) {
+        val b = QuestionImages.load(path)
+        bitmap = b?.asImageBitmap()
+        failed = b == null
+    }
+    // 展开/收起进度（0 小图 → 1 大图），驱动高度与圆角平滑过渡
+    val expand = remember(path) { Animatable(0f) }
+    LaunchedEffect(expanded) {
+        expand.animateTo(if (expanded) 1f else 0f, spring(dampingRatio = 0.92f, stiffness = 400f))
+    }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                enabled = bitmap != null
+            ) { expanded = !expanded }
+    ) {
+        val aspect = bitmap?.let {
+            it.width.coerceAtLeast(1).toFloat() / it.height.coerceAtLeast(1).toFloat()
+        } ?: 1.4f
+        val fitH = maxWidth / aspect
+        val smallH = fitH.coerceIn(96.dp, 150.dp)
+        val largeH = fitH.coerceAtLeast(smallH * 1.8f).coerceAtMost(440.dp)
+        val corner = lerp(14.dp, 20.dp, expand.value)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(lerp(smallH, largeH, expand.value))
+                .clip(RoundedCornerShape(corner))
+                .background(ui.ink.copy(alpha = 0.05f))
+                .border(1.dp, ui.ink.copy(alpha = 0.10f), RoundedCornerShape(corner)),
+            contentAlignment = Alignment.Center
+        ) {
+            val bmp = bitmap
+            when {
+                bmp != null -> Image(
+                    bitmap = bmp,
+                    contentDescription = "题目图片",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+                failed -> Text("图片未能加载", color = ui.textSub, fontSize = 11.sp)
+                else -> Text("图片加载中…", color = ui.textSub, fontSize = 11.sp)
+            }
+        }
+        if (bitmap != null) {
+            Text(
+                if (expand.value < 0.5f) "点按放大" else "点按收起",
+                color = ui.textSub,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(ui.surface.copy(alpha = 0.72f))
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            )
+        }
     }
 }
 

@@ -64,6 +64,7 @@ import com.drone.quiz.screens.common.CorrectAnswerLine
 import com.drone.quiz.screens.common.ParseBlock
 import com.drone.quiz.screens.common.OptionRow
 import com.drone.quiz.screens.common.OptionToggleRow
+import com.drone.quiz.screens.common.QuestionImageStrip
 import com.drone.quiz.screens.common.QuestionTypeTag
 import com.drone.quiz.screens.common.ResultHeader
 import com.drone.quiz.screens.common.ShortDraftField
@@ -640,6 +641,8 @@ internal fun QuestionCard(
                     modifier = Modifier.padding(top = 12.dp)
                 )
             }
+            // v2.8.5：题目图片（ZIP 导入的带图题库）——题干后、作答区前，小图点按展开
+            QuestionImageStrip(q)
             when (q.type) {
                 QuestionTypes.MULTI -> MultiSection(q, ua, backdrop, onCommit)
                 QuestionTypes.BLANK -> BlankSection(q, ua, backdrop, onCommit)

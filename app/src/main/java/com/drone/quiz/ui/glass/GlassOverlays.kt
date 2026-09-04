@@ -25,10 +25,13 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -373,6 +376,110 @@ fun GlassAnchorMenu(
                 onDismiss = onDismiss
             ) {
                 Column(Modifier.padding(vertical = 6.dp)) { content() }
+            }
+        }
+    }
+}
+
+/**
+ * 提示词对话框（v2.8.5）：长文本可滚动预览 + 一键复制。
+ * 用于「复制 Agent 提示词」——用户把提示词连同自己的 Excel/Word/PDF 材料交给 AI Agent，
+ * 由 Agent 整理成题屿可导入的 CSV / ZIP。
+ */
+@Composable
+fun GlassPromptDialog(
+    backdrop: Backdrop,
+    title: String,
+    hint: String,
+    body: String,
+    confirmText: String,
+    dismissText: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    GlassOverlayRegistration(visible = true, onDismiss = onDismiss) {
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        AnimatedVisibility(
+            visible = shown,
+            enter = fadeIn(tween(160)) + scaleIn(
+                initialScale = 0.92f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
+            ),
+            exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.95f, animationSpec = tween(140))
+        ) {
+            val ui = LocalUi.current
+            val scroll = rememberScrollState()
+            GlassOverlayPanel(
+                scrimColor = Color.Black.copy(alpha = if (ui.isDark) 0.22f else 0.10f),
+                contentAlignment = Alignment.Center,
+                panelShape = RoundedCornerShape(26.dp),
+                panelModifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    // 提示词很长：整体限高，正文区内部滚动
+                    .heightIn(max = 560.dp),
+                backdrop = backdrop,
+                onDismiss = onDismiss
+            ) {
+                Column(Modifier.padding(horizontal = 22.dp, vertical = 20.dp)) {
+                    Text(
+                        title,
+                        color = ui.text,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (hint.isNotBlank()) {
+                        Text(
+                            hint,
+                            color = ui.textSub,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(ui.ink.copy(alpha = 0.05f))
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(scroll)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            body,
+                            color = ui.text,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GlassButton(
+                            onClick = onDismiss,
+                            backdrop = backdrop,
+                            heightDp = 44.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(dismissText, color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        GlassButton(
+                            onClick = onConfirm,
+                            backdrop = backdrop,
+                            surfaceColor = ui.ink.copy(alpha = 0.92f),
+                            heightDp = 44.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(confirmText, color = ui.onInk, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
     }

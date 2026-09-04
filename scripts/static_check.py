@@ -156,6 +156,13 @@ must = [
     ("backdropIsDark", "提交按钮背景明暗自适应(v2.8.4)"),
     ("MixPreviewBar", "模考题型构成第4卡分布预览条(v2.8.4)"),
     ("val activeTypes = buildList", "activeTypes 排序提示非白名单(修 20 题只出 4 题 v2.8.4)"),
+    ("parseZip", "ZIP 导入(题目CSV+图片 v2.8.5)"),
+    ("QuestionImages", "题目图片存储 bank_images/<bankId>(v2.8.5)"),
+    ("QuestionImageStrip", "题目图片组件·小图点按展开(v2.8.5)"),
+    ("GlassPromptDialog", "Agent 提示词可滚动复制对话框(v2.8.5)"),
+    ("AGENT_PROMPT", "Agent 整理提示词模板(v2.8.5)"),
+    ("MIGRATION_2_3", "questions+images 重建表迁移(v2.8.5)"),
+    ("_new_questions", "MIGRATION_2_3 重建表模式(v2.8.5)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):

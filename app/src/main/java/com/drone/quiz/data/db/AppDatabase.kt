@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WrongBookEntity::class,
         StreakLogEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -91,6 +91,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 → v3（v2.8.5 题目图片）：questions +images 列。
+         * 非空新列禁止 ADD COLUMN ... DEFAULT（实体未声明 defaultValue，Room 校验会崩，
+         * v2.8.1 已踩坑）——沿用重建表模式：建 _new 表→拷数据→删旧表→改名→补齐索引。
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `_new_questions` (`id` INTEGER NOT NULL, " +
+                        "`category` TEXT NOT NULL, `type` TEXT NOT NULL, `question` TEXT NOT NULL, " +
+                        "`options` TEXT NOT NULL, `answer` INTEGER NOT NULL, `explanation` TEXT NOT NULL, " +
+                        "`bankId` TEXT NOT NULL, `answerText` TEXT NOT NULL, `images` TEXT NOT NULL, PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "INSERT INTO `_new_questions` (`id`,`category`,`type`,`question`,`options`,`answer`,`explanation`,`bankId`,`answerText`,`images`) " +
+                        "SELECT `id`,`category`,`type`,`question`,`options`,`answer`,`explanation`,`bankId`,`answerText`,'' FROM `questions`"
+                )
+                db.execSQL("DROP TABLE `questions`")
+                db.execSQL("ALTER TABLE `_new_questions` RENAME TO `questions`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_category` ON `questions` (`category`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_type` ON `questions` (`type`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_questions_bankId` ON `questions` (`bankId`)")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -99,7 +124,7 @@ abstract class AppDatabase : RoomDatabase() {
                     // v2 起使用新库文件名，规避旧版本残留数据库的 schema 校验冲突
                     "drone_quiz_v2.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

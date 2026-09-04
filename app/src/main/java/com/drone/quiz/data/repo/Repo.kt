@@ -32,7 +32,8 @@ data class Question(
     val options: List<String>,
     val answer: Int,           // single/judge：下标；multi：位掩码
     val answerText: String,    // blank：各空答案（|| 分空、| 分变体）；short：参考答案
-    val explanation: String
+    val explanation: String,
+    val images: List<String> = emptyList() // v2.8.5：题目图片文件名（存于 bank_images/<bankId>/）
 ) {
     val isJudge: Boolean get() = type == QuestionTypes.JUDGE
 
@@ -69,7 +70,7 @@ data class Question(
     }
 }
 
-class Repo(private val db: AppDatabase) {
+class Repo(private val db: AppDatabase, private val appContext: Context) {
 
     private val qDao = db.questionDao()
     private val bDao = db.bankDao()
@@ -232,10 +233,28 @@ class Repo(private val db: AppDatabase) {
         s.fold(h) { acc, c -> 31 * acc + c.code }.let { if (it < 0) -it else it }
     }
 
-    /** 导入为独立题库（不替换现有题库）；题 id 从全库最大值之后顺序分配，保证全局唯一。 */
-    suspend fun importParsedBank(name: String, preview: ImportPreview): String = withContext(Dispatchers.IO) {
+    /**
+     * 导入为独立题库（不替换现有题库）；题 id 从全库最大值之后顺序分配，保证全局唯一。
+     * v2.8.5：[images] 非空时（ZIP 导入）把被引用的图片落盘到 bank_images/<bankId>/，
+     * 实体记录落盘后的实际文件名。图片先落库后写库：任一落盘失败则整体失败，不产生半截题库。
+     */
+    suspend fun importParsedBank(
+        name: String,
+        preview: ImportPreview,
+        images: Map<String, ByteArray> = emptyMap()
+    ): String = withContext(Dispatchers.IO) {
         require(preview.ok.isNotEmpty()) { "没有可导入的题目" }
         val bankId = "imp_${System.currentTimeMillis()}"
+        // 落盘被引用的图片（key 小写匹配），得到 引用名 → 实际文件名 映射
+        val savedNames = HashMap<String, String>()   // key = 引用名小写
+        if (images.isNotEmpty()) {
+            val taken = mutableSetOf<String>()
+            preview.ok.flatMap { it.images }.distinct().forEach { ref ->
+                val key = ref.lowercase()
+                val bytes = images[key] ?: return@forEach
+                savedNames[key] = QuestionImages.saveBankImage(appContext, bankId, ref, bytes, taken)
+            }
+        }
         var next = (qDao.maxId() ?: 800L) + 1
         val entities = preview.ok.map { p ->
             QuestionEntity(
@@ -247,7 +266,8 @@ class Repo(private val db: AppDatabase) {
                 answer = p.answer,
                 explanation = p.explanation,
                 bankId = bankId,
-                answerText = p.answerText
+                answerText = p.answerText,
+                images = json.encodeToString(p.images.map { savedNames[it.lowercase()] ?: it })
             )
         }
         db.withTransaction {
@@ -268,6 +288,8 @@ class Repo(private val db: AppDatabase) {
             qDao.deleteByBank(bankId)
             bDao.delete(bankId)
         }
+        // v2.8.5：随题库删除其导入的题目图片（独立于 DB 事务，失败不影响数据一致性）
+        runCatching { QuestionImages.deleteBank(appContext, bankId) }
     }
 
     // ---------- 刷题 ----------
@@ -323,7 +345,8 @@ class Repo(private val db: AppDatabase) {
         options = runCatching { json.decodeFromString<List<String>>(options) }.getOrDefault(emptyList()),
         answer = answer,
         answerText = answerText,
-        explanation = explanation
+        explanation = explanation,
+        images = runCatching { json.decodeFromString<List<String>>(images) }.getOrDefault(emptyList())
     )
 
     /**

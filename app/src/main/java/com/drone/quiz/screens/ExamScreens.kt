@@ -71,6 +71,7 @@ import com.drone.quiz.data.repo.judgeAnswer
 import com.drone.quiz.data.repo.isAnswered
 import com.drone.quiz.data.repo.optionLabel
 import com.drone.quiz.screens.common.BlankInlineFields
+import com.drone.quiz.screens.common.QuestionImageStrip
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
@@ -1314,6 +1315,8 @@ private fun ExamQuestionCard(
                     modifier = Modifier.padding(top = 12.dp)
                 )
             }
+            // v2.8.5：题目图片（ZIP 导入的带图题库）——题干后、作答区前，小图点按展开
+            QuestionImageStrip(q)
             when (q.type) {
                 QuestionTypes.MULTI -> ExamMultiSection(q, ua, onAnswer)
                 QuestionTypes.BLANK -> ExamBlankSection(q, ua, onAnswer)

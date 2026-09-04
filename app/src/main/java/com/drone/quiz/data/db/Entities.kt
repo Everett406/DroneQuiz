@@ -17,7 +17,8 @@ data class QuestionEntity(
     val answer: Int,     // single/judge：正确选项下标；multi：正确项位掩码（bit i = 选项 i）
     val explanation: String,
     val bankId: String = "drone",     // 所属题库（v2.8.0 多题库）
-    val answerText: String = ""       // blank：各空答案（|| 分隔空，| 分隔同空可接受变体）；short：参考答案
+    val answerText: String = "",      // blank：各空答案（|| 分隔空，| 分隔同空可接受变体）；short：参考答案
+    val images: String = ""           // v2.8.5：题目图片文件名 JSON 数组（文件存于 bank_images/<bankId>/）
 )
 
 /** 题库登记表（v2.8.0）：内置题库（assets 播种）与导入题库统一管理。 */
