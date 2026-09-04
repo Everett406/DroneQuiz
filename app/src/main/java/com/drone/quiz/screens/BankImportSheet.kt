@@ -45,7 +45,7 @@ import com.drone.quiz.ui.glass.GlassButton
 import com.drone.quiz.ui.glass.GlassBottomSheet
 import com.drone.quiz.ui.glass.GlassConfirmDialog
 import com.drone.quiz.ui.theme.LocalUi
-import com.drone.quiz.util.GallerySave
+import com.drone.quiz.util.GalleryShare
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

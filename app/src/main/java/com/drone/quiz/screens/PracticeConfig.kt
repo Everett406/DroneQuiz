@@ -98,8 +98,9 @@ fun PracticeConfigScreen(
         ServiceLocator.settings.settings
             .distinctUntilChangedBy { it.currentBank }
             .collectLatest { st ->
+                // bank 在各 runCatching 之外声明（作用域贯穿整个收集体）
+                val bank = st.currentBank
                 runCatching {
-                    val bank = st.currentBank
                     types = ServiceLocator.repo.typesInBank(bank)
                     val cats = ServiceLocator.repo.categoriesOf(bank).map { it.category to it.cnt }
                     categories = cats
