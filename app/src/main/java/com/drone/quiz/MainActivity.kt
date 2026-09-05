@@ -138,9 +138,8 @@ class MainActivity : ComponentActivity() {
                                     "题库就绪（版本 $loadedVersion，学习数据已随题库升级重置）"
                                 )
                                 runCatching { ServiceLocator.settings.setBankVersion(loadedVersion) }
-                                // 题库升级后旧题目 id 全部失配，刷题进度快照（顺序+随机双槽）一并作废
-                                runCatching { ServiceLocator.settings.setPracticeSession(null, 0) }
-                                runCatching { ServiceLocator.settings.setPracticeSession(null, 1) }
+                                // 题库升级后旧题目 id 全部失配，刷题进度快照（v2.11.0 多槽）整体作废
+                                runCatching { ServiceLocator.settings.clearAllPracticeSessions() }
                             } else {
                                 BootGuard.log(context, "load", "题库就绪")
                             }

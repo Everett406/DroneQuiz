@@ -148,6 +148,9 @@ fun PracticeRunScreen(
     val details = remember { mutableStateMapOf<Long, UserAnswer>() }
     var showPanel by remember { mutableStateOf(false) }
     var restoredTick by remember { mutableIntStateOf(0) }
+    // 恢复会话的目标页（快照 index）：恢复时捕获，跳页用（v2.11.0 前是跳页时重读
+    // DataStore，多槽后同上下文可能已变化，且多一次无谓读取）
+    var restoredIndex by remember { mutableIntStateOf(0) }
     var reloadTick by remember { mutableIntStateOf(0) }
     // 本会话所属模式槽（0 顺序 / 1 随机）与题库
     var sessionOrder by remember { mutableIntStateOf(0) }
@@ -215,7 +218,9 @@ fun PracticeRunScreen(
                     roundCovered = emptyList()
                     ServiceLocator.repo.loadPractice(bank, null, null, random = true, limit = limit)
                 } else if (resume) {
-                    val s = ServiceLocator.settings.currentPracticeSession(order)
+                    // v2.11.0 多槽：「继续刷题」接续该题库+模式下最近保存的会话
+                    //（任意题型范围；配置页换过范围也能续回最新那份进度）
+                    val s = ServiceLocator.settings.latestPracticeSession(bank, order)
                     if (s != null && s.ids.isNotEmpty() && s.bankId == bank && !sessionAtEnd(s)) {
                         sessionMode = true
                         restoring = true
@@ -229,6 +234,7 @@ fun PracticeRunScreen(
                                     .getOrNull()?.let { ua -> details[id] = ua }
                             }
                         }
+                        restoredIndex = s.index
                         restoredTick++          // 恢复完成后跳转进度
                         qs
                     } else {
@@ -249,7 +255,10 @@ fun PracticeRunScreen(
                     sessionMode = false
                     answers.clear(); details.clear()
                     // 自动接续：存在同筛选参数、同题库的会话快照 → 无缝恢复
-                    val snap = runCatching { ServiceLocator.settings.currentPracticeSession(order) }.getOrNull()
+                    //（v2.11.0 多槽：按「题库+模式+范围」精确取槽，不会误接别的库/范围）
+                    val snap = runCatching {
+                        ServiceLocator.settings.currentPracticeSession(bank, order, type, cat)
+                    }.getOrNull()
                     if (src == "all" && snap != null && snap.src == "all" && snap.bankId == bank &&
                         !sessionAtEnd(snap) &&
                         snap.type == type && snap.cat == cat
@@ -266,6 +275,7 @@ fun PracticeRunScreen(
                                         .getOrNull()?.let { ua -> details[id] = ua }
                                 }
                             }
+                            restoredIndex = snap.index
                             restoredTick++
                             qs
                         } else {
@@ -295,8 +305,7 @@ fun PracticeRunScreen(
     // 恢复会话：等 Pager 上屏后跳到上次进度；跳转完成后才恢复持久化（restoring 解除）
     LaunchedEffect(restoredTick) {
         if (restoredTick > 0 && questions.isNotEmpty()) {
-            val target = ServiceLocator.settings.currentPracticeSession(sessionOrder)?.index ?: 0
-            pagerState.scrollToPage(target.coerceIn(0, questions.size - 1))
+            pagerState.scrollToPage(restoredIndex.coerceIn(0, questions.size - 1))
             restoring = false
         }
     }
@@ -704,7 +713,7 @@ internal fun persistSession(
                     bankId = bankId,
                     covered = covered
                 ),
-                order
+                bankId, order, type, cat
             )
         }
     }

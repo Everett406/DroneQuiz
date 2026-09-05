@@ -905,9 +905,8 @@ fun SettingsScreen(backdrop: Backdrop) {
                         if (v > 0) ServiceLocator.settings.setBankVersion(v)
                         ServiceLocator.repo.ensureSampleLoaded(context, emptyList())
                         ServiceLocator.settings.setCurrentBank(com.drone.quiz.data.repo.Repo.BANK_DRONE)
-                        // 刷题进度快照（顺序+随机双槽）一并清掉
-                        ServiceLocator.settings.setPracticeSession(null, 0)
-                        ServiceLocator.settings.setPracticeSession(null, 1)
+                        // 刷题进度快照（v2.11.0 多槽全部槽位）一并清掉
+                        ServiceLocator.settings.clearAllPracticeSessions()
                     }
                     banksRefreshTick++
                     importMsg = "记录已清空，内置题库已恢复"
@@ -940,6 +939,8 @@ fun SettingsScreen(backdrop: Backdrop) {
                     runCatching {
                         val wasCurrent = target.id == settings.currentBank
                         ServiceLocator.repo.deleteBankData(target.id)
+                        // 该库的刷题会话槽一并清掉（v2.11.0 多槽）
+                        ServiceLocator.settings.purgeBankSessions(target.id)
                         if (target.source != "imported") {
                             ServiceLocator.settings.addDeletedBank(target.id)
                         }

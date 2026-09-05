@@ -186,6 +186,12 @@ must = [
     ("ExamQuickConfig", "快速模考配置快照(v2.10.0)"),
     ("LauncherBus", "快捷方式/小组件启动目标中继(v2.10.0)"),
     ("savePngBitmap", "位图存相册 MediaStore 免权限(v2.10.0)"),
+    ("practice_sessions_v2", "多槽会话存储 DataStore key(v2.11.0 修切库/换范围进度被覆盖)"),
+    ("SessionSlots", "多槽会话容器(v2.11.0)"),
+    ("ensureSlotsMigrated", "旧双槽一次性迁移·进度无损(v2.11.0)"),
+    ("latestPracticeSession", "继续刷题接续最近会话(v2.11.0)"),
+    ("clearAllPracticeSessions", "题库升级/清空数据全清会话(v2.11.0)"),
+    ("purgeBankSessions", "删题库清会话槽(v2.11.0)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):
@@ -208,8 +214,12 @@ for f in FILES:
 #      widget 布局只许最保守白名单子集：禁 theme attr 引用（宿主 Context 无 app theme 时
 #      inflate 直接抛异常）、禁 letterSpacing（OEM inflater 历史坑）、禁 ProgressBar+rotate/ring
 #      矢量环（stats 环改预渲染 PNG + ImageView）。
+#      注：路径基于仓库根（BASE 是 app/src/main/java，历史版在本节曾拼错路径致检查空转，v2.11.0 修正）
 import glob as _glob
-_widget_layouts = _glob.glob(BASE + "/app/src/main/res/layout/widget_*.xml")
+_repo_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+_widget_layouts = _glob.glob(_repo_root + "/app/src/main/res/layout/widget_*.xml")
+if not _widget_layouts:
+    print("[FAIL] 未找到 widget 布局文件（检查路径错误或布局被误删）"); fail = True
 for f in _widget_layouts:
     s = load(f)
     if "?android:attr" in s or "?attr" in s:
@@ -221,7 +231,7 @@ for f in _widget_layouts:
     if "ProgressBar" in s:
         print(f"[FAIL] widget 布局禁止 ProgressBar（进度环用预渲染 PNG + ImageView）: {f}")
         fail = True
-_wu = load("app/src/main/java/com/drone/quiz/util/WidgetUpdater.kt")
+_wu = load(_repo_root + "/app/src/main/java/com/drone/quiz/util/WidgetUpdater.kt")
 for pat, desc in [("setImageViewResource", "stats 环 PNG 档位切换"),
                   ("widget_ring_l_100", "浅色进度环 PNG 档位"),
                   ("widget_ring_d_100", "深色进度环 PNG 档位")]:
@@ -229,9 +239,19 @@ for pat, desc in [("setImageViewResource", "stats 环 PNG 档位切换"),
         print(f"[FAIL] WidgetUpdater 缺 {desc}（{pat}）"); fail = True
 for f in ["app/src/main/res/drawable/widget_ring_light.xml",
           "app/src/main/res/drawable/widget_ring_dark.xml"]:
-    if os.path.exists(os.path.join(BASE, f)):
+    if os.path.exists(os.path.join(_repo_root, f)):
         print(f"[FAIL] 旧矢量环未删除（应已被 PNG 取代）: {f}")
         fail = True
+
+# 3.7) 旧单槽会话 API 残留禁令（v2.11.0）：双参清空/单参读口是「切库开刷即覆盖原库进度」
+#      缺陷的根源写法，回归即 FAIL。
+for pat, desc in [
+    ("setPracticeSession(null, ", "旧双参单槽清空签名"),
+    ("currentPracticeSession(order)", "旧单参读口"),
+    ("practiceSession(settings.practiceOrder)", "旧单参流读口"),
+]:
+    for h in grep_hits(pat):
+        print(f"[FAIL] 旧单槽会话 API 残留（{desc}）: {h}"); fail = True
 
 print("PASS" if not fail else "STATIC CHECK FAILED")
 sys.exit(1 if fail else 0)

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -38,6 +39,16 @@ data class PracticeSession(
     // 新字段带默认值：老版本快照 JSON 无此键也能照常反序列化（ignoreUnknownKeys）。
     val covered: List<Long> = emptyList()
 )
+
+/**
+ * v2.11.0 多槽刷题会话存储：一个 DataStore key 装下所有会话快照，
+ * 槽位键 = "bankId|order|type|cat"。切题库/换题型范围各自占槽互不覆盖，
+ * 彻底修复旧版「单槽覆盖」：切到 B 题库刷几题（甚至只进页没答题）
+ * 就把 A 题库的进度快照覆盖销毁，切回 A 只能从第 1 题重开（统计不受影响
+ * ——作答记录在 DB 里，所以首页数据看起来还在）。
+ */
+@Serializable
+data class SessionSlots(val entries: Map<String, PracticeSession> = emptyMap())
 
 /**
  * 快速模考配置快照（v2.10.0）：每次在模考配置页点「开始考试」时落盘，
@@ -97,6 +108,8 @@ class SettingsStore(private val context: Context) {
         val practiceOrder = intPreferencesKey("practice_order")
         val effects = booleanPreferencesKey("glass_effects")
         val bankVersion = intPreferencesKey("bank_version")
+        // v2.8.0~v2.10.2 旧双槽（仅作 legacy 迁移源，迁移后移除）：
+        // 单槽覆盖缺陷的历史根源，见 SessionSlots 注释
         val practiceSession = stringPreferencesKey("practice_session")
         val glassBlur = intPreferencesKey("glass_blur_level")
         val wallpaper = stringPreferencesKey("wallpaper_path")
@@ -110,6 +123,8 @@ class SettingsStore(private val context: Context) {
         // 顺序槽沿用旧 key practice_session（老版本数据无损迁移：历史上只有顺序会话）；
         // 随机槽独立，两模式各自记各自的进度，互不覆盖
         val practiceSessionRandom = stringPreferencesKey("practice_session_random")
+        // v2.11.0 多槽存储（SessionSlots JSON map，槽位键 bankId|order|type|cat）
+        val practiceSessionsV2 = stringPreferencesKey("practice_sessions_v2")
         // 模考记录删除限额（每周 2 次）
         val examDelWeek = stringPreferencesKey("exam_del_week")
         val examDelCount = intPreferencesKey("exam_del_count")
@@ -180,31 +195,112 @@ class SettingsStore(private val context: Context) {
         )
     }
 
+    // ---- v2.11.0 多槽刷题会话 ----
+
+    private companion object {
+        /** 多槽上限（按 savedAt LRU 淘汰）：题型筛选组合有限，10 槽足够且体量可控 */
+        const val MAX_SLOTS = 10
+    }
+
+    @Volatile
+    private var slotsMigrated = false
+
+    private fun slotKey(bank: String, order: Int, type: String, cat: String) =
+        "$bank|$order|$type|$cat"
+
     /**
-     * 指定模式（0 顺序 / 1 随机）的刷题会话（null = 无未完成会话）。双槽互不影响。
-     *
-     * v2.8.8 切库隔离堵漏（用户实测：导入新题库后「接续上次进度」仍显示旧题库的
-     * 「523/2000」，切随机又变内置题库 20 道）：快照的 bankId 必须与当前题库一致，
-     * 否则视同无会话。在唯一读口过滤，所有消费方（配置页续刷提示/刷题页恢复/
-     * 自动接续/补漏轮）一次性生效；切回旧题库时进度仍在，不丢数据。
+     * 旧双槽一次性迁移（v2.8.0~v2.10.2 的 practice_session / practice_session_random）：
+     * 各自的快照按自身字段归位到新槽（bankId 为空串的历史快照归内置题库 drone），
+     * 迁完移除旧 key。迁移后用户已有的刷题进度无损保留。
      */
-    fun practiceSession(order: Int): Flow<PracticeSession?> = context.dataStore.data.map { p ->
-        val raw = if (order == 1) p[K.practiceSessionRandom] else p[K.practiceSession]
-        val bank = p[K.currentBank] ?: K.BANK_DEFAULT
-        raw?.let {
-            runCatching { json.decodeFromString<PracticeSession>(it) }.getOrNull()
-                ?.takeIf { s -> s.ids.isNotEmpty() && s.bankId == bank }
+    private suspend fun ensureSlotsMigrated() {
+        if (slotsMigrated) return
+        context.dataStore.edit { p ->
+            if (p[K.practiceSessionsV2] != null) return@edit
+            val slots = LinkedHashMap<String, PracticeSession>()
+            listOf(0 to K.practiceSession, 1 to K.practiceSessionRandom)
+                .forEach { (order, key) ->
+                    p[key]?.let { raw ->
+                        runCatching { json.decodeFromString<PracticeSession>(raw) }.getOrNull()
+                            ?.takeIf { s -> s.ids.isNotEmpty() }
+                            ?.let { s ->
+                                val bank = s.bankId.ifEmpty { K.BANK_DEFAULT }
+                                slots[slotKey(bank, order, s.type, s.cat)] = s.copy(bankId = bank)
+                            }
+                    }
+                }
+            p[K.practiceSessionsV2] = json.encodeToString(SessionSlots(slots))
+            p.remove(K.practiceSession)
+            p.remove(K.practiceSessionRandom)
+        }
+        slotsMigrated = true
+    }
+
+    private fun parseSlots(raw: String?): Map<String, PracticeSession> =
+        raw?.let { r -> runCatching { json.decodeFromString<SessionSlots>(r) }.getOrNull() }
+            ?.entries ?: emptyMap()
+
+    private suspend fun readSlots(): Map<String, PracticeSession> {
+        ensureSlotsMigrated()
+        return context.dataStore.data.first().let { parseSlots(it[K.practiceSessionsV2]) }
+    }
+
+    private suspend fun editSlots(transform: (LinkedHashMap<String, PracticeSession>) -> Unit) {
+        ensureSlotsMigrated()
+        context.dataStore.edit { p ->
+            val cur = LinkedHashMap(parseSlots(p[K.practiceSessionsV2]))
+            transform(cur)
+            while (cur.size > MAX_SLOTS) {
+                val oldest = cur.entries.minByOrNull { it.value.savedAt }?.key ?: break
+                cur.remove(oldest)
+            }
+            p[K.practiceSessionsV2] = json.encodeToString(SessionSlots(cur))
         }
     }
 
-    suspend fun currentPracticeSession(order: Int): PracticeSession? = practiceSession(order).first()
+    /**
+     * 精确上下文（当前题库 + 模式 + 筛选范围）的刷题会话流。
+     * 每个上下文各自占槽：切库/换题型范围互不覆盖，切回原上下文进度仍在。
+     */
+    fun practiceSession(bank: String, order: Int, type: String, cat: String): Flow<PracticeSession?> =
+        context.dataStore.data
+            .onStart { ensureSlotsMigrated() }
+            .map { p -> parseSlots(p[K.practiceSessionsV2])[slotKey(bank, order, type, cat)] }
+            .distinctUntilChanged()
 
-    suspend fun setPracticeSession(s: PracticeSession?, order: Int) {
-        context.dataStore.edit { p ->
-            val key = if (order == 1) K.practiceSessionRandom else K.practiceSession
-            if (s == null) p.remove(key)
-            else p[key] = json.encodeToString(s.copy(savedAt = System.currentTimeMillis()))
+    suspend fun currentPracticeSession(bank: String, order: Int, type: String, cat: String): PracticeSession? =
+        practiceSession(bank, order, type, cat).first()
+
+    /**
+     * 该题库+模式下最近保存的会话（任意筛选范围）——「继续刷题」入口语义：
+     * 用户在配置页换了题型范围后，首页/小组件的续刷仍接续最新那份进度。
+     */
+    suspend fun latestPracticeSession(bank: String, order: Int): PracticeSession? =
+        readSlots().entries
+            .filter { (k, _) -> k.startsWith("$bank|$order|") }
+            .maxByOrNull { it.value.savedAt }?.value
+
+    suspend fun setPracticeSession(s: PracticeSession?, bank: String, order: Int, type: String, cat: String) {
+        editSlots { cur ->
+            val key = slotKey(bank, order, type, cat)
+            if (s == null) cur.remove(key)
+            else cur[key] = s.copy(savedAt = System.currentTimeMillis())
         }
+    }
+
+    /** 全部会话作废：题库升级（旧题 id 全失配）/ 清空全部数据时调用。 */
+    suspend fun clearAllPracticeSessions() {
+        context.dataStore.edit { p ->
+            p.remove(K.practiceSessionsV2)
+            p.remove(K.practiceSession)
+            p.remove(K.practiceSessionRandom)
+        }
+        slotsMigrated = false
+    }
+
+    /** 删除题库时清掉该库的所有会话槽（防陈旧快照永佔 LRU 名额）。 */
+    suspend fun purgeBankSessions(bank: String) {
+        editSlots { cur -> cur.keys.removeAll { k -> k.startsWith("$bank|") } }
     }
 
     /** 累计前台使用时长（打赏弹窗门槛）；挂调用方协程。 */

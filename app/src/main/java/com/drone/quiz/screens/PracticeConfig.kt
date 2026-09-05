@@ -83,11 +83,15 @@ fun PracticeConfigScreen(
     // 空集 = 全部；开始刷题时按规范序编码为逗号串（"single,judge"），下游 splitTypeFilter 解析
     var selectedTypes by remember { mutableStateOf<Set<String>>(emptySet()) }
     var types by remember { mutableStateOf<List<String>>(emptyList()) }
-    // 当前模式的会话快照（双槽：顺序/随机各存各的进度），响应式——切换模式提示即随之切换；
-    // 也用于“重新开始”按钮与二次确认（v2.7.4）
+    // 当前题型筛选参数（多选规范序逗号串；空集 = all）——既是开考参数，也是 v2.11.0 会话槽位键的一部分
+    val typeArgNow = QuestionTypes.canonicalOrder
+        .filter { it in selectedTypes }.joinToString(",").ifEmpty { "all" }
+    // 当前上下文的会话快照，响应式——切题库/换题型范围/切模式都会切到各自的槽；
+    // 也用于“重新开始”按钮与二次确认（v2.7.4）。
+    // v2.11.0 多槽：按「题库+模式+范围」精确取槽，互不覆盖（旧版单槽：切库开刷即把原库进度覆盖销毁）
     var showResetConfirm by remember { mutableStateOf(false) }
-    val sessionFlow = remember(settings.practiceOrder) {
-        ServiceLocator.settings.practiceSession(settings.practiceOrder)
+    val sessionFlow = remember(settings.currentBank, settings.practiceOrder, typeArgNow) {
+        ServiceLocator.settings.practiceSession(settings.currentBank, settings.practiceOrder, typeArgNow, "all")
     }
     val lastSession by sessionFlow.collectAsState(initial = null)
     var total by remember { mutableIntStateOf(0) }
@@ -257,11 +261,9 @@ fun PracticeConfigScreen(
                 )
             }
 
-            // ---- 续刷提示：当前模式下有未完成进度时展示；"重新开始"胶囊按钮 + 二次确认（v2.7.4） ----
+            // ---- 续刷提示：当前上下文有未完成进度时展示；"重新开始"胶囊按钮 + 二次确认（v2.7.4） ----
             val snap = lastSession
-            val typeArgNow = QuestionTypes.canonicalOrder
-                .filter { it in selectedTypes }.joinToString(",").ifEmpty { "all" }
-            // v2.8.8：切库隔离双保险——读口已按 currentBank 过滤，这里再显式校验一次，
+            // v2.8.8：切库隔离双保险——读口已按「题库+范围」精确取槽，这里再显式校验一次
             // 防「523/2000」这种异库旧进度漏进续刷提示
             val snapReusable = snap != null && snap.src == "all" &&
                 snap.bankId == settings.currentBank &&
@@ -332,7 +334,10 @@ fun PracticeConfigScreen(
                 showResetConfirm = false
                 scope.launch {
                     runCatching {
-                        ServiceLocator.settings.setPracticeSession(null, settings.practiceOrder)
+                        // v2.11.0 多槽：只清当前「题库+模式+范围」这一份进度，其他槽不动
+                        ServiceLocator.settings.setPracticeSession(
+                            null, settings.currentBank, settings.practiceOrder, typeArgNow, "all"
+                        )
                     }
                 }
             },
