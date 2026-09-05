@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [2.10.2] - 2026-09-05
+
+### 修复 —— 桌面小组件 ColorOS 兼容性（第三十八轮：真机反馈）
+
+- **「载入窗口小部件时出现问题」**（ColorOS / 一加等机型四款全触发）：
+  四款小组件布局整体收敛到 RemoteViews 最保守兼容子集——
+  - 学习统计卡进度环由 layer-list(rotate+ring shape) 矢量改为**预渲染
+    PNG**（0~100% 每 10% 一档 × 深浅两套共 22 张，PIL 超采样抗锯齿，
+    270° 起笔 butt 端头与原矢量一致），布局改用 ImageView；运行时
+    `setImageViewResource` 切档，不再依赖 ProgressBar/theme attr/rotate；
+  - 移除 ProgressBar `style="?android:attr/progressBarStyleHorizontal"`
+    主题属性引用（宿主 Context 无 app theme 时 inflate 直接抛异常）；
+  - 移除全部 `android:letterSpacing`（OEM 宿主 inflater 历史坑）。
+- static_check 新增小组件保守化禁令（禁 theme attr / letterSpacing /
+  ProgressBar 进 widget 布局；必须含 PNG 档位；旧矢量环必须删除）。
+
 ## [2.10.1] - 2026-09-05
 
 ### 修复 —— 成绩卡体验（第三十七轮：用户真机反馈）

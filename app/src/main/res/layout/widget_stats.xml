@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 学习统计卡（4×2，极简杂志风）：目标进度环 + 正确率 + 连续打卡 + 目标行 -->
+<!-- 学习统计卡（4×2，极简杂志风）：目标进度环 + 正确率 + 连续打卡 + 目标行
+     v2.10.2 兼容性清零：进度环由 layer-list(rotate+ring) 矢量改为预渲染 PNG
+     （ImageView+PNG 是 RemoteViews 最保守子集，规避 OEM 宿主 inflate 差异） -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/wsRoot"
     android:layout_width="match_parent"
@@ -21,26 +23,12 @@
             android:layout_width="76dp"
             android:layout_height="76dp">
 
-            <ProgressBar
-                android:id="@+id/wsRingL"
-                style="?android:attr/progressBarStyleHorizontal"
+            <ImageView
+                android:id="@+id/wsRing"
                 android:layout_width="76dp"
                 android:layout_height="76dp"
-                android:indeterminate="false"
-                android:max="100"
-                android:progress="0"
-                android:progressDrawable="@drawable/widget_ring_light" />
-
-            <ProgressBar
-                android:id="@+id/wsRingD"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="76dp"
-                android:layout_height="76dp"
-                android:indeterminate="false"
-                android:visibility="gone"
-                android:max="100"
-                android:progress="0"
-                android:progressDrawable="@drawable/widget_ring_dark" />
+                android:src="@drawable/widget_ring_l_0"
+                android:contentDescription="@null" />
 
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -92,7 +80,6 @@
                 android:layout_height="wrap_content"
                 android:text="正确率"
                 android:textSize="10sp"
-                android:letterSpacing="0.1"
                 android:textColor="#8A8A85" />
 
             <TextView
@@ -139,7 +126,6 @@
                 android:layout_height="wrap_content"
                 android:text="连续打卡"
                 android:textSize="10sp"
-                android:letterSpacing="0.1"
                 android:textColor="#8A8A85" />
 
             <TextView

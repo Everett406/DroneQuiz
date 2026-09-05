@@ -204,5 +204,34 @@ for f in FILES:
                 print(f"[FAIL] 迁移 SQL 含 NOT NULL DEFAULT 但实体未声明 @ColumnInfo(defaultValue)（Room 校验必崩）: {f}:{lineno}")
                 fail = True
 
+# 3.6) 小组件 RemoteViews 保守化禁令（v2.10.2：ColorOS「载入窗口小部件时出现问题」清零改造）
+#      widget 布局只许最保守白名单子集：禁 theme attr 引用（宿主 Context 无 app theme 时
+#      inflate 直接抛异常）、禁 letterSpacing（OEM inflater 历史坑）、禁 ProgressBar+rotate/ring
+#      矢量环（stats 环改预渲染 PNG + ImageView）。
+import glob as _glob
+_widget_layouts = _glob.glob(BASE + "/app/src/main/res/layout/widget_*.xml")
+for f in _widget_layouts:
+    s = load(f)
+    if "?android:attr" in s or "?attr" in s:
+        print(f"[FAIL] widget 布局禁止 theme attr 引用（RemoteViews 宿主端 inflate 雷区）: {f}")
+        fail = True
+    if "letterSpacing" in s:
+        print(f"[FAIL] widget 布局禁止 letterSpacing（OEM 宿主兼容性清零）: {f}")
+        fail = True
+    if "ProgressBar" in s:
+        print(f"[FAIL] widget 布局禁止 ProgressBar（进度环用预渲染 PNG + ImageView）: {f}")
+        fail = True
+_wu = load("app/src/main/java/com/drone/quiz/util/WidgetUpdater.kt")
+for pat, desc in [("setImageViewResource", "stats 环 PNG 档位切换"),
+                  ("widget_ring_l_100", "浅色进度环 PNG 档位"),
+                  ("widget_ring_d_100", "深色进度环 PNG 档位")]:
+    if pat not in _wu:
+        print(f"[FAIL] WidgetUpdater 缺 {desc}（{pat}）"); fail = True
+for f in ["app/src/main/res/drawable/widget_ring_light.xml",
+          "app/src/main/res/drawable/widget_ring_dark.xml"]:
+    if os.path.exists(os.path.join(BASE, f)):
+        print(f"[FAIL] 旧矢量环未删除（应已被 PNG 取代）: {f}")
+        fail = True
+
 print("PASS" if not fail else "STATIC CHECK FAILED")
 sys.exit(1 if fail else 0)

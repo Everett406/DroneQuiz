@@ -131,6 +131,26 @@ object WidgetUpdater {
         )
     }
 
+    /** 目标进度环 PNG 档位（0~100 每 10% 一档，浅/深两套；v2.10.2 由矢量改为预渲染 PNG） */
+    private fun ringRes(pct: Int, light: Boolean): Int {
+        val step = (pct / 10).coerceIn(0, 10) * 10
+        return if (light) when (step) {
+            10 -> R.drawable.widget_ring_l_10; 20 -> R.drawable.widget_ring_l_20
+            30 -> R.drawable.widget_ring_l_30; 40 -> R.drawable.widget_ring_l_40
+            50 -> R.drawable.widget_ring_l_50; 60 -> R.drawable.widget_ring_l_60
+            70 -> R.drawable.widget_ring_l_70; 80 -> R.drawable.widget_ring_l_80
+            90 -> R.drawable.widget_ring_l_90; 100 -> R.drawable.widget_ring_l_100
+            else -> R.drawable.widget_ring_l_0
+        } else when (step) {
+            10 -> R.drawable.widget_ring_d_10; 20 -> R.drawable.widget_ring_d_20
+            30 -> R.drawable.widget_ring_d_30; 40 -> R.drawable.widget_ring_d_40
+            50 -> R.drawable.widget_ring_d_50; 60 -> R.drawable.widget_ring_d_60
+            70 -> R.drawable.widget_ring_d_70; 80 -> R.drawable.widget_ring_d_80
+            90 -> R.drawable.widget_ring_d_90; 100 -> R.drawable.widget_ring_d_100
+            else -> R.drawable.widget_ring_d_0
+        }
+    }
+
     /** 小组件/快捷方式统一入口：MainActivity 收 tuyu_nav extra 后交给 AppRoot 路由 */
     private fun tapIntent(context: Context, nav: String): PendingIntent =
         PendingIntent.getActivity(
@@ -167,17 +187,8 @@ object WidgetUpdater {
         RemoteViews(context.packageName, R.layout.widget_stats).apply {
             val p = pal(context)
             setInt(R.id.wsRoot, "setBackgroundResource", p.bgRes)
-            setViewVisibility(
-                R.id.wsRingL,
-                if (p.ringLight) android.view.View.VISIBLE else android.view.View.GONE
-            )
-            setViewVisibility(
-                R.id.wsRingD,
-                if (p.ringLight) android.view.View.GONE else android.view.View.VISIBLE
-            )
             val pct = ((s.todayAnswered * 100f) / s.dailyGoal).toInt().coerceIn(0, 100)
-            setProgressBar(R.id.wsRingL, 100, pct, false)
-            setProgressBar(R.id.wsRingD, 100, pct, false)
+            setImageViewResource(R.id.wsRing, ringRes(pct, p.ringLight))
             listOf(R.id.wsLabelM, R.id.wsLabelR, R.id.wsFoot).forEach {
                 theme(it, p.sub)
             }
