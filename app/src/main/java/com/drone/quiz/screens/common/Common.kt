@@ -17,8 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,6 +117,40 @@ fun TagChip(text: String, color: Color = LocalUi.current.textSub, outline: Boole
     ) {
         Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
+}
+
+/**
+ * 分类标签文案（v2.9.2）：导入时无分类的题落库为「未分类」，展示时回退为题库名称——
+ * 卡片上应显示题目来自哪个题库，而不是干巴巴的「未分类」。
+ */
+fun displayCategory(category: String?, bankName: String?): String {
+    val c = category?.takeIf { it.isNotBlank() }
+    return if (c == null || c == "未分类") {
+        bankName?.takeIf { it.isNotBlank() } ?: "未分类"
+    } else c
+}
+
+/**
+ * 题库名称查询（remember 缓存，bankId 变化自动重查；失败返回 null 回退「未分类」）。
+ * 配合 [displayCategory] 使用：TagChip(displayCategory(q.category, rememberBankName(q.bankId)))。
+ */
+@Composable
+fun rememberBankName(bankId: String?): String? {
+    var name by remember(bankId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(bankId) {
+        if (bankId != null) {
+            name = runCatching { ServiceLocator.repo.bankNameOf(bankId) }.getOrNull()
+        }
+    }
+    return name
+}
+
+/**
+ * 跨屏前台信号（轻量全局态，v2.9.2）：打赏弹窗门槛计时只统计真实刷题时长——
+ * 刷题答题页（PracticeRunScreen）组合中才置 true，MainActivity 的计时器按此门控累计。
+ */
+object UsageSignals {
+    var onPracticeScreen by mutableStateOf(false)
 }
 
 /**

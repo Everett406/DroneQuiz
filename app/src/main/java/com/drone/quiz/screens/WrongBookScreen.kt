@@ -60,6 +60,8 @@ import com.drone.quiz.data.db.WrongWithQuestion
 import com.drone.quiz.data.repo.QuestionTypes
 import com.drone.quiz.screens.common.ScreenTitle
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.displayCategory
+import com.drone.quiz.screens.common.rememberBankName
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
 import com.drone.quiz.ui.glass.AppIcons
@@ -92,6 +94,8 @@ fun WrongBookScreen(
     }.collectAsState(initial = emptyList())
     val bounce = rememberBounceState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // 无分类题的类目标签回退显示题库名（v2.9.2）
+    val bankName = rememberBankName(settings.currentBank)
 
     // ---- 筛选：题型 + 分类（v2.8.0：题型自适应；单分类不再重复展示；特训按筛选刷） ----
     var typeFilter by remember { mutableStateOf("all") }   // all | single | multi | blank | judge | short
@@ -231,6 +235,7 @@ fun WrongBookScreen(
                         ) {
                             WrongItem(
                                 item = item,
+                                bankName = bankName,
                                 backdrop = backdrop,
                                 threshold = settings.removeThreshold,
                                 onRemove = {
@@ -429,6 +434,7 @@ private fun FastScrollHandle(
 @Composable
 private fun WrongItem(
     item: WrongWithQuestion,
+    bankName: String?,
     backdrop: Backdrop,
     threshold: Int,
     onRemove: () -> Unit
@@ -466,8 +472,8 @@ private fun WrongItem(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 类目标签降调：中性色即可，无需标红（红色留给错误语义）
-                TagChip(item.category)
+                // 类目标签降调：中性色即可，无需标红（红色留给错误语义）；无分类回退题库名（v2.9.2）
+                TagChip(displayCategory(item.category, bankName))
                 Spacer(Modifier.width(6.dp))
                 TagChip(QuestionTypes.label(item.type))
                 Spacer(Modifier.weight(1f))

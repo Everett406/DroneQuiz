@@ -83,7 +83,7 @@
 ### 支持作者（打赏，v2.7.4 新增）
 
 - **手动入口**：设置 → 关于 → 「☕ 请喝奶茶」（v2.8.9 起在关于底部弹窗内，随时打开、不影响自动触达；v2.8.10 起点击后关于弹窗先收起、打赏弹窗随后单独弹出）；
-- 累计前台使用满 **2 小时**后，温和弹一次打赏弹窗（仅一次）；
+- 累计刷题满 **2 小时**后，温和弹一次打赏弹窗（仅一次）；
 - 点「看看收款码」展示打赏码（白底大图），可一键**保存到相册** `Pictures/题屿`（MediaStore，API 31+ 无需存储权限）；
 - 点「以后别提醒我」则**永久不再弹**；弹窗外关闭视为已弹过；
 - **考试中绝不打扰**：正在模考时达标，会等考试结束回到普通页面后再出现。
@@ -113,7 +113,7 @@
 - **检查更新**：设置 → 关于 → 「检查更新」，应用比对 GitHub Releases 最新版，有新版时引导浏览器打开发布页手动下载 APK（不做应用内下载安装）；
 - **刷题进度**：顺序 / 随机两种模式的进度**各自独立记忆**，切回任一模式都接着该模式上次的位置；进度**按题库隔离保存**（v2.8.8），切库互不干扰、切回原库进度仍在；「重新开始」会清空**当前模式**的进度，且需二次确认；
 - **画面特效**：低端设备若出现卡顿或渲染异常，可在 设置 → 画面特效 关闭液态玻璃（应用也会在检测到异常退出后自动降级）；
-- **打赏弹窗**：累计使用满 2 小时会弹一次，不喜欢点「以后别提醒我」即可永久关闭。
+- **打赏弹窗**：累计刷题满 2 小时会弹一次，不喜欢点「以后别提醒我」即可永久关闭。
 
 ---
 
@@ -152,7 +152,7 @@ TiYu/
 │   │   └── drawable-nodpi/              # 内置壁纸 wp_dusk / wp_forest_deep / wp_forest_light / wp_sky
 │   └── java/
 │       ├── com/drone/quiz/
-│       │   ├── MainActivity.kt          # 入口 Activity：启动画面、SafeModeBanner、诊断屏路由、前台使用时长 60s 心跳累计
+│       │   ├── MainActivity.kt          # 入口 Activity：启动画面、SafeModeBanner、诊断屏路由、刷题时长 60s 心跳累计（UsageSignals 门控）
 │       │   ├── QuizApp.kt               # Application：CrashGuard 安装、WorkManager 调度
 │       │   ├── BootGuard.kt             # 启动守护：心跳 / 面包屑 / 异常死亡计数 / 安全模式
 │       │   ├── CrashGuard.kt            # 全局未捕获异常 → last_crash.txt → 启动报告屏
@@ -251,7 +251,7 @@ TiYu/
 
 ### 打赏弹窗机制（v2.7.4）
 
-- **计时**：`MainActivity` 前台期间每 60 秒心跳一次 `addUsageMs(60_000)`（`onStop` 取消协程），累计值存 DataStore `usage_ms`（粒度 1 分钟）；
+- **计时**：`MainActivity` 前台期间每 60 秒心跳一次 `addUsageMs(60_000)`（`onStop` 取消协程），且仅在刷题答题页前台时才计入（`UsageSignals.onPracticeScreen` 门控，v2.9.2 起口径与文案对齐：只统计真实刷题时长），累计值存 DataStore `usage_ms`（粒度 1 分钟）；
 - **触发**：`AppRoot` 观察设置流，条件全部满足才弹：`usage_ms ≥ 2h` && `!support_prompted` && `!support_refused` && **当前路由非模考进行页**。考试中达标 → 考完回到普通页面后自动出现（条件含路由，路由变化即重评）；
 - **两态 UI**（`GlassBottomSheet`）：询问态（文案 + 按钮）→ 收款码态（`res/raw/support_qr.png` 白底大图 + 保存按钮）；
 - **保存**：`util/GallerySave.kt` 走 MediaStore.Images，`RELATIVE_PATH = Pictures/题屿`，`IS_PENDING` 两段式写入，API 31+ 应用自有媒体**无需任何存储权限**；
@@ -307,7 +307,7 @@ v2.7.4 教训固化：**错题解析展开后 20+ 条全量组合在外层滚动
 | `nickname` | string | 昵称（≤5 字） | "" |
 | `reading_font` | string | 阅读字体 system/sans/serif/kai | "system" |
 | `search_history` | string(JSON) | 搜索历史数组（≤8 条，最新在前） | [] |
-| `usage_ms` | long | 累计前台使用毫秒（打赏门槛） | 0 |
+| `usage_ms` | long | 累计刷题毫秒（打赏门槛，仅答题页前台心跳累计） | 0 |
 | `support_prompted` | bool | 打赏弹窗已弹过 | false |
 | `support_refused` | bool | 打赏永久拒绝 | false |
 | `practice_session` | string(JSON) | **顺序模式**刷题会话快照（旧 key，历史数据无损迁移） | — |
@@ -517,7 +517,7 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 5. **竖屏锁定**：Manifest 固定 `portrait`，无平板 / 横屏适配计划；
 6. **签名 keystore 不可再生**：丢失即失去固定签名能力（见[签名体系](#签名体系)）；
 7. **无自动化测试**：当前仓库未包含单元 / UI 测试；`scripts/static_check.py` 只能兜住括号失衡与历史 API 残留等最低级错误，回归依赖真机手工验证；
-8. **打赏计时粒度 1 分钟**：前台时长按 60s 心跳累计，进程被系统直接杀死时最多丢失最后一个心跳周期；
+8. **打赏计时粒度 1 分钟**：刷题时长按 60s 心跳累计（仅答题页前台计入），进程被系统直接杀死时最多丢失最后一个心跳周期；
 9. **打赏收款码入仓库**：`res/raw/support_qr.png` 是作者收款码，随 APK 公开分发——这是功能本意（供用户保存后扫码支持），如需更换直接替换该文件即可，**无需改代码**。
 
 ---
@@ -572,6 +572,7 @@ python3 scripts/convert_bank.py <题库.csv> [-o app/src/main/assets/questions.j
 | v2.8.10 | 33 | **修复打赏弹窗层级**（关于弹窗内点「请喝奶茶」，打赏弹窗被压在关于弹窗下方且无法操作——传送门注册顺序根因；交互改为先关关于弹窗、退场动画走完再弹打赏弹窗，不再同屏叠加） |
 | v2.9.0 | 34 | **首启功能引导**（欢迎卡+7 步高亮气泡导览：真实界面锚点挖孔+呼吸描边+玻璃气泡自适应落位+bringIntoView 滚锚点+缺失兑底居中；遮罩吃掉触控防状态脱钩；跳过即不再自动弹；设置页「使用引导」入口随时重看） |
 | v2.9.1 | 35 | **引导体验打磨**（步骤间 Hero 式转场：挖孔跨步平滑飞行+气泡同节奏跟随+内容方向感知滑动切换+整层淡入淡出；8 步文案精简为一句话；修复欢迎卡 CTA「开始逛一逛」未生效；加固引导层触控接管，转场窗口期不再误触下层） |
+| v2.9.2 | 36 | **无分类题回退显示题库名**（displayCategory+rememberBankName 四处接入：刷题/模考卡片/搜索/错题本）+ **模考成绩页错题解析展开动画**（弹性展开+渐隐）+ **打赏门槛只计真实刷题时长**（UsageSignals 门控，口径对齐弹窗文案「累计刷题」） |
 
 完整变更明细见 [CHANGELOG.md](CHANGELOG.md)。
 

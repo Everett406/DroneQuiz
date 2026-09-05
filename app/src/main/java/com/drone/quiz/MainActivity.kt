@@ -44,6 +44,7 @@ import androidx.lifecycle.lifecycleScope
 import com.drone.quiz.data.settings.AppSettings
 import com.drone.quiz.data.settings.RootSettings
 import com.drone.quiz.data.settings.conflateForRoot
+import com.drone.quiz.screens.common.UsageSignals
 import com.drone.quiz.ui.glass.GlassRuntime
 import com.drone.quiz.ui.nav.AppRoot
 import com.drone.quiz.ui.theme.DroneTheme
@@ -54,7 +55,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
 
-    // 前台使用时长计时（打赏弹窗门槛：累计 2 小时）：每分钟 +1 分钟，误差可忽略
+    // 刷题时长计时（打赏弹窗门槛：累计 2 小时）：只有刷题答题页在前台时每分钟 +1 分钟，
+    // 与弹窗文案「累计刷题超过 2 小时」对齐（v2.9.2 前统计的是 App 全程前台时间）
     private var usageTicker: kotlinx.coroutines.Job? = null
 
     override fun onStart() {
@@ -63,7 +65,9 @@ class MainActivity : ComponentActivity() {
         usageTicker = lifecycleScope.launch {
             while (true) {
                 delay(60_000)
-                runCatching { ServiceLocator.settings.addUsageMs(60_000) }
+                if (UsageSignals.onPracticeScreen) {
+                    runCatching { ServiceLocator.settings.addUsageMs(60_000) }
+                }
             }
         }
     }

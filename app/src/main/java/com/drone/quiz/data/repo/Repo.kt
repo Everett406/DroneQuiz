@@ -88,6 +88,10 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
         bDao.all().map { it to qDao.countByBank(it.id) }
     }
 
+    /** 题库名称（无分类题的展示回退用，v2.9.2）。 */
+    suspend fun bankNameOf(bankId: String): String? =
+        withContext(Dispatchers.IO) { bDao.byId(bankId)?.name }
+
     suspend fun typesInBank(bankId: String): List<String> = withContext(Dispatchers.IO) {
         // 输出按规范顺序（单选→多选→填空→判断→简答），只保留题库中真实存在的题型
         val present = qDao.typeCounts(bankId).map { it.type }.toSet()

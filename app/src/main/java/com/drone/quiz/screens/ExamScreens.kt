@@ -3,6 +3,7 @@ package com.drone.quiz.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -77,6 +78,8 @@ import com.drone.quiz.screens.common.SectionLabel
 import com.drone.quiz.screens.common.SegmentedRow
 import com.drone.quiz.screens.common.SubmitAnswerButton
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.displayCategory
+import com.drone.quiz.screens.common.rememberBankName
 import com.drone.quiz.screens.common.WrongAnswerBlock
 import com.drone.quiz.screens.common.remainingBottomPx
 import com.drone.quiz.screens.common.scrolledFromTopPx
@@ -1300,7 +1303,7 @@ private fun ExamQuestionCard(
                 .padding(20.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TagChip(q.category)
+                TagChip(displayCategory(q.category, rememberBankName(q.bankId)))
                 Spacer(Modifier.width(6.dp))
                 com.drone.quiz.screens.common.QuestionTypeTag(q.type)
                 Spacer(Modifier.weight(1f))
@@ -1691,7 +1694,16 @@ fun ExamResultScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
-                            if (showWrongList) {
+                            // v2.9.2：展开/收起加弹性动画（与搜索结果展开同款；用户反馈"没有动画"）
+                            AnimatedVisibility(
+                                visible = showWrongList,
+                                enter = expandVertically(
+                                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                                ) + fadeIn(),
+                                exit = shrinkVertically(
+                                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f)
+                                ) + fadeOut()
+                            ) {
                                 LazyColumn(
                                     Modifier
                                         .fillMaxWidth()

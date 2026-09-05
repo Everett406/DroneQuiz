@@ -135,6 +135,8 @@ must = [
     ("practiceSessionRandom", "刷题会话随机槽"),
     ("examDeleteQuota", "模考删除周限额"),
     ("addUsageMs", "打赏使用时长累计"),
+    ("displayCategory", "无分类题回退显示题库名(v2.9.2)"),
+    ("UsageSignals", "打赏门槛只计真实刷题时长(v2.9.2)"),
     ("_new_exam_records", "MIGRATION_1_2 重建表模式(v2.8.1 修启动崩)"),
     ("index_exam_records_startedAt", "迁移补建 startedAt 索引(Room 校验必需)"),
     ("q.answers", "内置题库播种支持 multi answers 数组(修示例题库不出现)"),

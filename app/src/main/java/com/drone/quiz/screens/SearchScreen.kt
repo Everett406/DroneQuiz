@@ -50,6 +50,8 @@ import com.drone.quiz.data.repo.Question
 import com.drone.quiz.data.repo.optionLabel
 import kotlinx.coroutines.flow.first
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.displayCategory
+import com.drone.quiz.screens.common.rememberBankName
 import com.drone.quiz.screens.common.heroSearchField
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softTopFade
@@ -285,7 +287,7 @@ private fun SearchResultItem(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TagChip(q.category)
+                TagChip(displayCategory(q.category, rememberBankName(q.bankId)))
                 Spacer(Modifier.width(6.dp))
                 TagChip(com.drone.quiz.data.repo.QuestionTypes.label(q.type))
                 Spacer(Modifier.weight(1f))

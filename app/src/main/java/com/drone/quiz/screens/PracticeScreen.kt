@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -73,6 +74,9 @@ import com.drone.quiz.screens.common.ShortDraftField
 import com.drone.quiz.screens.common.ShortReferenceCard
 import com.drone.quiz.screens.common.SubmitAnswerButton
 import com.drone.quiz.screens.common.TagChip
+import com.drone.quiz.screens.common.UsageSignals
+import com.drone.quiz.screens.common.displayCategory
+import com.drone.quiz.screens.common.rememberBankName
 import com.drone.quiz.screens.common.remainingBottomPx
 import com.drone.quiz.screens.common.scrolledFromTopPx
 import com.drone.quiz.screens.common.softVerticalEdges
@@ -150,6 +154,12 @@ fun PracticeRunScreen(
     var roundCovered by remember { mutableStateOf<List<Long>>(emptyList()) }
 
     val pagerState = rememberPagerState { questions.size }
+
+    // 打赏门槛计时口径：只有真实停在答题页才累计刷题时长（v2.9.2，与弹窗文案「累计刷题」对齐）
+    DisposableEffect(Unit) {
+        UsageSignals.onPracticeScreen = true
+        onDispose { UsageSignals.onPracticeScreen = false }
+    }
 
     // ---- 题库就绪自动重载：启动门控超时放行/导入后台完成后，题数 0→N 触发重试 ----
     LaunchedEffect(Unit) {
@@ -727,7 +737,7 @@ internal fun QuestionCard(
                 .padding(20.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TagChip(q.category)
+                TagChip(displayCategory(q.category, rememberBankName(q.bankId)))
                 Spacer(Modifier.width(6.dp))
                 QuestionTypeTag(q.type)
                 Spacer(Modifier.weight(1f))
