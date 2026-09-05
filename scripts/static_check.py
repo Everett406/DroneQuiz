@@ -174,6 +174,12 @@ must = [
     ("GlassInputDialog", "玻璃输入对话框·重命名用(v2.8.7)"),
     ("readableSubColor", "小字自适应背景色(v2.8.7)"),
     ("animateItem", "错题本删除靠拢动画(v2.8.7)"),
+    ("GooeyContainer", "果冻 gooey 融合容器(v2.9.3)"),
+    ("createChainEffect", "gooey 官方链式管线 blur→阈值(v2.9.3)"),
+    ("MODE_GOOEY", "特效三级体系·果冻模式(v2.9.3)"),
+    ("acrylicMaterial", "亚克力表面材质·只模糊无折射(v2.9.3)"),
+    ("rememberReducedMotion", "系统减弱动画时只去果冻动效(v2.9.3)"),
+    ("GOOEY_SRC", "gooey AGSL alpha 阶跃着色器(v2.9.3)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):

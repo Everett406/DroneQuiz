@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
@@ -41,6 +44,10 @@ import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.settings.AppSettings
+import com.drone.quiz.ui.gooey.GooeyContainer
+import com.drone.quiz.ui.gooey.GooeyDefaults
+import com.drone.quiz.ui.gooey.GooeyItem
+import com.drone.quiz.ui.gooey.rememberReducedMotion
 import com.drone.quiz.ui.theme.LocalUi
 import androidx.compose.runtime.collectAsState
 import com.kyant.backdrop.Backdrop
@@ -90,6 +97,130 @@ fun GlassBottomTabs(
 
     // 安全模式：实色胶囊底栏，无 RenderEffect，保留选中胶囊与切换
     if (!GlassRuntime.enabled) {
+        if (GlassRuntime.mode == GlassRuntime.MODE_GOOEY) {
+            // 果冻模式：亚克力底座 + gooey 选中胶囊液态拖尾。
+            // 手感对齐 sinasamaki 底栏 metaball：主胶囊快 spring 追到选中位，
+            // 拖尾胶囊慢半拍 bounce 追随，goo 融合成液态拉伸；图标层在 goo 层之上永远锐利。
+            val reduced = rememberReducedMotion()
+            val density = LocalDensity.current
+            // glassBlur 三档 → (亚克力模糊 dp, goo blur px, goo threshold)
+            val (acrylicBlurPx, gooBlurPx, gooThreshold) =
+                GooeyDefaults.levelParams(glassSettings.glassBlur) { with(density) { it.toPx() } }
+            val acrylicSurface = ui.surface.copy(alpha = if (ui.isDark) 0.45f else 0.6f)
+
+            val selectedProvider = rememberUpdatedState(selectedTabIndex)
+            val accentAnim = remember { Animatable(selectedTabIndex().toFloat()) }
+            val trailAnim = remember { Animatable(selectedTabIndex().toFloat()) }
+            // 主胶囊：快 spring 直达
+            LaunchedEffect(Unit) {
+                snapshotFlow { selectedProvider.value() }.drop(1).collectLatest { idx ->
+                    if (reduced) accentAnim.snapTo(idx.toFloat())
+                    else accentAnim.animateTo(idx.toFloat(), spring(dampingRatio = 0.75f, stiffness = 420f))
+                }
+            }
+            // 拖尾胶囊：慢半拍 + 低阻尼 bounce（液体感来源）
+            LaunchedEffect(Unit) {
+                snapshotFlow { selectedProvider.value() }.drop(1).collectLatest { idx ->
+                    if (!reduced) trailAnim.animateTo(idx.toFloat(), spring(dampingRatio = 0.5f, stiffness = 140f))
+                }
+            }
+
+            BoxWithConstraints(
+                modifier,
+                contentAlignment = Alignment.CenterStart
+            ) {
+                val tabWidth = with(density) {
+                    (constraints.maxWidth.toFloat() - 8.dp.toPx()) / tabsCount
+                }
+                val tabWidthDp = with(density) { tabWidth.toDp() }
+                val barShape = RoundedCornerShape(50)
+
+                // 1. 亚克力底座（只模糊无折射）+ 锐利细描边
+                Box(
+                    Modifier
+                        .height(64.dp)
+                        .fillMaxWidth()
+                        .drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { Capsule() },
+                            effects = { blur(acrylicBlurPx) },
+                            onDrawSurface = { drawRect(acrylicSurface) }
+                        )
+                )
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .border(0.75.dp, acrylicStrokeBrush(ui.isDark), barShape)
+                )
+
+                // 2. goo 层：选中胶囊 + 拖尾（在图标之下作高亮背景）
+                GooeyContainer(
+                    modifier = Modifier.matchParentSize(),
+                    blurPx = gooBlurPx,
+                    threshold = gooThreshold,
+                    enabled = !reduced
+                ) {
+                    GooeyItem(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .width(tabWidthDp)
+                            .height(56.dp)
+                            .graphicsLayer {
+                                translationX = 4.dp.toPx() + accentAnim.value * tabWidth
+                            }
+                            .clip(barShape)
+                            .background(ui.ink)
+                    )
+                    if (!reduced) {
+                        GooeyItem(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .width(tabWidthDp * 0.72f)
+                                .height(38.dp)
+                                .graphicsLayer {
+                                    translationX = 4.dp.toPx() +
+                                        trailAnim.value * tabWidth +
+                                        tabWidth * 0.14f
+                                }
+                                .clip(barShape)
+                                .background(ui.ink)
+                        )
+                    }
+                }
+
+                // 3. 图标层：选中 tab 图标染 onInk，永远锐利（不进 goo 阈值）
+                Row(
+                    Modifier
+                        .matchParentSize()
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(tabsCount) { i ->
+                        val selected = i == selectedTabIndex()
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(56.dp)
+                                .clip(barShape)
+                                .clickable(
+                                    interactionSource = null,
+                                    indication = null
+                                ) { onTabSelected(i) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.runtime.CompositionLocalProvider(
+                                    LocalTabIconTint provides if (selected) ui.onInk else Color.Unspecified
+                                ) {
+                                    tabIcon(i)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return
+        }
         Row(
             modifier
                 .clip(RoundedCornerShape(50))

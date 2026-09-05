@@ -2,6 +2,7 @@ package com.drone.quiz.ui.glass
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -62,6 +63,21 @@ import com.drone.quiz.ui.theme.LocalUi
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import kotlinx.coroutines.launch
+
+/**
+ * 弹窗面板进出场（果冻模式：缩放融合——过冲 spring 让面板像液滴一样弹性就位；
+ * 玻璃/安全模式保持原参数不动）。仅切换 spring 手感，不改变动画结构。
+ */
+private fun overlayEnter(fadeMs: Int, initialScale: Float, stiffness: Float): EnterTransition {
+    val gooey = GlassRuntime.mode == GlassRuntime.MODE_GOOEY
+    return fadeIn(tween(fadeMs)) + scaleIn(
+        initialScale = if (gooey) initialScale - 0.06f else initialScale,
+        animationSpec = spring(
+            dampingRatio = if (gooey) 0.5f else 0.85f,
+            stiffness = stiffness
+        )
+    )
+}
 
 /**
  * 弹窗打开时置 active：AppRoot 据此对内容层施加真模糊（iOS 风格）。
@@ -239,7 +255,12 @@ fun GlassBottomSheet(
         AnimatedVisibility(
             visible = visible,
             enter = slideInVertically(
-                animationSpec = spring(dampingRatio = 0.9f, stiffness = 380f),
+                animationSpec = if (GlassRuntime.mode == GlassRuntime.MODE_GOOEY) {
+                    // 果冻：滑入过冲回弹（液滴就位手感）
+                    spring(dampingRatio = 0.65f, stiffness = 380f)
+                } else {
+                    spring(dampingRatio = 0.9f, stiffness = 380f)
+                },
                 initialOffsetY = { it }
             ) + fadeIn(tween(200)),
             exit = slideOutVertically(
@@ -357,10 +378,7 @@ fun GlassAnchorMenu(
     GlassOverlayRegistration(visible, onDismiss) {
         AnimatedVisibility(
             visible = visible,
-            enter = fadeIn(tween(150)) + scaleIn(
-                initialScale = 0.86f,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = 480f)
-            ),
+            enter = overlayEnter(150, 0.86f, 480f),
             exit = fadeOut(tween(130)) + scaleOut(targetScale = 0.94f, animationSpec = tween(130))
         ) {
             val density = LocalDensity.current
@@ -404,10 +422,7 @@ fun GlassPromptDialog(
         LaunchedEffect(Unit) { shown = true }
         AnimatedVisibility(
             visible = shown,
-            enter = fadeIn(tween(160)) + scaleIn(
-                initialScale = 0.92f,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
-            ),
+            enter = overlayEnter(160, 0.92f, 420f),
             exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.95f, animationSpec = tween(140))
         ) {
             val ui = LocalUi.current
@@ -508,10 +523,7 @@ fun GlassInputDialog(
         LaunchedEffect(Unit) { shown = true }
         AnimatedVisibility(
             visible = shown,
-            enter = fadeIn(tween(160)) + scaleIn(
-                initialScale = 0.92f,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
-            ),
+            enter = overlayEnter(160, 0.92f, 420f),
             exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.95f, animationSpec = tween(140))
         ) {
             val ui = LocalUi.current
@@ -623,10 +635,7 @@ fun GlassConfirmDialog(
         LaunchedEffect(Unit) { shown = true }
         AnimatedVisibility(
             visible = shown,
-            enter = fadeIn(tween(160)) + scaleIn(
-                initialScale = 0.92f,
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)
-            ),
+            enter = overlayEnter(160, 0.92f, 420f),
             exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.95f, animationSpec = tween(140))
         ) {
             val ui = LocalUi.current

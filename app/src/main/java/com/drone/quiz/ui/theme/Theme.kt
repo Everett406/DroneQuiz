@@ -178,6 +178,9 @@ fun DroneTheme(
     content: @Composable () -> Unit
 ) {
     val ui = droneUiColors(themeMode)
+    // 主题明暗镜像同步：glass() modifier 的果冻分支（非 Composable 工厂）经
+    // GlassRuntime.isDark 取色，无法读 CompositionLocal（v2.9.3 果冻模式）
+    com.drone.quiz.ui.glass.GlassRuntime.isDark = ui.isDark
     val base = LocalDensity.current
     val fontMultiplier = floatArrayOf(0.85f, 1f, 1.15f, 1.3f).getOrElse(fontLevel) { 1f }
     val fontOption = readingFontOption(readingFont)

@@ -395,9 +395,10 @@ fun SettingsScreen(backdrop: Backdrop) {
                     Column {
                         Text("画面特效", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            // v2.8.7 说明字压缩：全部设置项副标 ≤10 字（硬上限 15，不许换行，用户口径）
-                            if (settings.effects) "玻璃折射 · 推荐"
-                            else "已关闭 · 省电",
+                            // v2.9.3 果冻模式：特效二选一「液态玻璃 / 果冻」，不加第三项。
+                            // 副标仍守 v2.8.7 口径（≤10 字，硬上限 15，不换行）
+                            if (settings.effects) "液态玻璃 · 推荐"
+                            else "果冻模式 · 省电",
                             color = ui.textSub, fontSize = 12.sp
                         )
                     }

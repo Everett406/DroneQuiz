@@ -97,8 +97,15 @@ class MainActivity : ComponentActivity() {
                 var diagDismissed by remember { mutableStateOf(false) }
                 var bannerDismissed by remember { mutableStateOf(false) }
 
-                // 特效总开关：用户偏好 × 自动安全模式
-                GlassRuntime.enabled = settings.effects && !snapshot.autoSafeMode
+                // 特效三级决策（v2.9.3 果冻模式）：
+                // - 上次启动异常（autoSafeMode）→ 无条件安全平涂兜底，独立于用户设置；
+                // - 用户开关仅在非崩溃时区分：开 = 液态玻璃（真折射）/ 关 = 果冻（亚克力+gooey）。
+                // GlassRuntime 是 mutableState，赋值即全局重组，切换即时生效无需重启。
+                GlassRuntime.mode = when {
+                    snapshot.autoSafeMode -> GlassRuntime.MODE_SAFE
+                    settings.effects -> GlassRuntime.MODE_GLASS
+                    else -> GlassRuntime.MODE_GOOEY
+                }
 
                 LaunchedEffect(Unit) {
                     BootGuard.log(context, "load", "开始加载题库")
