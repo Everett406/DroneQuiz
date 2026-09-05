@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+## [2.9.3] - 2026-09-05
+
+### 新增 —— 关玻璃分支整体改为果冻（Gooey）模式（第二十九轮需求）
+
+- **三级特效体系**：液态玻璃（mode 0，真折射渲染路径零改动）→
+  果冻（mode 1）→ 安全平涂（mode 2，崩溃无条件兜底，独立于用户设置）；
+  `GlassRuntime` 由单一布尔改为三态 `mode`，`enabled` 语义保持兼容
+  （= mode 0），切换即时生效无需重启；
+- **亚克力表面**（`ui/glass/Acrylic.kt`）：沿用 Kyant0 backdrop 管线但只留
+  模糊（默认 8dp，参数化）、去掉 vibrancy / lens，配柔和阴影 +
+  0.75dp 细描边；亮色 White α≈0.6 / 暗色主题色 α≈0.45；
+- **gooey 动效层**（`ui/gooey/Gooey.kt`）：官方
+  `RenderEffect.createChainEffect(阈值, blur)` 管线——层内容先高斯模糊、
+  再 alpha 阈值切割，元素靠近处形成 metaball 液态桥接；API 33+ 用
+  AGSL `step` 阶跃（RuntimeShader），API 31–32 用 `ColorMatrixColorFilter`
+  alpha 行高对比斜坡近似；构建异常 runCatching 回退无特效，绝不崩溃；
+- **动效接入点**（仅果冻模式生效）：底栏选中胶囊快 spring + 拖尾胶囊慢
+  bounce 的液态融合（sinasamaki metaball 手感）；Toggle 滑块拉伸融合；
+  Slider 拇指速度拖尾；GlassButton 按压液泡鼓包（表面 blob 进 goo 层、
+  文字图标在外保持锐利）；弹窗/面板过冲缩放入场（缩放融合）；多选选项
+  勾选框与对勾液态融合弹出、框体脉动一次回弹；
+- **文字安全**：文字/长文本/列表内容零接触 goo 阈值层（goo 层只含
+  表面液滴与动效液滴）；
+- **设置**：特效文案改「液态玻璃 / 果冻」二选一（不加第三项）；
+  glassBlur 三档在果冻模式映射为亚克力模糊（6/8/12dp）与 goo 强度
+  （threshold 0.56/0.50/0.44）；
+- **减弱动画**：系统「减弱动画」（ANIMATOR_DURATION_SCALE=0）时只去
+  果冻动效、保留亚克力表面（`rememberReducedMotion`）；
+- **防误删**：static_check 新增 6 条 gooey must 断言。
+
+### 工程 —— 独立分支开发与开玻璃回归核验
+
+- 功能在 feature/gooey-mode 分支开发（提交 edefd3f）后 merge 回 main；
+- 「开玻璃」回归核验：git diff 逐文件确认 `GlassRuntime.enabled` 渲染
+  路径逐行未动——glass() 玻璃分支 / GlassCard / GlassButton /
+  GlassSlider / GlassToggle 玻璃分支 / GlassBottomBar 玻璃分支均原样；
+  弹窗动画在玻璃/安全模式下参数逐值等价（仅果冻模式换过冲手感）。
+
 ## [2.9.2] - 2026-09-05
 
 ### 修复 —— 无分类题的分类标签回退显示题库名（第二十八轮反馈）
