@@ -4,6 +4,53 @@
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-09-05
+
+### 新增 —— 桌面小组件 + 长按快捷方式 + 成绩分享卡（第三十轮需求）
+
+#### 桌面小组件（util/WidgetUpdater.kt，RemoteViews 零新依赖）
+
+- 四款极简杂志风小组件：纯白/墨黑底 + 超大数字 + 细线分隔，深浅色程序化
+  自适应（不依赖 values-night，RemoteViews 下更可靠）；
+- **继续刷题磁贴**（2×2）：今日题量大数字 + 连续打卡天数，点按直落上次进度；
+- **学习统计卡**（4×2）：每日目标进度环（ring shape useLevel 弧）+ 正确率 +
+  连续打卡 +「距今日目标还差 N 题」（达标变绿）；
+- **错题特训卡**（2×2）：待攻克错题大数字（>0 红 / =0 绿），点按直落特训；
+- **快速模考贴**（2×2）：上次模考成绩/合格态/题数，点按沿用上次配置再考一场；
+- 更新触发：recordAnswer / submitExam / abandonExam 钩子（600ms 节流合并）
+  + updatePeriodMillis 30 分钟兜底；设置-刷题新增「每日目标」滑杆（5–200）。
+
+#### 长按图标快捷方式（res/xml/shortcuts.xml + LauncherBus）
+
+- 四项：**继续刷题**（接续上次会话）/ **错题特训**（沿用上次筛选，
+  WrongBookScreen 开特训时记忆）/ **随机小练**（随机抽 20 题立即开练）/
+  **快速模考**（沿用上次组卷配置直接开考，无配置回模考配置页兜底）；
+- MainActivity 改 singleTask，冷启 onCreate / 热启 onNewIntent 统一写
+  LauncherBus（mutableStateOf），AppRoot snapshotFlow 消费后路由；
+- 随机小练走 src="random" 新分支：不恢复/不补漏/不落盘快照（不污染双槽）。
+
+#### 成绩分享卡（util/ShareCardRenderer.kt + ui/share/ShareCardSheet.kt）
+
+- 模考成绩页新增「生成成绩卡」，全屏浮层预览 + 个性化 + 保存/分享；
+- Canvas 1080×1440 渲染（预览即最终产物，双实现零漂移），内置字体
+  Noto Sans/Serif SC + 霞鹜文楷，零第三方依赖；
+- 7 套主题：日落 / 极光 / 薄荷（渐变）、液态玻璃（柔光斑+细描边+文楷）、
+  纸感白 / 墨黑（衬线大字）、深色金辉（双金线边框）；
+- 内容模块：大分数 + 合格徽章 + 正确率/用时/答对/连击四宫格 +
+  「较上次 ↑N 分」同库对比 + 累计刷题/打卡行 + 品牌页脚；
+- 个性化全套自定义：署名（≤8 字）、标语（≤30 字）、强调色微调
+  （默认/绯红/靛蓝/鎏金/松绿），即改即存 DataStore 下次记住；
+- 保存 = MediaStore Pictures/题屿（minSdk 31 免权限，GallerySave.savePngBitmap）；
+  分享 = FileProvider + ACTION_SEND（GalleryShare.sharePngImage，v2.8.2 基建复用）。
+
+### 变更
+
+- MainActivity → launchMode="singleTask"（快捷方式/小组件热启动走 onNewIntent）；
+- practiceRun 路由新增可选 limit 参数（带 defaultValue，老调用点零改动）；
+- Repo 新增 examRecord(examId) 访问器（成绩卡取用时/开考日期）；
+- static_check must 断言 +6（WidgetUpdater/ShareCardRenderer/ShareCardHost/
+  ExamQuickConfig/LauncherBus/savePngBitmap）。
+
 ## [2.9.3] - 2026-09-05
 
 ### 新增 —— 关玻璃分支整体改为果冻（Gooey）模式（第二十九轮需求）
