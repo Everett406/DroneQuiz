@@ -38,10 +38,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -245,7 +247,8 @@ fun ShareCardHost(
                 modifier = Modifier.padding(top = 2.dp)
             )
 
-            // 预览（即最终产物）
+            // 预览（即最终产物）；投影+细描边让卡片边界在深浅页面下都清晰
+            val cardShape = RoundedCornerShape(24.dp)
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -261,14 +264,18 @@ fun ShareCardHost(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(3f / 4f)
-                            .clip(RoundedCornerShape(24.dp))
+                            .shadow(16.dp, cardShape)
+                            .border(1.dp, ui.ink.copy(alpha = 0.16f), cardShape)
+                            .clip(cardShape)
                     )
                 } else {
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .aspectRatio(3f / 4f)
-                            .clip(RoundedCornerShape(24.dp))
+                            .shadow(16.dp, cardShape)
+                            .border(1.dp, ui.ink.copy(alpha = 0.16f), cardShape)
+                            .clip(cardShape)
                             .background(ui.ink.copy(alpha = 0.05f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -280,7 +287,7 @@ fun ShareCardHost(
             // 主题
             Text(
                 "主题", color = ui.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 18.dp)
+                modifier = Modifier.padding(top = 28.dp)
             )
             FlowRow(
                 Modifier
@@ -362,8 +369,8 @@ fun ShareCardHost(
                     .fillMaxWidth()
                     .padding(top = 10.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(ui.ink.copy(alpha = 0.05f))
-                    .border(1.dp, ui.ink.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .background(ui.ink.copy(alpha = 0.07f))
+                    .border(1.dp, ui.ink.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {
                 BasicTextField(
@@ -376,12 +383,18 @@ fun ShareCardHost(
                     },
                     singleLine = true,
                     textStyle = TextStyle(color = ui.text, fontSize = 14.sp),
+                    cursorBrush = SolidColor(ui.ink),
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
-                        if (cardName.isEmpty()) {
-                            Text("落款昵称 · 留空则不显示", color = ui.textSub, fontSize = 14.sp)
+                        Box {
+                            if (cardName.isEmpty()) {
+                                Text(
+                                    "落款昵称 · 留空则不显示",
+                                    color = ui.textSub, fontSize = 14.sp, maxLines = 1
+                                )
+                            }
+                            inner()
                         }
-                        inner
                     }
                 )
             }
@@ -396,8 +409,8 @@ fun ShareCardHost(
                     .fillMaxWidth()
                     .padding(top = 10.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(ui.ink.copy(alpha = 0.05f))
-                    .border(1.dp, ui.ink.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .background(ui.ink.copy(alpha = 0.07f))
+                    .border(1.dp, ui.ink.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {
                 BasicTextField(
@@ -409,15 +422,18 @@ fun ShareCardHost(
                         }
                     },
                     textStyle = TextStyle(color = ui.text, fontSize = 14.sp),
+                    cursorBrush = SolidColor(ui.ink),
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
-                        if (slogan.isEmpty()) {
-                            Text(
-                                "一句学习目标，如「目标 90 分 · 冲刺下周模考」",
-                                color = ui.textSub, fontSize = 14.sp
-                            )
+                        Box {
+                            if (slogan.isEmpty()) {
+                                Text(
+                                    "一句学习目标，如「目标 90 分 · 冲刺下周模考」",
+                                    color = ui.textSub, fontSize = 14.sp, maxLines = 1
+                                )
+                            }
+                            inner()
                         }
-                        inner
                     }
                 )
             }
