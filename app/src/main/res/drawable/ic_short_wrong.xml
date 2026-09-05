@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 快捷方式图标：圆环错题叉 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,4.4 A7.6,7.6 0 1,0 12,19.6 A7.6,7.6 0 1,0 12,4.4 Z"
+        android:strokeColor="#333333"
+        android:strokeWidth="2"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M9.1,9.1 L14.9,14.9 M14.9,9.1 L9.1,14.9"
+        android:strokeColor="#333333"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+</vector>

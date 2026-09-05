@@ -13,6 +13,7 @@ import com.drone.quiz.data.db.QuestionStatsEntity
 import com.drone.quiz.data.db.StreakLogEntity
 import com.drone.quiz.data.db.TypeCount
 import com.drone.quiz.data.db.WrongBookEntity
+import com.drone.quiz.util.WidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -77,6 +78,11 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
     private val rDao = db.recordDao()
     private val eDao = db.examDao()
     private val wDao = db.wrongDao()
+
+    /** 学习数据变化 → 推送刷新四款桌面小组件（内含节流与静默失败，不影响数据流） */
+    private fun notifyWidgets() {
+        runCatching { WidgetUpdater.updateAllAsync(appContext) }
+    }
 
     // ---------- 题库 ----------
 
@@ -413,6 +419,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
             }
             bumpStreak(isCorrect)
         }
+        notifyWidgets()
     }
 
     private suspend fun bumpStreak(correct: Boolean) {
@@ -568,6 +575,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
             }
             bumpStreakBulk(questions.size, correctIds.size)
         }
+        notifyWidgets()
         ExamOutcome(
             score = score,
             passed = passed,
@@ -621,6 +629,11 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
         )
     }
 
+    /** 模考原始记录（成绩卡取用时/开考日期用，v2.10.0） */
+    suspend fun examRecord(examId: Long): ExamRecordEntity? = withContext(Dispatchers.IO) {
+        eDao.examById(examId)
+    }
+
     /** 放弃考试：删除该次模考的记录与作答（不再残留"进行中"幽灵记录）；也用于删除已完成记录 */
     suspend fun abandonExam(examId: Long) = withContext(Dispatchers.IO) {
         if (examId <= 0) return@withContext
@@ -628,6 +641,7 @@ class Repo(private val db: AppDatabase, private val appContext: Context) {
             eDao.deleteAnswersFor(examId)
             eDao.deleteExam(examId)
         }
+        notifyWidgets()
     }
 
     /**

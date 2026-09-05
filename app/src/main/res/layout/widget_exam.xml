@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 快速模考贴（2×2，极简杂志风）：上次模考成绩 / 一键再考 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/weRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg_light">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <TextView
+            android:id="@+id/weLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="快速模考"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12"
+            android:textColor="#17171B" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp">
+
+            <TextView
+                android:id="@+id/weNum"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="开考"
+                android:textSize="40sp"
+                android:textStyle="bold"
+                android:includeFontPadding="false"
+                android:textColor="#17171B" />
+
+            <TextView
+                android:id="@+id/weUnit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="6dp"
+                android:paddingBottom="6dp"
+                android:gravity="bottom"
+                android:text=" 沿用上次配置"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:textColor="#8A8A85" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/weHair"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="#E9E9E4" />
+
+        <TextView
+            android:id="@+id/weFoot"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="还没考过 · 去配置一卷"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:textColor="#8A8A85" />
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 错题特训卡（2×2） -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="146dp"
+    android:minHeight="146dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_wrong"
+    android:previewLayout="@layout/widget_wrong"
+    android:resizeMode="none"
+    android:description="@string/widget_desc_wrong"
+    android:widgetCategory="home_screen" />

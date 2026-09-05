@@ -126,7 +126,15 @@ fun WrongBookScreen(
             }
             if (filtered.isNotEmpty()) {
                 GlassButton(
-                    onClick = { onPractice(typeFilter, catFilter) },
+                    onClick = {
+                        // v2.10.0：记忆本次特训筛选（长按图标「错题特训」直落时沿用）
+                        scope.launch {
+                            runCatching {
+                                ServiceLocator.settings.setWrongLastFilter(typeFilter, catFilter)
+                            }
+                        }
+                        onPractice(typeFilter, catFilter)
+                    },
                     backdrop = backdrop,
                     surfaceColor = ui.ink,
                     heightDp = 40.dp

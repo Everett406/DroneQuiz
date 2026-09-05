@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">题屿</string>
+
+    <!-- 桌面小组件（v2.10.0） -->
+    <string name="widget_desc_continue">继续刷题 · 今日进度与连续打卡</string>
+    <string name="widget_desc_stats">学习统计 · 目标进度 / 正确率 / 连击</string>
+    <string name="widget_desc_wrong">错题特训 · 待攻克错题数</string>
+    <string name="widget_desc_exam">快速模考 · 上次成绩一键再考</string>
+
+    <!-- 长按图标快捷方式（v2.10.0） -->
+    <string name="short_continue">继续刷题</string>
+    <string name="short_continue_long">继续刷题 · 接着上次进度</string>
+    <string name="short_wrong">错题特训</string>
+    <string name="short_wrong_long">错题特训 · 直落特训模式</string>
+    <string name="short_random">随机小练</string>
+    <string name="short_random_long">随机小练 · 抽 20 题立即开练</string>
+    <string name="short_exam">快速模考</string>
+    <string name="short_exam_long">快速模考 · 沿用上次配置</string>
+    <string name="widget_label_stats">学习统计</string>
 </resources>

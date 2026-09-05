@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 学习统计卡（4×2） -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="324dp"
+    android:minHeight="146dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_stats"
+    android:previewLayout="@layout/widget_stats"
+    android:resizeMode="horizontal"
+    android:description="@string/widget_desc_stats"
+    android:widgetCategory="home_screen" />

@@ -520,6 +520,30 @@ fun SettingsScreen(backdrop: Backdrop) {
                         modifier = Modifier.padding(top = 12.dp)
                     )
                 }
+                // v2.10.0 每日目标：学习统计卡进度环 +「距目标还差 N 题」
+                Column(Modifier.padding(top = 18.dp)) {
+                    Text("每日目标", color = ui.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "统计卡与小组件的目标进度",
+                        color = ui.textSub, fontSize = 12.sp
+                    )
+                    GlassSlider(
+                        value = { settings.dailyGoal.toFloat() },
+                        onValueChange = { v ->
+                            scope.launch {
+                                ServiceLocator.settings.setDailyGoal(v.roundToInt())
+                                // 滑杆连发由 WidgetUpdater 内部 600ms 节流合并
+                                runCatching {
+                                    com.drone.quiz.util.WidgetUpdater.updateAllAsync(context)
+                                }
+                            }
+                        },
+                        valueRange = 5f..200f,
+                        step = 5f,
+                        backdrop = backdrop,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
             }
         }
 

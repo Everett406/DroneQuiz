@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -63,9 +64,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.drone.quiz.LauncherBus
 import com.drone.quiz.R
 import com.drone.quiz.ServiceLocator
 import com.drone.quiz.data.settings.RootSettings
+import com.drone.quiz.screens.ExamSessionHolder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -105,7 +109,7 @@ object Routes {
     const val PRACTICE_PATTERN = "practice?src={src}"
     const val PRACTICE = "practice"
     const val PRACTICE_RUN_PATTERN =
-        "practiceRun?src={src}&type={type}&cat={cat}&resume={resume}"
+        "practiceRun?src={src}&type={type}&cat={cat}&resume={resume}&limit={limit}"
     const val EXAM_CONFIG = "examConfig"
     const val EXAM_RUN_PATTERN = "examRun/{examId}"
     const val EXAM_RESULT_PATTERN = "examResult/{examId}"
@@ -147,6 +151,69 @@ fun AppRoot(settings: RootSettings) {
             popUpTo(Routes.HOME) { saveState = true }
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    // v2.10.0：快捷方式/小组件启动目标（LauncherBus）→ 导航路由。
+    // singleTask 热启动走 onNewIntent，冷启动走 onCreate intent，两处都汇入 LauncherBus。
+    LaunchedEffect(Unit) {
+        snapshotFlow { LauncherBus.pending }.collect { target ->
+            if (target == null) return@collect
+            LauncherBus.pending = null
+            when (target) {
+                LauncherBus.NAV_CONTINUE ->
+                    navController.navigate("practiceRun?src=all&type=all&cat=all&resume=true") {
+                        launchSingleTop = true
+                    }
+                LauncherBus.NAV_WRONG -> {
+                    // 沿用上次特训筛选（错题本开特训时记忆），无记忆则全部错题
+                    val st = runCatching { ServiceLocator.settings.settings.first() }.getOrNull()
+                    val type = android.net.Uri.encode(st?.wrongLastType?.ifEmpty { "all" } ?: "all")
+                    val cat = android.net.Uri.encode(st?.wrongLastCat?.ifEmpty { "all" } ?: "all")
+                    navController.navigate("practiceRun?src=wrong&type=$type&cat=$cat&resume=false") {
+                        launchSingleTop = true
+                    }
+                }
+                LauncherBus.NAV_RANDOM ->
+                    navController.navigate(
+                        "practiceRun?src=random&type=all&cat=all&resume=false&limit=20"
+                    ) {
+                        launchSingleTop = true
+                    }
+                LauncherBus.NAV_QUICK_EXAM -> appScope.launch {
+                    // 快速模考：沿用上次开考配置直接组卷，无配置/组卷失败回模考配置页兜底
+                    val st = runCatching { ServiceLocator.settings.settings.first() }.getOrNull()
+                    if (st == null) {
+                        navigateTab(2)
+                        return@launch
+                    }
+                    val cfg = runCatching { ServiceLocator.settings.examQuickConfig() }.getOrNull()
+                    if (cfg == null) {
+                        navigateTab(2)
+                        return@launch
+                    }
+                    val started = runCatching {
+                        ServiceLocator.repo.startExam(
+                            bankId = st.currentBank,
+                            counts = cfg.counts,
+                            durationSec = cfg.durationMin * 60,
+                            typeOrder = cfg.typeOrder,
+                            passLine = st.passScore
+                        )
+                    }.getOrNull()
+                    val id = started?.first ?: 0L
+                    val qs = started?.second ?: emptyList()
+                    if (id <= 0L || qs.isEmpty()) {
+                        navigateTab(2)
+                        return@launch
+                    }
+                    ExamSessionHolder.examId = id
+                    ExamSessionHolder.questions = qs
+                    ExamSessionHolder.durationSec = cfg.durationMin * 60
+                    ExamSessionHolder.outcome = null
+                    navController.navigate("examRun/$id") { launchSingleTop = true }
+                }
+            }
         }
     }
 
@@ -307,17 +374,28 @@ fun AppRoot(settings: RootSettings) {
                     }
                 }
                 // 全屏刷题页（非 Tab destination → 无底栏遮挡；返回即回到配置页）
-                composable(Routes.PRACTICE_RUN_PATTERN) { entry ->
+                composable(
+                    Routes.PRACTICE_RUN_PATTERN,
+                    arguments = listOf(
+                        navArgument("src") { defaultValue = "all" },
+                        navArgument("type") { defaultValue = "all" },
+                        navArgument("cat") { defaultValue = "all" },
+                        navArgument("resume") { defaultValue = "false" },
+                        navArgument("limit") { defaultValue = "0" }
+                    )
+                ) { entry ->
                     val src = entry.arguments?.getString("src") ?: "all"
                     val type = entry.arguments?.getString("type") ?: "all"
                     val cat = entry.arguments?.getString("cat") ?: "all"
                     val resume = entry.arguments?.getString("resume") == "true"
+                    val limit = entry.arguments?.getString("limit")?.toIntOrNull() ?: 0
                     PracticeRunScreen(
                         backdrop = bgBackdrop,
                         src = src,
                         type = type,
                         cat = cat,
                         resume = resume,
+                        limit = limit,
                         onExit = { navController.popBackStack() }
                     )
                 }

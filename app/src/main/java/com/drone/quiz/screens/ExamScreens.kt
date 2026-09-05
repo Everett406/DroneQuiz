@@ -595,6 +595,16 @@ fun ExamConfigScreen(
                                 typeOrder = typeOrder.ifEmpty { QuestionTypes.canonicalOrder },
                                 passLine = st.passScore // v2.8.6：开考时定格合格线，成绩单回显
                             )
+                            // v2.10.0：落盘本次组卷配置（快捷方式/小组件「快速模考」直落复用）
+                            runCatching {
+                                ServiceLocator.settings.setExamQuickConfig(
+                                    com.drone.quiz.data.settings.ExamQuickConfig(
+                                        counts = plannedCounts,
+                                        durationMin = durationMin,
+                                        typeOrder = typeOrder.ifEmpty { QuestionTypes.canonicalOrder }
+                                    )
+                                )
+                            }
                             ExamSessionHolder.examId = id
                             ExamSessionHolder.questions = qs
                             ExamSessionHolder.durationSec = durationMin * 60
@@ -1529,6 +1539,8 @@ fun ExamResultScreen(
     var showQuotaExhausted by remember { mutableStateOf(false) }
     var quotaLeft by remember { mutableIntStateOf(2) }
     var deleted by remember { mutableStateOf(false) }
+    // v2.10.0 成绩分享卡
+    var showShare by remember { mutableStateOf(false) }
 
     LaunchedEffect(examId) {
         if (outcome == null) {
@@ -1542,6 +1554,7 @@ fun ExamResultScreen(
         if (deleted) onDeleted()
     }
 
+    Box(Modifier.fillMaxSize()) {
     BounceContainer(
         Modifier
             .fillMaxSize()
@@ -1638,6 +1651,24 @@ fun ExamResultScreen(
                             modifier = Modifier.padding(top = 10.dp)
                         )
                     }
+                }
+
+                // v2.10.0 生成成绩卡（全屏预览 → 保存相册/系统分享）
+                GlassButton(
+                    onClick = { showShare = true },
+                    backdrop = backdrop,
+                    surfaceColor = ui.ink,
+                    heightDp = 48.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp)
+                ) {
+                    Text(
+                        "生成成绩卡",
+                        color = ui.onInk,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 // 错题分布（按题型自适应，v2.8.0）
@@ -1745,6 +1776,19 @@ fun ExamResultScreen(
                 }
             }
             Spacer(Modifier.height(60.dp))
+        }
+    }
+
+        // v2.10.0 成绩分享卡（全屏预览 + 个性化 + 保存/分享）
+        if (showShare) {
+            val ocNow = outcome
+            if (ocNow != null) {
+                com.drone.quiz.ui.share.ShareCardHost(
+                    outcome = ocNow,
+                    examId = examId,
+                    onDismiss = { showShare = false }
+                )
+            }
         }
     }
 

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 长按图标快捷方式（v2.10.0）：继续刷题 / 错题特训 / 随机小练 / 快速模考。
+     统一投递 MainActivity，由 extra tuyu_nav 携带目标，AppRoot 消费路由。 -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="continue"
+        android:enabled="true"
+        android:icon="@drawable/ic_short_play"
+        android:shortcutShortLabel="@string/short_continue"
+        android:shortcutLongLabel="@string/short_continue_long">
+        <intent
+            android:action="com.drone.quiz.action.SHORTCUT"
+            android:targetPackage="com.drone.quiz"
+            android:targetClass="com.drone.quiz.MainActivity">
+            <extra
+                android:name="tuyu_nav"
+                android:value="continue" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="wrong"
+        android:enabled="true"
+        android:icon="@drawable/ic_short_wrong"
+        android:shortcutShortLabel="@string/short_wrong"
+        android:shortcutLongLabel="@string/short_wrong_long">
+        <intent
+            android:action="com.drone.quiz.action.SHORTCUT"
+            android:targetPackage="com.drone.quiz"
+            android:targetClass="com.drone.quiz.MainActivity">
+            <extra
+                android:name="tuyu_nav"
+                android:value="wrong" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="random"
+        android:enabled="true"
+        android:icon="@drawable/ic_short_random"
+        android:shortcutShortLabel="@string/short_random"
+        android:shortcutLongLabel="@string/short_random_long">
+        <intent
+            android:action="com.drone.quiz.action.SHORTCUT"
+            android:targetPackage="com.drone.quiz"
+            android:targetClass="com.drone.quiz.MainActivity">
+            <extra
+                android:name="tuyu_nav"
+                android:value="random" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="quickexam"
+        android:enabled="true"
+        android:icon="@drawable/ic_short_exam"
+        android:shortcutShortLabel="@string/short_exam"
+        android:shortcutLongLabel="@string/short_exam_long">
+        <intent
+            android:action="com.drone.quiz.action.SHORTCUT"
+            android:targetPackage="com.drone.quiz"
+            android:targetClass="com.drone.quiz.MainActivity">
+            <extra
+                android:name="tuyu_nav"
+                android:value="quickexam" />
+        </intent>
+    </shortcut>
+</shortcuts>

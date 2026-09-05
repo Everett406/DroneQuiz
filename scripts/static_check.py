@@ -180,6 +180,12 @@ must = [
     ("acrylicMaterial", "亚克力表面材质·只模糊无折射(v2.9.3)"),
     ("rememberReducedMotion", "系统减弱动画时只去果冻动效(v2.9.3)"),
     ("GOOEY_SRC", "gooey AGSL alpha 阶跃着色器(v2.9.3)"),
+    ("WidgetUpdater", "桌面小组件引擎·四款 RemoteViews(v2.10.0)"),
+    ("ShareCardRenderer", "成绩分享卡 Canvas 渲染器·7主题(v2.10.0)"),
+    ("ShareCardHost", "成绩分享卡全屏浮层·预览即产物(v2.10.0)"),
+    ("ExamQuickConfig", "快速模考配置快照(v2.10.0)"),
+    ("LauncherBus", "快捷方式/小组件启动目标中继(v2.10.0)"),
+    ("savePngBitmap", "位图存相册 MediaStore 免权限(v2.10.0)"),
 ]
 for pat, desc in must:
     if not grep_hits(pat):

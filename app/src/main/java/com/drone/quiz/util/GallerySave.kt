@@ -57,4 +57,30 @@ object GallerySave {
             )
             true
         }.getOrDefault(false)
+
+    /**
+     * 位图保存到「相册/题屿」（v2.10.0 成绩分享卡）。
+     * minSdk 31：MediaStore 写入无需存储权限。@return true = 保存成功
+     */
+    fun savePngBitmap(context: Context, bitmap: android.graphics.Bitmap, displayName: String): Boolean =
+        runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/题屿")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+            ) ?: return false
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            }
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
+                null, null
+            )
+            true
+        }.getOrDefault(false)
 }

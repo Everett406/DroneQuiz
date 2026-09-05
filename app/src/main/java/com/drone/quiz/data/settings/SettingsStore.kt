@@ -39,6 +39,17 @@ data class PracticeSession(
     val covered: List<Long> = emptyList()
 )
 
+/**
+ * 快速模考配置快照（v2.10.0）：每次在模考配置页点「开始考试」时落盘，
+ * 长按图标/小组件的「快速模考」直接按它组卷开考，跳过配置页。
+ */
+@Serializable
+data class ExamQuickConfig(
+    val counts: Map<String, Int> = emptyMap(), // 题型 → 题数
+    val durationMin: Int = 60,                 // 考试时长（分钟）
+    val typeOrder: List<String> = emptyList()  // 题型顺序（空 = 规范序）
+)
+
 data class AppSettings(
     val themeMode: Int = 0,      // 0 跟随系统 1 浅色 2 深色
     val fontLevel: Int = 1,      // 0..3 -> 0.85 / 1.0 / 1.15 / 1.3
@@ -63,7 +74,15 @@ data class AppSettings(
     val examTypeOrder: List<String> = emptyList(), // 模考题型顺序（空 = 单选→多选→填空→判断→简答）
     val examAutoMix: Boolean = true, // 模考题型构成：自动按题库各题型占比配比（关 = 手动拖比例，v2.8.3）
     val eyeCareReminder: Boolean = false, // v2.8.6 护眼提醒：连续刷题 20 分钟弹窗提醒休息（考试不受影响）
-    val onboardingDone: Boolean = false // v2.9.0 首启功能引导已完成/已跳过（跳过即不再自动弹）
+    val onboardingDone: Boolean = false, // v2.9.0 首启功能引导已完成/已跳过（跳过即不再自动弹）
+    // v2.10.0 桌面小组件 / 成绩分享卡
+    val dailyGoal: Int = 30,             // 每日目标题数（统计卡进度环 +「还差 N 题」）
+    val wrongLastType: String = "all",   // 错题特训上次筛选（快捷方式直落沿用）
+    val wrongLastCat: String = "all",
+    val shareCardTheme: String = "sunset", // 成绩分享卡主题预设 id
+    val shareCardName: String = "",      // 成绩卡署名（空 = 沿用个人昵称）
+    val shareCardSlogan: String = "",    // 成绩卡自定义标语（可选）
+    val shareCardAccent: String = ""     // 成绩卡强调色 hex（空 = 主题默认）
 )
 
 class SettingsStore(private val context: Context) {
@@ -105,6 +124,15 @@ class SettingsStore(private val context: Context) {
         val eyeCareReminder = booleanPreferencesKey("eye_care_reminder")
         // v2.9.0 首启功能引导
         val onboardingDone = booleanPreferencesKey("onboarding_done")
+        // v2.10.0 小组件 / 成绩分享卡
+        val dailyGoal = intPreferencesKey("daily_goal")
+        val wrongLastType = stringPreferencesKey("wrong_last_type")
+        val wrongLastCat = stringPreferencesKey("wrong_last_cat")
+        val examQuickConfig = stringPreferencesKey("exam_quick_config")
+        val shareCardTheme = stringPreferencesKey("share_card_theme")
+        val shareCardName = stringPreferencesKey("share_card_name")
+        val shareCardSlogan = stringPreferencesKey("share_card_slogan")
+        val shareCardAccent = stringPreferencesKey("share_card_accent")
 
         /** currentBank 缺省值（与 AppSettings.currentBank 默认一致） */
         const val BANK_DEFAULT = "drone"
@@ -141,7 +169,14 @@ class SettingsStore(private val context: Context) {
             } ?: emptyList(),
             examAutoMix = p[K.examAutoMix] ?: true,
             eyeCareReminder = p[K.eyeCareReminder] ?: false,
-            onboardingDone = p[K.onboardingDone] ?: false
+            onboardingDone = p[K.onboardingDone] ?: false,
+            dailyGoal = p[K.dailyGoal] ?: 30,
+            wrongLastType = p[K.wrongLastType] ?: "all",
+            wrongLastCat = p[K.wrongLastCat] ?: "all",
+            shareCardTheme = p[K.shareCardTheme] ?: "sunset",
+            shareCardName = p[K.shareCardName] ?: "",
+            shareCardSlogan = p[K.shareCardSlogan] ?: "",
+            shareCardAccent = p[K.shareCardAccent] ?: ""
         )
     }
 
@@ -270,6 +305,35 @@ class SettingsStore(private val context: Context) {
     suspend fun setWallpaperBlur(v: Boolean) = context.dataStore.edit { it[K.wallpaperBlur] = v }
     suspend fun setNickname(v: String) = context.dataStore.edit { it[K.nickname] = v.trim().take(5) }
     suspend fun setReadingFont(v: String) = context.dataStore.edit { it[K.readingFont] = v }
+
+    // ---- v2.10.0 小组件 / 成绩分享卡 ----
+
+    /** 每日目标题数（学习统计卡进度环 +「距目标还差 N 题」） */
+    suspend fun setDailyGoal(v: Int) = context.dataStore.edit { it[K.dailyGoal] = v.coerceIn(5, 500) }
+
+    /** 错题特训筛选记忆（长按图标「错题特训」直落沿用） */
+    suspend fun setWrongLastFilter(type: String, cat: String) = context.dataStore.edit {
+        it[K.wrongLastType] = type.ifEmpty { "all" }
+        it[K.wrongLastCat] = cat.ifEmpty { "all" }
+    }
+
+    /** 快速模考配置快照（模考配置页每次开考时写入） */
+    suspend fun setExamQuickConfig(c: ExamQuickConfig?) = context.dataStore.edit {
+        if (c == null) it.remove(K.examQuickConfig)
+        else it[K.examQuickConfig] = json.encodeToString(c)
+    }
+
+    suspend fun examQuickConfig(): ExamQuickConfig? {
+        val p = context.dataStore.data.first()
+        return p[K.examQuickConfig]?.let { raw ->
+            runCatching { json.decodeFromString<ExamQuickConfig>(raw) }.getOrNull()
+        }?.takeIf { it.counts.isNotEmpty() }
+    }
+
+    suspend fun setShareCardTheme(v: String) = context.dataStore.edit { it[K.shareCardTheme] = v }
+    suspend fun setShareCardName(v: String) = context.dataStore.edit { it[K.shareCardName] = v.trim().take(8) }
+    suspend fun setShareCardSlogan(v: String) = context.dataStore.edit { it[K.shareCardSlogan] = v.trim().take(30) }
+    suspend fun setShareCardAccent(v: String) = context.dataStore.edit { it[K.shareCardAccent] = v }
 
     /** 记录搜索词：去重置顶，最多保留 8 条。 */
     suspend fun addSearchHistory(term: String) {

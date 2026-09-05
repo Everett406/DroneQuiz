@@ -114,6 +114,8 @@ fun PracticeRunScreen(
     type: String = "all",
     cat: String = "all",
     resume: Boolean = false,
+    // v2.10.0 随机小练：>0 时只抽 limit 道新题（配合 src="random"，不恢复/不落盘快照）
+    limit: Int = 0,
     onExit: () -> Unit
 ) {
     val ui = LocalUi.current
@@ -194,7 +196,7 @@ fun PracticeRunScreen(
     }
 
     // ---- 加载：优先恢复会话快照，否则按筛选参数新开；超时兜底永不定死 ----
-    LaunchedEffect(src, type, cat, resume, reloadTick) {
+    LaunchedEffect(src, type, cat, resume, limit, reloadTick) {
         loading = true
         loadError = false
         // 关键：必须挂起读 DataStore 真值——collectAsState 首帧是 AppSettings() 默认值
@@ -205,7 +207,14 @@ fun PracticeRunScreen(
         sessionBank = bank
         val result = withTimeoutOrNull(10_000) {
             runCatching {
-                if (resume) {
+                if (src == "random" && limit > 0) {
+                    // v2.10.0 随机小练（快捷方式）：随机抽 N 道新题，
+                    // 不恢复/不补漏/不落盘快照（内存会话，退出即止，不污染顺序/随机双槽）
+                    sessionMode = false
+                    answers.clear(); details.clear()
+                    roundCovered = emptyList()
+                    ServiceLocator.repo.loadPractice(bank, null, null, random = true, limit = limit)
+                } else if (resume) {
                     val s = ServiceLocator.settings.currentPracticeSession(order)
                     if (s != null && s.ids.isNotEmpty() && s.bankId == bank && !sessionAtEnd(s)) {
                         sessionMode = true
@@ -663,6 +672,7 @@ private suspend fun loadCatchUpRound(
 /**
  * 会话快照落盘（挂 appScope，静默失败不影响 UI）。
  * - 错题特训（src="wrong"）不落盘：特训进度由 recordAnswer 记账，本就不接续；
+ * - 随机小练（src="random"）不落盘：碎片化一次性练习，不污染双槽（v2.10.0）；
  * - 会话绑定题库（bankId），切库后旧会话自然作废；
  * - details 保存完整 UserAnswer（填空文本 / 简答草稿与自评），恢复后原样还原；
  * - covered 保存本轮周期内已覆盖题目累计（v2.8.6 循环补漏）。
@@ -679,7 +689,7 @@ internal fun persistSession(
     index: Int,
     covered: List<Long> = emptyList()
 ) {
-    if (questions.isEmpty() || src == "wrong") return
+    if (questions.isEmpty() || src == "wrong" || src == "random") return
     ServiceLocator.appScope.launch {
         runCatching {
             ServiceLocator.settings.setPracticeSession(

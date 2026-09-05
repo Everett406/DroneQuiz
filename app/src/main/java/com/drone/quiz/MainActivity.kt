@@ -2,6 +2,7 @@ package com.drone.quiz
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -72,11 +73,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeNavIntent(intent)
+    }
+
+    private fun consumeNavIntent(intent: Intent?) {
+        val target = intent?.getStringExtra(LauncherBus.EXTRA_NAV) ?: return
+        LauncherBus.push(target)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashGuard.install(this)
         BootGuard.log(this, "activity", "MainActivity.onCreate")
         enableEdgeToEdge()
+        consumeNavIntent(intent)
         setContent {
             // v2.8.6 性能收敛：根组合只订阅它真正响应的字段（去重后）。
             // 完整 settings flow 对 DataStore 任意 key 写入都会重发——刷题会话快照
@@ -377,5 +390,26 @@ private fun CrashReportScreen(report: String, onClose: () -> Unit) {
             ) { Text("清除并继续") }
         }
         Spacer(Modifier.height(10.dp))
+    }
+}
+
+/**
+ * 快捷方式/小组件启动目标中继（v2.10.0）：
+ * MainActivity（singleTask）冷启动 onCreate / 热启动 onNewIntent 把 tuyu_nav extra 写进来，
+ * AppRoot 用 snapshotFlow 消费后导航。mutableStateOf 保证组合内可观察。
+ */
+object LauncherBus {
+    const val EXTRA_NAV = "tuyu_nav"
+    const val NAV_CONTINUE = "continue"
+    const val NAV_WRONG = "wrong"
+    const val NAV_RANDOM = "random"
+    const val NAV_QUICK_EXAM = "quickexam"
+
+    private val VALID = setOf(NAV_CONTINUE, NAV_WRONG, NAV_RANDOM, NAV_QUICK_EXAM)
+
+    var pending by androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    fun push(target: String) {
+        if (target in VALID) pending = target
     }
 }

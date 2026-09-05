@@ -17,13 +17,64 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- v2.10.0：长按图标快捷方式（继续刷题/错题特训/随机小练/快速模考） -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- v2.10.0：桌面小组件 ×4（RemoteViews 零新依赖） -->
+        <receiver
+            android:name="com.drone.quiz.util.ContinueWidgetProvider"
+            android:exported="false"
+            android:label="@string/short_continue">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_continue_info" />
+        </receiver>
+        <receiver
+            android:name="com.drone.quiz.util.StatsWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_label_stats">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_stats_info" />
+        </receiver>
+        <receiver
+            android:name="com.drone.quiz.util.WrongWidgetProvider"
+            android:exported="false"
+            android:label="@string/short_wrong">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_wrong_info" />
+        </receiver>
+        <receiver
+            android:name="com.drone.quiz.util.ExamWidgetProvider"
+            android:exported="false"
+            android:label="@string/short_exam">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_exam_info" />
+        </receiver>
 
         <!-- v2.8.2：CSV 模板系统分享（只读授权 cache/share/ 临时文件） -->
         <provider

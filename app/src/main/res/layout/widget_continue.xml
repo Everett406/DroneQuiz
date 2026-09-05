@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 继续刷题磁贴（2×2，极简杂志风）：大数字今日题量 + 连续打卡 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wcRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg_light">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <TextView
+            android:id="@+id/wcLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="继续刷题"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12"
+            android:textColor="#17171B" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp">
+
+            <TextView
+                android:id="@+id/wcNum"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="46sp"
+                android:textStyle="bold"
+                android:includeFontPadding="false"
+                android:textColor="#17171B" />
+
+            <TextView
+                android:id="@+id/wcUnit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="6dp"
+                android:paddingBottom="7dp"
+                android:gravity="bottom"
+                android:text=" 题 · 今日"
+                android:textSize="12sp"
+                android:textColor="#8A8A85" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/wcHair"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="#E9E9E4" />
+
+        <TextView
+            android:id="@+id/wcFoot"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="连续打卡 0 天"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:textColor="#8A8A85" />
+    </LinearLayout>
+</FrameLayout>

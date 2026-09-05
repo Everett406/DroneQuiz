@@ -42,4 +42,34 @@ object GalleryShare {
             )
             true
         }.getOrDefault(false)
+
+    /**
+     * 图片分享（v2.10.0 成绩分享卡）：bitmap 写 cache/share/ 后经 FileProvider
+     * 拉起系统分享面板（微信/朋友圈/文件传输助手等）。@return true = 已拉起
+     */
+    fun sharePngImage(
+        context: Context,
+        bitmap: android.graphics.Bitmap,
+        fileName: String,
+        title: String,
+        text: String
+    ): Boolean = runCatching {
+        val dir = File(context.cacheDir, "share").apply { mkdirs() }
+        val file = File(dir, fileName)
+        file.outputStream().use { out ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        }
+        val uri = FileProvider.getUriForFile(
+            context, "${context.packageName}.files", file
+        )
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, title)
+            putExtra(Intent.EXTRA_TEXT, text)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(send, title))
+        true
+    }.getOrDefault(false)
 }

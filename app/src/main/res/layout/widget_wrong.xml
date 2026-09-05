@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 错题特训卡（2×2，极简杂志风）：待攻克错题大数字 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wgRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg_light">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
+
+        <TextView
+            android:id="@+id/wgLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="错题特训"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.12"
+            android:textColor="#17171B" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="2dp">
+
+            <TextView
+                android:id="@+id/wgNum"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="46sp"
+                android:textStyle="bold"
+                android:includeFontPadding="false"
+                android:textColor="#D9453A" />
+
+            <TextView
+                android:id="@+id/wgUnit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingStart="6dp"
+                android:paddingBottom="7dp"
+                android:gravity="bottom"
+                android:text=" 道待攻克"
+                android:textSize="12sp"
+                android:textColor="#8A8A85" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/wgHair"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="#E9E9E4" />
+
+        <TextView
+            android:id="@+id/wgFoot"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="点击进入特训"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:textColor="#8A8A85" />
+    </LinearLayout>
+</FrameLayout>
